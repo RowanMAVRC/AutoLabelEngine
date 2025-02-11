@@ -1,0 +1,7 @@
+Move Image to top
+Add Next Prev Buttons under image
+Move Slider under Image
+Add ability to add/remove classes
+Make Radio default
+Make item_editor and item_selector default on (make positions on the right)
+Take out classification and segmentation modes
