@@ -24,7 +24,29 @@ DEFAULT_LINE_WIDTH = 1.0
 
 
 with mode[0]:
-    num_page = st.slider("page", 0, len(image_path_list) - 1, 1, key="slider_det")
+    # Ensure num_page is tracked in session state
+    if "num_page" not in st.session_state:
+        st.session_state.num_page = 1  # Default to page 1
+
+    # Display slider, syncing it with session state
+    num_page = st.slider("page", 0, len(image_path_list) - 1, st.session_state.num_page, key="slider_det")
+
+    # Navigation buttons
+    c1, c2 = st.columns([1, 1])
+
+    with c1:
+        if st.button("Previous", key="prev_btn"):
+            if st.session_state.num_page > 0:
+                st.session_state.num_page -= 1
+                st.rerun()
+
+    with c2:
+        if st.button("Next", key="next_btn"):
+            if st.session_state.num_page < len(image_path_list) - 1:
+                st.session_state.num_page += 1
+                st.rerun()
+
+
     target_image_path = image_path_list[num_page]
     
     st.text("Configure Component")
