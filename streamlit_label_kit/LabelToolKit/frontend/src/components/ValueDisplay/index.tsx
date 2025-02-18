@@ -1,1 +1,0 @@
-export {ValueDisplay} from './ValueDisplay'
