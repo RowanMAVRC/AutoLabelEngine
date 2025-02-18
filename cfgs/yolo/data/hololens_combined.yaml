@@ -1,0 +1,13 @@
+path: /data/TGSSE/HololensCombined/random_subset
+train: 'images'
+val: 'images' 
+test: 'images' 
+ 
+# class names
+names: 
+  0: "Airplane"
+  1: "Rotary Drone"
+  2: "Fixed Wing Drone"
+  3: "Fighter Jet"
+  4: "Birds"
+  5: "Helicopter"
