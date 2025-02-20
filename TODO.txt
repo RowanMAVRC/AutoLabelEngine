@@ -1,6 +1,26 @@
-
 Add ability to add/remove classes
 
 Add Dataset to train on drop down
-Add Autolabel button which saves all labels in a To Be Verified folder
+Add Autolabel button which saves all labels on a To Be Verified folder
 
+Requirements:
+    - Load data to train on
+        - From local
+        - From remote (be able to access lambda files)
+    - change train settings = data yaml ; model yaml ; train yaml
+    - check gpustat
+    - Train Button -> should run in tmux
+    - Display Train Progress
+    - load data to Autolabel
+    - set auto label settings = data yaml ; model weight ; save path 
+    - load data to verify
+    - Button to split data w/ labels and w/o 
+    - Button to combine datasets
+
+
+    tmux basic:
+    tmux list-sessions
+    tmux new -s name
+    ctrl+B D 
+    tmux attach -t name 
+    Ctrl+B " [ " 
