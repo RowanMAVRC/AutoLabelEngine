@@ -30,10 +30,11 @@ tabs = st.tabs(["Configure", "Detection"])
 
 # ----------------------- Configure Tab -----------------------
 with tabs[0]:
-    # Use the current page to get the target image (used in the API expander)
-    target_image_path = image_path_list[st.session_state.num_page]
-    
     st.header("Configure Component")
+    
+    # Initialize dynamic class list if not set
+    if "class_options" not in st.session_state:
+        st.session_state.class_options = label_list.copy()
     
     with st.expander("Image & Inputs"):
         c1, c2 = st.columns(2)
@@ -42,97 +43,113 @@ with tabs[0]:
         with c2:
             _width = st.number_input("image_width (px)", min_value=0, value=DEFAULT_HEIGHT, key="width_input")
         
-        _label_list = st.multiselect("Label List", options=label_list, default=label_list, key="label_list")
-        _bbox_show_label = st.toggle("bbox_show_label", True, key="bbox_show_label")
+        # Use dynamic class list for the multiselect
+        _label_list = st.multiselect("Label List", options=st.session_state.class_options,
+                                     default=st.session_state.class_options, key="label_list")
+        _bbox_show_label = st.toggle("Show Bounding Box Labels", True, key="bbox_show_label")
+        
+        # Provide controls to add new classes
+        new_class = st.text_input("Add a new class", key="new_class")
+        if st.button("Add Class"):
+            if new_class and new_class not in st.session_state.class_options:
+                st.session_state.class_options.append(new_class)
+                st.experimental_rerun()
+        
+        # Provide controls to remove classes
+        remove_classes = st.multiselect("Remove Classes", options=st.session_state.class_options, key="remove_classes")
+        if st.button("Remove Selected Classes"):
+            if remove_classes:
+                for rc in remove_classes:
+                    if rc in st.session_state.class_options:
+                        st.session_state.class_options.remove(rc)
+                st.experimental_rerun()
         
         c1, c2 = st.columns(2)
         with c1:
-            _info_dict_help = st.toggle("Info Dict", help='value = [{"Confidence": 0.1, "testScore": 0.98}, {"Confidence": 0.2}]', key="info_dict_help")
+            _info_dict_help = st.toggle("Info Dict", help='e.g., [{"Confidence": 0.1, "testScore": 0.98}, {"Confidence": 0.2}]', key="info_dict_help")
         with c2:
-            _meta_help = st.toggle("MetaData/Description", help='value = [["meta/description1", "meta1", "meta2"], ["meta/description2"]]', key="meta_help")
-        if _meta_help:
-            _meta = [["meta/description1", "meta1", "meta2"], ["meta/description2"]]
-        else:
-            _meta = []
-        
+            _meta_help = st.toggle("MetaData/Description", help='e.g., [["meta/description1", "meta1", "meta2"], ["meta/description2"]]', key="meta_help")
+        _meta = [["meta/description1", "meta1", "meta2"], ["meta/description2"]] if _meta_help else []
         if _info_dict_help:
             _info_dict = [{"Confidence": 0.1, "testScore": 0.98}, {"Confidence": 0.2}]
-            _bbox_show_info = st.toggle("bbox_show_info", True, key="bbox_show_info")
+            _bbox_show_info = st.toggle("Show Bounding Box Info", True, key="bbox_show_info")
         else:
             _info_dict = []
             _bbox_show_info = False
         
         c1, c2 = st.columns(2)
         with c1:
-            _bbox_format = st.selectbox("bbox_format", 
+            _bbox_format = st.selectbox("Bounding Box Format", 
                                         ["XYWH", "XYXY", "CXYWH", "REL_XYWH", "REL_XYXY", "REL_CXYWH"],
                                         key="bbox_format")
     
-    with st.expander("Ui Size"):
+    with st.expander("UI Size"):
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            _ui_size = st.selectbox("ui_size", ("small", "medium", "large"), key="ui_size")
+        with c1:
+            _ui_size = st.selectbox("UI Size", ("small", "medium", "large"), key="ui_size")
     
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            _ui_left_size = st.selectbox("ui_left_size", (None, "small", "medium", "large", "custom"), key="ui_left_size")
+        with c1:
+            _ui_left_size = st.selectbox("Left UI Size", (None, "small", "medium", "large", "custom"), key="ui_left_size")
         if _ui_left_size == "custom":
-            with c2: 
-                _ui_left_size = st.number_input("left_size (px)", min_value=0, value=198, key="left_size")
+            with c2:
+                _ui_left_size = st.number_input("Left Size (px)", min_value=0, value=198, key="left_size")
     
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            _ui_bottom_size = st.selectbox("ui_bottom_size", (None, "small", "medium", "large", "custom"), key="ui_bottom_size")
+        with c1:
+            _ui_bottom_size = st.selectbox("Bottom UI Size", (None, "small", "medium", "large", "custom"), key="ui_bottom_size")
         if _ui_bottom_size == "custom":
-            with c2: 
-                _ui_bottom_size = st.number_input("bottom_size (px)", min_value=0, value=198, key="bottom_size")
-            
-        c1, c2, c3 = st.columns(3)
-        with c1: 
-            _ui_right_size = st.selectbox("ui_right_size", (None, "small", "medium", "large", "custom"), key="ui_right_size")
-        if _ui_right_size == "custom":
-            with c2: 
-                _ui_right_size = st.number_input("right_size (px)", min_value=0, value=34, key="right_size")
-        
-    with st.expander("UI Setting & Position"):
-        c1, c2, c3 = st.columns(3)
-        with c1: 
-            _comp_alignment = st.selectbox("component_alignment", ("left", "center", "right"), key="comp_alignment")
-        
-        c1, c2, c3 = st.columns(3)
-        with c1: 
-            _ui_position = st.selectbox("ui_position", ("left", "right"), key="ui_position")
-        with c2: 
-            _line_width = st.number_input("line_width", min_value=0.5, value=DEFAULT_LINE_WIDTH, step=0.1, key="line_width")
-        with c3: 
-            _read_only = st.toggle("read_only", False, key="read_only")
-        
-        c1, c2, c3 = st.columns(3)
-        with c1: 
-            _class_select_type = st.radio("class_select_type", ("select", "radio"), key="class_select_type")
-        with c2: 
-            _class_select_position = st.selectbox("class_select_position", (None, "left", "right", "bottom"), key="class_select_position")
+            with c2:
+                _ui_bottom_size = st.number_input("Bottom Size (px)", min_value=0, value=198, key="bottom_size")
     
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            _item_editor = st.toggle("item_editor", False, key="item_editor")
+        with c1:
+            _ui_right_size = st.selectbox("Right UI Size", (None, "small", "medium", "large", "custom"), key="ui_right_size")
+        if _ui_right_size == "custom":
+            with c2:
+                _ui_right_size = st.number_input("Right Size (px)", min_value=0, value=34, key="right_size")
+    
+    with st.expander("UI Settings & Position"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            _comp_alignment = st.selectbox("Component Alignment", ("left", "center", "right"), key="comp_alignment")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            _ui_position = st.selectbox("UI Position", ("left", "right"), key="ui_position")
+        with c2:
+            _line_width = st.number_input("Line Width", min_value=0.5, value=DEFAULT_LINE_WIDTH, step=0.1, key="line_width")
+        with c3:
+            _read_only = st.toggle("Read-Only Mode", False, key="read_only")
+    
+        c1, c2, c3 = st.columns(3)
+        # Change order so that "radio" is default
+        with c1:
+            _class_select_type = st.radio("Class Select Type", ("radio", "select"), key="class_select_type")
+        with c2:
+            _class_select_position = st.selectbox("Class Select Position", (None, "left", "right", "bottom"), key="class_select_position")
+    
+        c1, c2, c3 = st.columns(3)
+        # Set default for item_editor to True and default position to "right"
+        with c1:
+            _item_editor = st.toggle("Enable Item Editor", True, key="item_editor")
         if _item_editor:
-            with c2: 
-                _item_editor_position = st.selectbox("item_editor_position", (None, "left", "right"), key="item_editor_position")
+            with c2:
+                _item_editor_position = st.selectbox("Item Editor Position", (None, "left", "right"), index=2, key="item_editor_position")
             with c3:
-                _edit_description = st.toggle("edit_description", key="edit_description")
-                _edit_meta = st.toggle("edit_meta", key="edit_meta")
+                _edit_description = st.toggle("Edit Description", key="edit_description")
+                _edit_meta = st.toggle("Edit Meta Data", key="edit_meta")
         else:
             _item_editor_position = None
             _edit_description = False
             _edit_meta = False
-            
+    
         c1, c2, c3 = st.columns(3)
-        with c1: 
-            _item_selector = st.toggle("item_selector", False, key="item_selector")
+        # Set default for item_selector to True and default position to "right"
+        with c1:
+            _item_selector = st.toggle("Enable Item Selector", True, key="item_selector")
         if _item_selector:
-            with c2: 
-                _item_selector_position = st.selectbox("item_selector_position", (None, "left", "right"), key="item_selector_position")
+            with c2:
+                _item_selector_position = st.selectbox("Item Selector Position", (None, "left", "right"), index=2, key="item_selector_position")
         else:
             _item_selector_position = None
     
