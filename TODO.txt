@@ -17,8 +17,8 @@ Requirements:
 
 
     tmux basic:
-    tmux list-sessions
-    tmux new -s name
-    ctrl+B D 
-    tmux attach -t name 
-    Ctrl+B " [ " 
+        tmux list-sessions
+        tmux new -s name
+        ctrl+B D 
+        tmux attach -t name 
+        Ctrl+B " [ " 
