@@ -1,7 +1,5 @@
 Add ability to add/remove classes
 
-Add Dataset to train on drop down
-Add Autolabel button which saves all labels on a To Be Verified folder
 
 Requirements:
     - Load data to train on
