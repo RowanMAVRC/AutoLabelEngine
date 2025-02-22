@@ -5,12 +5,18 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 
+#TODO - consider drawing all of this out, might be helpful to visualise all of it
+
 import streamlit as st
 from glob import glob
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
 def wide_space_default():
     st.set_page_config(layout="wide")
+
+# list all of the files in a given dir
+def list_files(directory, extension):
+        return [f for f in os.listdir(directory) if f.endswith(extension)]
 
 wide_space_default()
 
@@ -35,7 +41,63 @@ with tabs[0]:
     # Initialize dynamic class list if not set
     if "class_options" not in st.session_state:
         st.session_state.class_options = label_list.copy()
-    
+
+    with st.expander("Auto Label Settings"):
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            st.subheader("Save Path")
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"])
+            if save_path_option == "Default":
+                _save_path = st.selectbox("Select default save path:", ["path/to/default1", "path/to/default2"])
+            else:
+                _save_path = st.text_input("Enter custom save path:")
+        
+        with c2:
+            st.subheader("Model Weights")
+            weights_option = st.radio("Choose weights option:", ["Default", "Upload"])
+            if weights_option == "Default":
+                default_weights = list_files("path/to/default/weights", ".pt") # TODO - Ensure this actually works with a test path
+                _model_weights = st.selectbox("Select default weights:", default_weights)
+            else:
+                _model_weights = st.file_uploader("Upload model weights", type=["pt"])
+        
+        with c3: #TODO - do testing to ensure this section works
+            st.subheader("Data YAML")
+            yaml_option = st.radio("Choose YAML option:", ["Default", "Custom"])
+            if yaml_option == "Default":
+                default_yamls = list_files("path/to/default/yamls", ".yaml")
+                _data_yaml = st.selectbox("Select default YAML:", default_yamls)
+            else:
+                st.write("Define custom YAML settings:")
+                _yaml_path = st.text_input("Dataset path:", "/data/TGSSE/HololensCombined/random_subset")
+                _yaml_train = st.text_input("Train folder:", "images")
+                _yaml_val = st.text_input("Validation folder:", "images")
+                _yaml_test = st.text_input("Test folder:", "images")
+                
+                st.write("Define class names:")
+                num_classes = st.number_input("Number of classes:", min_value=1, value=6)
+                class_names = {}
+                for i in range(num_classes):
+                    class_name = st.text_input(f"Class {i}:", value=f"Class_{i}")
+                    class_names[i] = class_name
+                
+                _data_yaml = {
+                    "path": _yaml_path,
+                    "train": _yaml_train,
+                    "val": _yaml_val,
+                    "test": _yaml_test,
+                    "names": class_names
+                }
+
+        if yaml_option == "Custom":
+            st.write("Generated YAML:")
+            st.code(yaml.dump(_data_yaml, default_flow_style=False), language="yaml")
+
+        st.write("Selected save path:", _save_path)
+        st.write("Selected model weights:", _model_weights)
+        st.write("Selected/Generated data YAML:", _data_yaml)
+        
     with st.expander("Image & Inputs"):
         c1, c2 = st.columns(2)
         with c1:
