@@ -26,11 +26,11 @@ if "num_page" not in st.session_state:
     st.session_state.num_page = 1
 
 # Create two tabs: one for configuration, one for the detection component.
-tabs = st.tabs(["Configure", "Detection"])
+tabs = st.tabs(["Configure Manual Labeling Window", "Manual Labeling", "Finetune Model"])
 
 # ----------------------- Configure Tab -----------------------
 with tabs[0]:
-    st.header("Configure Component")
+    # st.header("Configure Manual Labeling Window")
     
     # Initialize dynamic class list if not set
     if "class_options" not in st.session_state:
@@ -268,7 +268,7 @@ with tabs[0]:
 
 # ----------------------- Detection Tab -----------------------
 with tabs[1]:
-    st.header("Detection Component")
+    # st.header("Manual Labeling")
     # Get the current image based on the page number
     target_image_path = image_path_list[st.session_state.num_page]
     
