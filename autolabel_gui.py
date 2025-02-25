@@ -7,6 +7,7 @@
 
 import streamlit as st
 import subprocess
+import os
 from glob import glob
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
@@ -27,7 +28,7 @@ if "num_page" not in st.session_state:
     st.session_state.num_page = 1
 
 # Create two tabs: one for configuration, one for the detection component.
-tabs = st.tabs(["Configure Manual Labeling Window", "Manual Labeling" , "GPU Status"])
+tabs = st.tabs(["Configure Manual Labeling Window", "Manual Labeling" , "GPU Status" , "Data Upload"])
 
 # ----------------------- Configure Tab -----------------------
 with tabs[0]:
@@ -341,3 +342,117 @@ with tabs[2]:  # Third tab
             st.text(output)  # Display the raw output
         except Exception as e:
             st.error(f"Failed to run gpustat: {e}")
+
+import os
+import streamlit as st
+
+# ----------------------- Data Upload Tab -----------------------
+with tabs[3]:  # Fourth tab
+    st.header("Upload or Select Data")
+
+    # 🚀 Manually Enter Directory Path
+    st.subheader("Enter or Select Upload Directory")
+
+    # Default starting path
+    if "current_dir" not in st.session_state:
+        st.session_state.current_dir = "/"
+
+    if "last_selected_dir" not in st.session_state:
+        st.session_state.last_selected_dir = None  # Track last selected directory
+
+    if "pending_dir" not in st.session_state:
+        st.session_state.pending_dir = st.session_state.current_dir  # Store directory selection before confirmation
+
+    def get_subdirectories(path):
+        """Returns a list of subdirectories in the given path."""
+        try:
+            if not os.path.exists(path):
+                return []
+            return sorted([f for f in os.listdir(path) if os.path.isdir(os.path.join(path, f))])
+        except (PermissionError, FileNotFoundError):
+            return []
+
+    # 1️⃣ **Manual Path Input**
+    selected_directory = st.text_input(
+        "Enter a directory path on Lambda02:", 
+        value=st.session_state.pending_dir
+    )
+
+    # Validate manual path input (updates pending selection, does not refresh)
+    if selected_directory != st.session_state.pending_dir:
+        if os.path.exists(selected_directory) and os.path.isdir(selected_directory):
+            st.session_state.pending_dir = selected_directory
+            st.success(f"📂 Directory selected (Click Refresh to apply): {selected_directory}")
+
+    # 2️⃣ **Dropdown Navigation**
+    st.subheader("Browse Directories")
+
+    # Get subdirectories for the **pending directory**
+    subdirs = get_subdirectories(st.session_state.pending_dir)
+
+    # Ensure ".. (Go Up)" option appears unless at root
+    if st.session_state.pending_dir != "/":
+        subdirs.insert(0, ".. (Go Up)")
+
+    # Dropdown for selecting directory (updates pending selection)
+    selected_option = st.selectbox(
+        "📁 Select a folder",
+        subdirs if subdirs else ["(No subdirectories)"],
+        key="directory_select"
+    )
+
+    # Store selected directory (but do not refresh)
+    if selected_option and selected_option != "(No subdirectories)":
+        if selected_option == ".. (Go Up)":
+            new_path = os.path.abspath(os.path.join(st.session_state.pending_dir, ".."))
+        else:
+            new_path = os.path.join(st.session_state.pending_dir, selected_option)
+
+        if new_path != st.session_state.pending_dir:
+            st.session_state.pending_dir = new_path
+            st.info(f"📂 Pending Directory: {new_path} (Click Refresh to apply)")
+
+    # 🚀 **Manual Refresh Button**
+    if st.button("Refresh Directory"):
+        if st.session_state.pending_dir != st.session_state.current_dir:
+            st.session_state.current_dir = st.session_state.pending_dir
+            st.rerun()  # Refresh UI only when button is pressed
+
+    # Show final selected directory
+    st.text(f"📂 Final Selected Directory: {st.session_state.current_dir}")
+
+    # 🚀 File Uploader with Custom Save Location
+    st.subheader("Upload a File")
+
+    uploaded_file = st.file_uploader("Choose a file to upload", type=["jpg", "png", "csv", "txt", "json"])
+
+    if uploaded_file is not None and os.path.exists(st.session_state.current_dir):
+        st.success(f"Uploaded: {uploaded_file.name}")
+        file_details = {
+            "Filename": uploaded_file.name,
+            "File Type": uploaded_file.type,
+            "Size (KB)": f"{uploaded_file.size / 1024:.2f} KB"
+        }
+        st.json(file_details)  # Display file details
+        
+        # Ensure the selected directory exists
+        os.makedirs(st.session_state.current_dir, exist_ok=True)
+
+        # Save file to the selected directory
+        save_path = os.path.join(st.session_state.current_dir, uploaded_file.name)
+        with open(save_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+        
+        st.success(f"✅ File saved to: {save_path}")
+
+    # 🚀 Option 2: Manually Enter File Path for Existing Files
+    st.subheader("Enter Local File Path")
+    file_path = st.text_input("Enter the path of an existing file on Lambda02:")
+
+    if file_path:
+        if os.path.exists(file_path):
+            file_size = os.path.getsize(file_path) / 1024
+            st.success(f"📄 File Found: {file_path}")
+            st.text(f"📏 Size: {file_size:.2f} KB")
+        else:
+            st.error("❌ File not found! Please check the path and try again.")
