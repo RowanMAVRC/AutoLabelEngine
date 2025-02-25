@@ -6,6 +6,8 @@
 #
 
 import streamlit as st
+import subprocess
+import os
 from glob import glob
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
@@ -15,7 +17,7 @@ def wide_space_default():
 wide_space_default()
 
 # Define constants and load images
-label_list = ["deer", "human", "dog", "penguin", "flamingo", "teddy bear"]
+label_list = ["deer", "GIANT ENEMY SPIDER", "dog", "penguin", "flamingo", "teddy bear"]
 image_path_list = glob("image/*.jpg")
 image_size = [700, 467]
 DEFAULT_HEIGHT = 512
@@ -26,8 +28,14 @@ if "num_page" not in st.session_state:
     st.session_state.num_page = 1
 
 # Create two tabs: one for configuration, one for the detection component.
-tabs = st.tabs(["Configure", "Detection"])
-
+tabs = st.tabs(["Configure", "Detection", "Training"])
+# Constants
+TMUX_SESSION = "autotraining"
+VIRTUAL_ENVS = {
+    "env1": "/path/to/env1",
+    "env2": "/path/to/env2",
+    # Add more environments as needed
+}
 # ----------------------- Configure Tab -----------------------
 with tabs[0]:
     st.header("Configure Component")
@@ -326,3 +334,49 @@ with tabs[1]:
     
     st.text("Component Returns")
     st.write(st.session_state.out)
+
+with tabs[2]:  # Training Tab
+    st.header("Auto-Training")
+
+    # Dropdown to select virtual environment
+    selected_env = st.selectbox("Select Virtual Environment", list(VIRTUAL_ENVS.keys()))
+
+    # Get the path of the selected virtual environment
+    env_path = VIRTUAL_ENVS[selected_env]
+
+    # Function to check if a tmux session exists
+    def tmux_session_exists(session_name):
+        result = subprocess.run(["tmux", "has-session", "-t", session_name], capture_output=True)
+        return result.returncode == 0
+
+    # Start training script in tmux
+    if st.button("Start Auto-Training"):
+        if not tmux_session_exists(TMUX_SESSION):
+            # Command to activate virtual environment if selected
+            activate_env = f"source {env_path}/bin/activate && " if env_path else ""
+            log_file = "/home/becker57/train_log.txt"  # Define log file path
+            command = f"tmux new-session -d -s {TMUX_SESSION} bash -c '{activate_env}python train_yolo.py > {log_file} 2>&1'"
+            os.system(command)
+            st.success(f"Auto-training started in tmux using {selected_env}!")
+        else:
+            st.warning("Training session already running.")
+
+    # Stop the tmux session
+    if st.button("Stop Auto-Training"):
+        if tmux_session_exists(TMUX_SESSION):
+            os.system(f"tmux kill-session -t {TMUX_SESSION}")
+            st.success("Training session stopped.")
+        else:
+            st.warning("No active training session found.")
+
+    # Show logs from tmux
+    if st.button("Show Logs"):
+        if tmux_session_exists(TMUX_SESSION):
+            logs = subprocess.run(["tmux", "capture-pane", "-t", TMUX_SESSION, "-p"], capture_output=True, text=True)
+            st.text_area("Training Logs", logs.stdout, height=300)
+        else:
+            st.warning("No logs available. Training session is not running.")
+
+    # Allow user to attach to tmux manually
+    st.markdown("To manually attach to the tmux session, run:")
+    st.code(f"tmux attach -t {TMUX_SESSION}", language="bash")
