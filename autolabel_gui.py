@@ -6,6 +6,7 @@
 #
 
 import streamlit as st
+import subprocess
 from glob import glob
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
@@ -26,7 +27,7 @@ if "num_page" not in st.session_state:
     st.session_state.num_page = 1
 
 # Create two tabs: one for configuration, one for the detection component.
-tabs = st.tabs(["Configure", "Detection"])
+tabs = st.tabs(["Configure", "Detection" , "GPU Status"])
 
 # ----------------------- Configure Tab -----------------------
 with tabs[0]:
@@ -326,3 +327,17 @@ with tabs[1]:
     
     st.text("Component Returns")
     st.write(st.session_state.out)
+
+# ----------------------- GPU Status Tab -----------------------
+with tabs[2]:  # Third tab (New)
+    st.header("GPU Status")
+
+    st.write("Click the button below to check the GPU status on Lambda 2.")
+    
+    if st.button("Check GPU Status"):
+        try:
+            # Run the gpustat command and capture output
+            output = subprocess.check_output(["gpustat"]).decode("utf-8")
+            st.text(output)  # Display the raw output
+        except Exception as e:
+            st.error(f"Failed to run gpustat: {e}")
