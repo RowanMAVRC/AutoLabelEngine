@@ -8,6 +8,8 @@
 #TODO - consider drawing all of this out, might be helpful to visualise all of it
 
 import streamlit as st
+import os
+import yaml
 from glob import glob
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
@@ -42,35 +44,39 @@ with tabs[0]:
     if "class_options" not in st.session_state:
         st.session_state.class_options = label_list.copy()
 
+    # Create an expander for the auto label settings (data, weights, and save_path)
     with st.expander("Auto Label Settings"):
         c1, c2, c3 = st.columns(3)
         
+        # The path the labeled images will go to (unverified - user will verify)
         with c1:
             st.subheader("Save Path")
             save_path_option = st.radio("Choose save path option:", ["Default", "Custom"])
             if save_path_option == "Default":
-                _save_path = st.selectbox("Select default save path:", ["path/to/default1", "path/to/default2"])
+                _save_path = st.selectbox("Select default save path:", ["/home/drokec87/AutoLabelEngine/runs", "/home/drokec87/AutoLabelEngine/runs2"])
             else:
                 _save_path = st.text_input("Enter custom save path:")
         
+        # The trained weights to use for auto-labeling
         with c2:
             st.subheader("Model Weights")
             weights_option = st.radio("Choose weights option:", ["Default", "Upload"])
             if weights_option == "Default":
-                default_weights = list_files("path/to/default/weights", ".pt") # TODO - Ensure this actually works with a test path
+                default_weights = list_files("/home/drokec87/AutoLabelEngine/", ".pt") # TODO - Ensure this actually works with a test path
                 _model_weights = st.selectbox("Select default weights:", default_weights)
             else:
                 _model_weights = st.file_uploader("Upload model weights", type=["pt"])
         
-        with c3: #TODO - do testing to ensure this section works
+        # The data configs to auto-label from (default option or define the file yourself)
+        with c3:
             st.subheader("Data YAML")
             yaml_option = st.radio("Choose YAML option:", ["Default", "Custom"])
             if yaml_option == "Default":
-                default_yamls = list_files("path/to/default/yamls", ".yaml")
+                default_yamls = list_files("/home/drokec87/AutoLabelEngine/cfgs/yolo/data", ".yaml")
                 _data_yaml = st.selectbox("Select default YAML:", default_yamls)
             else:
                 st.write("Define custom YAML settings:")
-                _yaml_path = st.text_input("Dataset path:", "/data/TGSSE/HololensCombined/random_subset")
+                _yaml_path = st.text_input("Dataset path:", "test")
                 _yaml_train = st.text_input("Train folder:", "images")
                 _yaml_val = st.text_input("Validation folder:", "images")
                 _yaml_test = st.text_input("Test folder:", "images")
