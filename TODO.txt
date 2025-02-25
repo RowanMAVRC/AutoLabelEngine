@@ -2,15 +2,12 @@ Add ability to add/remove classes
 
 
 Requirements:
-    - Load data to train on
-        - From local
-        - From remote (be able to access lambda files)
-    - change train settings = data yaml ; model yaml ; train yaml
-    - check gpustat
+    - Load data to from local to remote                            
+    - change train settings = data yaml ; model yaml ; train yaml       ===> Sean
+    - check gpustat                                                     ===> Kristian
     - Train Button -> should run in tmux
     - Display Train Progress
-    - load data to Autolabel
-    - set auto label settings = data yaml ; model weight ; save path 
+    - set auto label settings = data yaml ; model weight ; save path    ===> Craig
     - load data to verify
     - Button to split data w/ labels and w/o 
     - Button to combine datasets
