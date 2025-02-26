@@ -1,69 +1,99 @@
-#
-# Streamlit components for general labeling tasks
-#
-# Copyright (c) 2024 Carnegie Mellon University
-# SPDX-License-Identifier: GPL-2.0-only
-#
 
+import os
 import streamlit as st
 import subprocess
-from glob import glob
+import glob
+from PIL import Image
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
-def wide_space_default():
-    st.set_page_config(layout="wide")
+from utils import load_yaml
 
-wide_space_default()
+def update_frame():
+    
+    image_dir = st.session_state.image_dir
+    image_path = st.session_state.image_path_list[st.session_state.frame_index]
+    
+    image = Image.open(image_path)
+    image_width, image_height = image.size
 
-# Define constants and load images
-label_list = ["deer", "human", "dog", "penguin", "flamingo", "teddy bear"]
-image_path_list = glob("image/*.jpg")
-image_size = [700, 467]
-DEFAULT_HEIGHT = 512
-DEFAULT_LINE_WIDTH = 1.0
+    labels_dir = image_dir.replace("images", "labels")
+    label_path = image_path.replace("images", "labels").replace("jpg", "txt").replace("png", "txt")
 
-# Ensure we have a page index in session state
-if "num_page" not in st.session_state:
-    st.session_state.num_page = 1
+    # Ensure label path exists
+    if not os.path.exists(labels_dir):
+        os.makedirs(labels_dir)
 
-# Create two tabs: one for configuration, one for the detection component.
-tabs = st.tabs(["Configure Manual Labeling Window", "Manual Labeling" , "GPU Status"])
+    # Read the YOLO-format labels (rows of: class x y w h normalized).
+    bboxes_xyxy = []
+    classes = []
+    if os.path.exists(label_path):
+        with open(label_path, "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            parts = line.strip().split()
+            if len(parts) >= 5:
+                cls = int(parts[0])
+                x_center, y_center, w, h = map(float, parts[1:5])
+                x_center_abs = x_center * image_width
+                y_center_abs = y_center * image_height
+                w_abs = w * image_width
+                h_abs = h * image_height
+                bbox_xyxy = [x_center_abs - w_abs / 2, y_center_abs - h_abs / 2, w_abs, h_abs]
+                bboxes_xyxy.append(bbox_xyxy)
+                classes.append(cls)
+    else:
+        with open(label_path, "w") as f:
+            f.write("")
+
+    bbox_ids = ["bbox-" + str(i) for i in range(len(bboxes_xyxy))]
+
+    st.session_state.image_path = image_path
+    st.session_state.image = image
+    st.session_state.image_width = image_width
+    st.session_state.image_height = image_height
+    st.session_state.bboxes_xyxy = bboxes_xyxy
+    st.session_state.classes = classes
+    st.session_state.bbox_ids = bbox_ids
+
+
+def update_data_path(data_path):
+    data_cfg = load_yaml(data_path)
+    image_dir = os.path.join(data_cfg["path"], "images")
+    image_path_list = glob.glob(os.path.join(image_dir, "*.png")) + glob.glob(os.path.join(image_dir, "*.jpg"))
+    image_path_list.sort()
+    label_list=list(data_cfg["names"].values())
+
+    st.session_state.data_path = data_path
+    st.session_state.data_cfg = data_cfg
+    st.session_state.label_list = label_list
+    st.session_state.image_dir = image_dir
+    st.session_state.image_path_list = image_path_list
+    st.session_state.frame_index = 0
+
+
+
+# Initialize
+if "session_running" not in st.session_state:
+    print("Initializing session")
+    
+    # Set running status
+    st.session_state.session_running = True
+    
+    # Set Data
+    update_data_path("cfgs/yolo/data/hololens_combined.yaml")
+
+    # Set Tabs
+    st.session_state.tabs = st.tabs(["Configure Manual Labeling Window", "Manual Labeling", "GPU Status"])
+
+update_frame()
+print(st.session_state.frame_index)
 
 # ----------------------- Configure Tab -----------------------
-with tabs[0]:
-    # st.header("Configure Manual Labeling Window")
-    
-    # Initialize dynamic class list if not set
-    if "class_options" not in st.session_state:
-        st.session_state.class_options = label_list.copy()
+with st.session_state.tabs[0]:
     
     with st.expander("Image & Inputs"):
-        c1, c2 = st.columns(2)
-        with c1:
-            _height = st.number_input("image_height (px)", min_value=0, value=DEFAULT_HEIGHT, key="height_input")
-        with c2:
-            _width = st.number_input("image_width (px)", min_value=0, value=DEFAULT_HEIGHT, key="width_input")
         
-        # Use dynamic class list for the multiselect
-        _label_list = st.multiselect("Label List", options=st.session_state.class_options,
-                                     default=st.session_state.class_options, key="label_list")
         _bbox_show_label = st.toggle("Show Bounding Box Labels", True, key="bbox_show_label")
-        
-        # Provide controls to add new classes
-        new_class = st.text_input("Add a new class", key="new_class")
-        if st.button("Add Class"):
-            if new_class and new_class not in st.session_state.class_options:
-                st.session_state.class_options.append(new_class)
-                st.experimental_rerun()
-        
-        # Provide controls to remove classes
-        remove_classes = st.multiselect("Remove Classes", options=st.session_state.class_options, key="remove_classes")
-        if st.button("Remove Selected Classes"):
-            if remove_classes:
-                for rc in remove_classes:
-                    if rc in st.session_state.class_options:
-                        st.session_state.class_options.remove(rc)
-                st.experimental_rerun()
         
         c1, c2 = st.columns(2)
         with c1:
@@ -118,19 +148,17 @@ with tabs[0]:
         with c1:
             _ui_position = st.selectbox("UI Position", ("left", "right"), key="ui_position")
         with c2:
-            _line_width = st.number_input("Line Width", min_value=0.5, value=DEFAULT_LINE_WIDTH, step=0.1, key="line_width")
+            _line_width = st.number_input("Line Width", min_value=0.5, value=1.0, step=0.1, key="line_width")
         with c3:
             _read_only = st.toggle("Read-Only Mode", False, key="read_only")
     
         c1, c2, c3 = st.columns(3)
-        # Change order so that "radio" is default
         with c1:
             _class_select_type = st.radio("Class Select Type", ("radio", "select"), key="class_select_type")
         with c2:
             _class_select_position = st.selectbox("Class Select Position", (None, "left", "right", "bottom"), key="class_select_position")
     
         c1, c2, c3 = st.columns(3)
-        # Set default for item_editor to True and default position to "right"
         with c1:
             _item_editor = st.toggle("Enable Item Editor", True, key="item_editor")
         if _item_editor:
@@ -145,7 +173,6 @@ with tabs[0]:
             _edit_meta = False
     
         c1, c2, c3 = st.columns(3)
-        # Set default for item_selector to True and default position to "right"
         with c1:
             _item_selector = st.toggle("Enable Item Selector", True, key="item_selector")
         if _item_selector:
@@ -155,48 +182,36 @@ with tabs[0]:
             _item_selector_position = None
     
     with st.expander("API"):
-        # Prepare the bounding boxes
-        _bbox = [[0, 0, 200, 100], [10, 20, 100, 150]]
-        _bbox_id = ["bbox-" + str(i) for i in range(len(_bbox))]
+       
+        image_path_list = st.session_state.image_path_list
+        frame_index = st.session_state.frame_index
+
     
         original_format = _bbox_format.replace("REL_", "")
-        _bbox = [convert_bbox_format(bbox, "XYWH", original_format) for bbox in _bbox]
-        if "REL" in _bbox_format:
-            _bbox = [
-                absolute_to_relative(bbox, image_size[0], image_size[1])
-                for bbox in _bbox
-            ]
+        # _bbox_converted = [convert_bbox_format(bbox, "XYWH", original_format) for bbox in _bbox]
+        # if "REL" in _bbox_format:
+        #     _bbox_converted = [
+        #         absolute_to_relative(bbox, _width, _height)
+        #         for bbox in _bbox_converted
+        #     ]
             
-        # Build a result dictionary for each image
-        result_dict = {}
-        for img in image_path_list:
-            result_dict[img] = {
-                "bboxes": _bbox,
-                "labels": [0, 0],
-            }
-        st.session_state["result"] = result_dict.copy()
+        # result_dict = {}
+        # for img in batch_images:
+        #     result_dict[img] = {"bboxes": st.session_state.bboxes_xyxy, "labels": st.session_state.classes}
+        # st.session_state["result"] = result_dict.copy()
     
-        # Create the function call string
         function_args = [
             "\timage_path=image_path",
-            f"label_list={_label_list}",
-            f"bboxes=st.session_state['result'][target_image_path]['bboxes']",
+            f"label_list={st.session_state.label_list }",
+            f"bboxes=st.session_state.bboxes_xyxy",
         ]
     
-        if _bbox_id:
-            function_args.append(f"bbox_ids={_bbox_id}")
-        if _bbox_format != "XYWH":
-            function_args.append(f"bbox_format={_bbox_format}")
-        if _info_dict_help:
-            function_args.append(f"info_dict={_info_dict}")
-        if _meta_help:
-            function_args.append(f"meta_data={_meta}")
-        if _height != DEFAULT_HEIGHT:
-            function_args.append(f"image_height={_height}")
-        if _width != DEFAULT_HEIGHT:
-            function_args.append(f"image_width={_width}")
-        if _line_width != DEFAULT_LINE_WIDTH:
-            function_args.append(f"line_width={_line_width}")
+        
+        function_args.append(f"bbox_ids={st.session_state.bbox_ids}")
+        function_args.append(f"bbox_format='XYWH'")
+        function_args.append(f"meta_data=False")
+        function_args.append(f"image_height={st.session_state.image_height}")
+        function_args.append(f"image_width={st.session_state.image_width}")
         if _ui_position != "left":
             function_args.append(f"ui_position={repr(_ui_position)}")
         if _class_select_position:
@@ -232,61 +247,118 @@ with tabs[0]:
         if _comp_alignment != "left":
             function_args.append(f"component_alignment={repr(_comp_alignment)}")
     
-        function_args.append("key=None")
+        # Use a dynamic key based on the current page so that each image reloads its labels.
+        function_args.append(f"key='detection_component_{frame_index}'")
         final_function_call = "detection(\n" + ",\n\t".join(function_args) + "\n)"
     
         st.code(f"result = {final_function_call}", language="python")
     
-    # Save configuration settings into session_state for use in the Detection tab
-    st.session_state["config"] = {
-        "image_height": _height,
-        "image_width": _width,
-        "label_list": _label_list,
-        "bbox_show_label": _bbox_show_label,
-        "info_dict": _info_dict,
-        "meta_data": _meta,
-        "ui_size": _ui_size,
-        "ui_left_size": _ui_left_size,
-        "ui_bottom_size": _ui_bottom_size,
-        "ui_right_size": _ui_right_size,
-        "component_alignment": _comp_alignment,
-        "ui_position": _ui_position,
-        "line_width": _line_width,
-        "read_only": _read_only,
-        "class_select_type": _class_select_type,
-        "class_select_position": _class_select_position,
-        "item_editor": _item_editor,
-        "item_editor_position": _item_editor_position,
-        "edit_description": _edit_description,
-        "edit_meta": _edit_meta,
-        "item_selector": _item_selector,
-        "item_selector_position": _item_selector_position,
-        "bbox_format": _bbox_format,
-        "bbox": _bbox,
-        "bbox_ids": _bbox_id,
-        "bbox_show_info": _bbox_show_info,
-    }
+        st.session_state["config"] = {
+            "image_height": st.session_state.image_height,
+            "image_width": st.session_state.image_width,
+            "label_list": st.session_state.label_list ,
+            "bbox_show_label": _bbox_show_label,
+            "info_dict": _info_dict,
+            "meta_data": _meta,
+            "ui_size": _ui_size,
+            "ui_left_size": _ui_left_size,
+            "ui_bottom_size": _ui_bottom_size,
+            "ui_right_size": _ui_right_size,
+            "component_alignment": _comp_alignment,
+            "ui_position": _ui_position,
+            "line_width": _line_width,
+            "read_only": _read_only,
+            "class_select_type": _class_select_type,
+            "class_select_position": _class_select_position,
+            "item_editor": _item_editor,
+            "item_editor_position": _item_editor_position,
+            "edit_description": _edit_description,
+            "edit_meta": _edit_meta,
+            "item_selector": _item_selector,
+            "item_selector_position": _item_selector_position,
+            "bbox_format": _bbox_format,
+            "bbox": st.session_state.bboxes_xyxy,
+            "bbox_ids": st.session_state.bbox_ids,
+            "bbox_show_info": _bbox_show_info,
+        }
 
 # ----------------------- Detection Tab -----------------------
-with tabs[1]:
-    # st.header("Manual Labeling")
-    # Get the current image based on the page number
-    target_image_path = image_path_list[st.session_state.num_page]
+with st.session_state.tabs[1]:
+    frame_index = st.session_state.frame_index
+    # batch_start = st.session_state.batch_start
+    # if frame_index - batch_start < PAD or (batch_start + MAX_IMAGES - 1) - frame_index < PAD:
+    #     new_batch_start = frame_index - MAX_IMAGES // 2
+    #     new_batch_start = max(0, new_batch_start)
+    #     new_batch_start = min(new_batch_start, len(image_path_list) - MAX_IMAGES)
+    #     st.session_state.batch_start = new_batch_start
+    #     batch_start = new_batch_start
+
+    # batch_images = image_path_list[batch_start:batch_start+MAX_IMAGES]
+    # _bbox = st.session_state["config"].get("bbox", [[0, 0, 200, 100], [10, 20, 100, 150]])
+    # result_dict = {}
+    # for img in batch_images:
+    #     result_dict[img] = {"bboxes": _bbox, "labels": [0, 0]}
+    # st.session_state["result"] = result_dict.copy()
     
-    # Retrieve configuration settings (or use defaults if not set)
+    target_image_path = image_path_list[frame_index]
     config = st.session_state.get("config", {})
+
+    # Determine the labels directory (assumed to be a sibling of the "images" folder)
+    
+    image_dir = st.session_state.image_dir
+    labels_dir = os.path.join(os.path.dirname(image_dir), "labels")
+    if not os.path.exists(labels_dir):
+        os.makedirs(labels_dir)
+    
+    target_base = os.path.splitext(os.path.basename(target_image_path))[0]
+    label_file = os.path.join(labels_dir, target_base + ".txt")
+    
+    # Open the target image to determine its actual size.
+    target_img = Image.open(target_image_path)
+    img_w, img_h = target_img.size
+
+    # Read the YOLO-format labels (rows of: class x y w h normalized).
+    if os.path.exists(label_file):
+        with open(label_file, "r") as f:
+            lines = f.readlines()
+        bboxes_from_file = []
+        label_ids_from_file = []
+        for line in lines:
+            parts = line.strip().split()
+            if len(parts) >= 5:
+                cls = int(parts[0])
+                x_center, y_center, w, h = map(float, parts[1:5])
+                if config.get("bbox_format", "XYWH") == "XYWH":
+                    x_center_abs = x_center * img_w
+                    y_center_abs = y_center * img_h
+                    w_abs = w * img_w
+                    h_abs = h * img_h
+                    bbox = [x_center_abs - w_abs / 2, y_center_abs - h_abs / 2, w_abs, h_abs]
+                else:
+                    bbox = [x_center, y_center, w, h]
+                bboxes_from_file.append(bbox)
+                label_ids_from_file.append(cls)
+    else:
+        with open(label_file, "w") as f:
+            f.write("")
+        bboxes_from_file = []
+        label_ids_from_file = []
+
+    st.write("File Name:", os.path.basename(target_image_path))
+    st.write("Label File Path:", label_file)
     
     st.text("Component")
-    st.session_state.out = detection(
+    # Get the detection output and store it using a key that includes the current page.
+    detection_out = detection(
         image_path=target_image_path,
-        bboxes=st.session_state["result"][target_image_path]["bboxes"],
+        bboxes=bboxes_from_file,
         bbox_format=config.get("bbox_format", "XYWH"),
         bbox_ids=config.get("bbox_ids", None),
-        labels=st.session_state["result"][target_image_path]["labels"],
+        labels=label_ids_from_file,
         info_dict=config.get("info_dict", []),
         meta_data=config.get("meta_data", []),
-        label_list=config.get("label_list", label_list),
-        line_width=config.get("line_width", DEFAULT_LINE_WIDTH),
+        label_list=st.session_state.label_list,
+        line_width=config.get("line_width", 1.0),
         class_select_type=config.get("class_select_type", "select"),
         item_editor=config.get("item_editor", False),
         item_selector=config.get("item_selector", False),
@@ -296,8 +368,8 @@ with tabs[1]:
         class_select_position=config.get("class_select_position", None),
         item_editor_position=config.get("item_editor_position", None),
         item_selector_position=config.get("item_selector_position", None),
-        image_height=config.get("image_height", DEFAULT_HEIGHT),
-        image_width=config.get("image_width", DEFAULT_HEIGHT),
+        image_height=img_h,
+        image_width=img_w,
         ui_size=config.get("ui_size", "small"),
         ui_left_size=config.get("ui_left_size", None),
         ui_bottom_size=config.get("ui_bottom_size", None),
@@ -306,38 +378,80 @@ with tabs[1]:
         bbox_show_label=config.get("bbox_show_label", True),
         read_only=config.get("read_only", False),
         component_alignment=config.get("component_alignment", "left"),
-        key=None,
+        key=f"detection_component_{frame_index}",
     )
+    st.session_state[f"detection_component_{frame_index}_out"] = detection_out
+
+    # Function to save the current image's labels to its txt file.
+    def save_current_labels():
+        current_img_path = image_path_list[st.session_state.frame_index]
+        target_base = os.path.splitext(os.path.basename(current_img_path))[0]
+        labels_dir = os.path.join(os.path.dirname(image_dir), "labels")
+        if not os.path.exists(labels_dir):
+            os.makedirs(labels_dir)
+        label_file_path = os.path.join(labels_dir, target_base + ".txt")
+        current_img = Image.open(current_img_path)
+        curr_w, curr_h = current_img.size
+        out = st.session_state.get(f"detection_component_{st.session_state.frame_index}_out", None)
+        if out is not None:
+            new_bboxes = out.get("bboxes", [])
+            new_labels = out.get("labels", [])
+            # Always write the file if the lengths match, even if empty
+            if len(new_bboxes) == len(new_labels):
+                with open(label_file_path, "w") as f:
+                    for cls, bbox in zip(new_labels, new_bboxes):
+                        x, y, w, h = bbox
+                        x_center = (x + w / 2) / curr_w
+                        y_center = (y + h / 2) / curr_h
+                        w_norm = w / curr_w
+                        h_norm = h / curr_h
+                        f.write(f"{cls} {x_center} {y_center} {w_norm} {h_norm}\n")
     
-    # Image navigation slider (syncs with session state)
-    num_page = st.slider("page", 0, len(image_path_list) - 1, st.session_state.num_page, key="slider_det")
-    col_left, col_middle, col_right = st.columns([1, 12, 1])
+    # Navigation controls: Save labels before navigating away.
+    jump_page = st.number_input("Jump to Image", min_value=0, max_value=len(image_path_list)-1,
+                                value=st.session_state.frame_index, step=10, key="jump_page")
+    if jump_page != st.session_state.frame_index:
+        save_current_labels()
+        st.session_state.frame_index = jump_page
+        st.rerun()
     
-    with col_left:
+    col_prev, col_slider, col_next = st.columns([1, 10, 2])
+    with col_prev:
         if st.button("Previous", key="prev_btn"):
-            if st.session_state.num_page > 0:
-                st.session_state.num_page -= 1
+            if st.session_state.frame_index > 0:
+                save_current_labels()
+                st.session_state.frame_index -= 1
                 st.rerun()
-    
-    with col_right:
+    with col_slider:
+        slider_page = st.slider("Page", 0, len(image_path_list) - 1,
+                                st.session_state.frame_index, key="slider_det")
+        if slider_page != st.session_state.frame_index:
+            save_current_labels()
+            st.session_state.frame_index = slider_page
+            st.rerun()
+    with col_next:
         if st.button("Next", key="next_btn"):
-            if st.session_state.num_page < len(image_path_list) - 1:
-                st.session_state.num_page += 1
+            if st.session_state.frame_index < len(image_path_list) - 1:
+                save_current_labels()
+                st.session_state.frame_index += 1
                 st.rerun()
-    
-    st.text("Component Returns")
-    st.write(st.session_state.out)
+
+    # Re-read and display the current label file's content at the bottom.
+    if os.path.exists(label_file):
+        with open(label_file, "r") as f:
+            label_file_content = f.read()
+    else:
+        label_file_content = ""
+    st.markdown("**Current Label File Content:**")
+    st.code(label_file_content, language="text")
 
 # ----------------------- GPU Status Tab -----------------------
-with tabs[2]:  # Third tab
-    st.header("GPU Status")
-
+with st.session_state.tabs[2]:
     st.write("Click the button below to check the GPU status on Lambda 2.")
     
     if st.button("Check GPU Status"):
         try:
-            # Run the gpustat command and capture output
             output = subprocess.check_output(["gpustat"]).decode("utf-8")
-            st.text(output)  # Display the raw output
+            st.text(output)
         except Exception as e:
             st.error(f"Failed to run gpustat: {e}")
