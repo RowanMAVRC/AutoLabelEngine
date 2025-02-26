@@ -1,4 +1,4 @@
-path: /data/TGSSE/HololensCombined/random_subset
+path: /data/TGSSE/HololensCombined/
 train: 'images'
 val: 'images' 
 test: 'images' 
