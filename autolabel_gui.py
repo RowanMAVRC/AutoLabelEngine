@@ -6,6 +6,35 @@ import glob
 from PIL import Image
 from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
 
+def update_labels():
+    current_bboxes = []
+    current_labels = []
+    for bbox in st.session_state.out['bbox']:
+        current_bboxes.append(bbox['bboxes'])
+        current_labels.append(bbox['labels'])
+
+    label_path = st.session_state.label_path
+    image_width = st.session_state.image_width
+    image_height = st.session_state.image_height
+    labels = st.session_state.labels
+    bboxes_xyxy = st.session_state.bboxes_xyxy
+
+    if current_bboxes != bboxes_xyxy or current_labels != labels:
+        # Write normalized YOLO-format labels to file
+        with open(label_path, "w") as f:
+            for label, bbox in zip(current_labels, current_bboxes):
+
+                x_min, y_min, width, height = bbox
+                # Convert the absolute coordinates back to normalized YOLO format:
+                # Calculate center coordinates normalized by image dimensions.
+                x_center_norm = (x_min + width / 2) / image_width
+                y_center_norm = (y_min + height / 2) / image_height
+                # Normalize width and height.
+                width_norm = width / image_width
+                height_norm = height / image_height
+                # Write the line in YOLO format: class x_center y_center width height
+                f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+
 def update_frame():
     
     image_dir = st.session_state.image_dir
@@ -23,7 +52,7 @@ def update_frame():
 
     # Read the YOLO-format labels (rows of: class x y w h normalized).
     bboxes_xyxy = []
-    classes = []
+    labels = []
     if os.path.exists(label_path):
         with open(label_path, "r") as f:
             lines = f.readlines()
@@ -38,7 +67,7 @@ def update_frame():
                 h_abs = h * image_height
                 bbox_xyxy = [x_center_abs - w_abs / 2, y_center_abs - h_abs / 2, w_abs, h_abs]
                 bboxes_xyxy.append(bbox_xyxy)
-                classes.append(cls)
+                labels.append(cls)
     else:
         with open(label_path, "w") as f:
             f.write("")
@@ -47,10 +76,12 @@ def update_frame():
 
     st.session_state.image_path = image_path
     st.session_state.image = image
+    st.session_state.labels_dir = labels_dir
+    st.session_state.label_path = label_path
     st.session_state.image_width = image_width
     st.session_state.image_height = image_height
     st.session_state.bboxes_xyxy = bboxes_xyxy
-    st.session_state.classes = classes
+    st.session_state.labels = labels
     st.session_state.bbox_ids = bbox_ids
 
     st.session_state["detection_config"] = {
@@ -59,7 +90,7 @@ def update_frame():
         "image_width": st.session_state.image_width,
         "label_list": st.session_state.label_list,
         "bboxes": st.session_state.bboxes_xyxy,
-        "labels": st.session_state.classes,
+        "labels": st.session_state.labels,
         "bbox_show_label": True,
         "info_dict": [],
         "meta_data": [],
@@ -128,6 +159,10 @@ with tabs[1]:
         **st.session_state.detection_config
     )
 
+    # Check for label changes
+    if st.session_state.out["key"] != 0:
+        update_labels()
+
     # Navigation controls: Save labels before navigating away.
     frame_index = st.number_input(
         "Jump to Image", min_value=0, max_value=len(image_path_list)-1,
@@ -157,6 +192,8 @@ with tabs[1]:
             if st.session_state.frame_index < len(image_path_list) - 1:
                 st.session_state.frame_index += 1
                 st.rerun()
+
+    
     
 
 # ----------------------- GPU Status Tab -----------------------
@@ -172,3 +209,4 @@ with tabs[2]:  # Third tab
             st.text(output)  # Display the raw output
         except Exception as e:
             st.error(f"Failed to run gpustat: {e}")
+
