@@ -1,11 +1,10 @@
-Add ability to add/remove classes
+
 
 
 Requirements:
-    - Load data to from local to remote                            
-    - change train settings = data yaml ; model yaml ; train yaml       ===> Sean
-    - check gpustat                                                     ===> Kristian
-    - Train Button -> should run in tmux
+    - Load data to from local to remote                                 ===> Kristian   
+    - change train settings = data yaml ; model yaml ; train yaml       
+    - Train Button -> should run in tmux                                ==> Sean
     - Display Train Progress
     - set auto label settings = data yaml ; model weight ; save path    ===> Craig
     - load data to verify
