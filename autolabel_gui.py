@@ -5,8 +5,6 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 
-#TODO - consider drawing all of this out, might be helpful to visualise all of it
-
 import streamlit as st
 import os
 import yaml
@@ -34,7 +32,7 @@ if "num_page" not in st.session_state:
     st.session_state.num_page = 1
 
 # Create two tabs: one for configuration, one for the detection component.
-tabs = st.tabs(["Configure", "Detection"])
+tabs = st.tabs(["Configure", "Auto Label", "Detection"])
 
 # ----------------------- Configure Tab -----------------------
 with tabs[0]:
@@ -43,66 +41,6 @@ with tabs[0]:
     # Initialize dynamic class list if not set
     if "class_options" not in st.session_state:
         st.session_state.class_options = label_list.copy()
-
-    # Create an expander for the auto label settings (data, weights, and save_path)
-    with st.expander("Auto Label Settings"):
-        c1, c2, c3 = st.columns(3)
-        
-        # The path the labeled images will go to (unverified - user will verify)
-        with c1:
-            st.subheader("Save Path")
-            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"])
-            if save_path_option == "Default":
-                _save_path = st.selectbox("Select default save path:", ["/home/drokec87/AutoLabelEngine/runs", "/home/drokec87/AutoLabelEngine/runs2"])
-            else:
-                _save_path = st.text_input("Enter custom save path:")
-        
-        # The trained weights to use for auto-labeling
-        with c2:
-            st.subheader("Model Weights")
-            weights_option = st.radio("Choose weights option:", ["Default", "Upload"])
-            if weights_option == "Default":
-                default_weights = list_files("/home/drokec87/AutoLabelEngine/", ".pt") # TODO - Ensure this actually works with a test path
-                _model_weights = st.selectbox("Select default weights:", default_weights)
-            else:
-                _model_weights = st.file_uploader("Upload model weights", type=["pt"])
-        
-        # The data configs to auto-label from (default option or define the file yourself)
-        with c3:
-            st.subheader("Data YAML")
-            yaml_option = st.radio("Choose YAML option:", ["Default", "Custom"])
-            if yaml_option == "Default":
-                default_yamls = list_files("/home/drokec87/AutoLabelEngine/cfgs/yolo/data", ".yaml")
-                _data_yaml = st.selectbox("Select default YAML:", default_yamls)
-            else:
-                st.write("Define custom YAML settings:")
-                _yaml_path = st.text_input("Dataset path:", "test")
-                _yaml_train = st.text_input("Train folder:", "images")
-                _yaml_val = st.text_input("Validation folder:", "images")
-                _yaml_test = st.text_input("Test folder:", "images")
-                
-                st.write("Define class names:")
-                num_classes = st.number_input("Number of classes:", min_value=1, value=6)
-                class_names = {}
-                for i in range(num_classes):
-                    class_name = st.text_input(f"Class {i}:", value=f"Class_{i}")
-                    class_names[i] = class_name
-                
-                _data_yaml = {
-                    "path": _yaml_path,
-                    "train": _yaml_train,
-                    "val": _yaml_val,
-                    "test": _yaml_test,
-                    "names": class_names
-                }
-
-        if yaml_option == "Custom":
-            st.write("Generated YAML:")
-            st.code(yaml.dump(_data_yaml, default_flow_style=False), language="yaml")
-
-        st.write("Selected save path:", _save_path)
-        st.write("Selected model weights:", _model_weights)
-        st.write("Selected/Generated data YAML:", _data_yaml)
         
     with st.expander("Image & Inputs"):
         c1, c2 = st.columns(2)
@@ -334,8 +272,102 @@ with tabs[0]:
         "bbox_show_info": _bbox_show_info,
     }
 
-# ----------------------- Detection Tab -----------------------
+# ----------------------- Auto Label Tab -----------------------
+# TODO - cd into /data/TGSSE and create an ALE dir. Then create the cfgs/data dirs for a default yaml (can just choose the hololense one)
 with tabs[1]:
+    st.header("Auto Label Settings")
+
+    # Create an expander for the auto label settings (data, weights, and save_path)
+    with st.expander("Auto Label Settings"):
+        c1, c2, c3 = st.columns(3)
+        
+        # The path the labeled images will go to (unverified - user will verify)
+        with c1:
+            st.subheader("Save Path")
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"])
+            if save_path_option == "Default":
+                _save_path = st.selectbox("Select default save path:", ["/data/TGSSE/ALE/unverified", "/data/TGSSE/ALE/testing"])
+            else:
+                _save_path = st.text_input("Enter custom save path:")
+        
+        # The trained weights to use for auto-labeling
+        with c2:
+            st.subheader("Model Weights")
+            weights_option = st.radio("Choose weights option:", ["Default", "Upload"])
+            if weights_option == "Default":
+                default_weights = list_files("/data/TGSSE/weights", ".pt")
+                _model_weights = st.selectbox("Select default weights:", default_weights)
+            else:
+                _model_weights = st.file_uploader("Upload model weights", type=["pt"])
+        
+        # The data configs to auto-label from (default option or define the file yourself)
+        with c3:
+            st.subheader("Data YAML")
+            yaml_option = st.radio("Choose YAML option:", ["Default", "Custom"])
+            if yaml_option == "Default":
+                default_yamls = list_files("/data/TGSSE/ALE/cfgs/data", ".yaml")
+                _data_yaml = st.selectbox("Select default YAML:", default_yamls)
+            else:
+                st.write("Define custom YAML settings:")
+                _yaml_path = st.text_input("Dataset path:", "/data/TGSSE/HololensCombined/random_subset")
+                _yaml_train = st.text_input("Train folder:", "images")
+                _yaml_val = st.text_input("Validation folder:", "images")
+                _yaml_test = st.text_input("Test folder:", "images")
+                
+                st.write("Define class names:")
+                num_classes = st.number_input("Number of classes:", min_value=1, value=6)
+                class_names = {}
+                for i in range(num_classes):
+                    class_name = st.text_input(f"Class {i}:", value=f"Class_{i}")
+                    class_names[i] = class_name
+                
+                _data_yaml = {
+                    "path": _yaml_path,
+                    "train": _yaml_train,
+                    "val": _yaml_val,
+                    "test": _yaml_test,
+                    "names": class_names
+                }
+
+        if yaml_option == "Custom":
+            st.write("Generated YAML:")
+            st.code(yaml.dump(_data_yaml, default_flow_style=False), language="yaml")
+
+        st.write("Selected save path:", _save_path)
+        st.write("Selected model weights:", _model_weights)
+
+        if yaml_option == "Default":
+            st.write("Selected/Generated data YAML:", _data_yaml)
+
+        # Add a button to save the upload and create data YAML
+        if st.button("Save Upload and Create Data YAML"):
+            try:
+                # Check if the save_path exists, if not, create it
+                if not os.path.exists(_save_path):
+                    os.makedirs(_save_path)
+                    st.info(f"Created directory: {_save_path}")
+
+                # Save the upload to the save_path
+                if weights_option == "Upload" and _model_weights is not None:
+                    upload_path = os.path.join(_save_path, _model_weights.name)
+                    with open(upload_path, "wb") as f:
+                        f.write(_model_weights.getbuffer())
+                    st.success(f"Upload saved to: {upload_path}")
+
+                # Create and save the data YAML
+                if yaml_option == "Custom":
+                    yaml_filename = "data_config.yaml"
+                    yaml_path = os.path.join(_save_path, yaml_filename)
+                    with open(yaml_path, "w") as f:
+                        yaml.dump(_data_yaml, f, default_flow_style=False)
+                    st.success(f"Data YAML saved to: {yaml_path}")
+
+                st.success("Upload saved and Data YAML created successfully!")
+            except Exception as e:
+                st.error(f"An error occurred: {str(e)}")
+
+# ----------------------- Detection Tab -----------------------
+with tabs[2]:
     st.header("Detection Component")
     # Get the current image based on the page number
     target_image_path = image_path_list[st.session_state.num_page]
