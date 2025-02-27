@@ -4,7 +4,129 @@ import streamlit as st
 import subprocess
 import glob
 from PIL import Image
-from streamlit_label_kit import detection, absolute_to_relative, convert_bbox_format
+from streamlit_label_kit import detection
+
+
+def path_navigator(key):
+    """
+    A file/directory navigator with:
+      1) A ".." button to move up a directory (calls st.rerun()).
+      2) A selectbox (with on_change) to select directories/files.
+      3) Special handling when there's only one item in a directory:
+         - We add a placeholder option, so the user can still 'change' to the single item.
+      4) No auto-selection for single entries.
+    """
+
+    # ----------------------------------------------------------------------
+    # 1) Get the current path from session_state or default to "/"
+    # ----------------------------------------------------------------------
+    current_path = st.session_state.paths.get(key, "/")
+    current_path = os.path.normpath(current_path)
+
+    # If the current path is a file, list that file's parent
+    if os.path.isfile(current_path):
+        directory_to_list = os.path.dirname(current_path)
+    else:
+        directory_to_list = current_path
+
+    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
+
+    # ----------------------------------------------------------------------
+    # 2) Layout with two columns: button on the left, selectbox on the right
+    # ----------------------------------------------------------------------
+    col1, col2 = st.columns([1, 25], gap="small")
+
+    # ----------------------------------------------------------------------
+    # 3) The "Go Up" button
+    # ----------------------------------------------------------------------
+    with col1:
+        # Just pushes the button down slightly
+        st.write("")  
+        
+        go_up_button_key = f"go_up_button_{key}"
+        if st.button("..", key=go_up_button_key):
+            # If we're in a directory, go up one level
+            # If it's a file, go up from the file's parent
+            if os.path.isdir(current_path):
+                parent = os.path.dirname(current_path)
+            else:
+                parent = os.path.dirname(os.path.dirname(current_path))
+
+            parent = os.path.normpath(parent)
+            # Update session state
+            st.session_state.paths[key] = parent
+            # Force rerun so the UI updates immediately
+            st.rerun()
+
+    # ----------------------------------------------------------------------
+    # 4) Try listing the directory contents
+    # ----------------------------------------------------------------------
+    try:
+        entries = os.listdir(directory_to_list)
+    except Exception as e:
+        st.error(f"Error reading directory: {e}")
+        return current_path
+
+    # Build a mapping from label -> full path
+    options_list = []
+    options_mapping = {}
+
+    for entry in entries:
+        full_path = os.path.join(directory_to_list, entry)
+        full_path = os.path.normpath(full_path)
+        label = f"[D] {entry}" if os.path.isdir(full_path) else f"[F] {entry}"
+        options_list.append(label)
+        options_mapping[label] = full_path
+
+    # ----------------------------------------------------------------------
+    # 5) If there's more than one item, highlight the "current_path" by default
+    # ----------------------------------------------------------------------
+    default_index = 0
+    if len(options_list) > 1:
+        # Find which item matches current_path
+        for i, (lbl, path_val) in enumerate(options_mapping.items()):
+            if os.path.normpath(path_val) == current_path:
+                default_index = i
+                break
+    else:
+        # If there's exactly one item, do NOT highlight it by default
+        # We'll insert a placeholder at the top. The user must actively select.
+        if len(options_list) == 1:
+            options_list = ["-- Select an item --"] + options_list
+            # Map the placeholder to None
+            options_mapping = {"-- Select an item --": None, **options_mapping}
+            default_index = 0
+
+    # ----------------------------------------------------------------------
+    # 6) Define the callback for the selectbox
+    # ----------------------------------------------------------------------
+    widget_key = f"navigator_select_{key}"
+
+    def on_selectbox_change():
+        new_label = st.session_state[widget_key]
+        if new_label is None:
+            # The user picked the placeholder (do nothing)
+            return
+        new_path = options_mapping[new_label]
+        if new_path:
+            st.session_state.paths[key] = new_path
+
+    # ----------------------------------------------------------------------
+    # 7) Render the selectbox in the right column
+    # ----------------------------------------------------------------------
+    with col2:
+        st.selectbox(
+            "Select a subdirectory or file:",
+            options_list,
+            index=default_index,
+            key=widget_key,
+            on_change=on_selectbox_change
+        )
+
+    # ----------------------------------------------------------------------
+    # 8) Return the final path stored in session_state
+    # ----------------------------------------------------------------------
+    return st.session_state.paths[key]
 
 def list_files(directory, extension):
         return [f for f in os.listdir(directory) if f.endswith(extension)]
@@ -38,7 +160,7 @@ def update_labels():
                 # Write the line in YOLO format: class x_center y_center width height
                 f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
 
-def update_frame():
+def update_unverified_frame():
     
     image_dir = st.session_state.image_dir
     image_path = st.session_state.image_path_list[st.session_state.frame_index]
@@ -118,8 +240,12 @@ def update_frame():
         "key": None
     }
 
-def update_data_path():
-    with open(st.session_state.data_path, 'r') as file:
+def update_unverified_data_path():
+    data_yaml_path = os.path.join(
+        st.session_state.paths["unverified_data_yaml_path"]
+    )
+
+    with open(data_yaml_path, 'r') as file:
         data_cfg = yaml.safe_load(file)
 
     image_dir = os.path.join(data_cfg["path"], "images")
@@ -138,25 +264,44 @@ if "session_running" not in st.session_state:
 
     st.set_page_config(layout="wide")
 
-    st.session_state.data_path = "cfgs/yolo/data/hololens_combined.yaml"
+    st.session_state.paths = {
+        "unverified_data_yaml_path" : "/data/TGSSE/ALE/cfgs/yolo/data/default.yaml",
 
-    update_data_path()
-update_frame()
+        "split_data_path" : "/data/TGSSE/HololensCombined/random_subset_50/images/",
 
+        "auto_label_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/labels/",
+        "auto_label_model_weight_path" : "/data/TGSSE/weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
+        "auto_label_data_path" :  "/data/TGSSE/HololensCombined/random_subset_50/images/",
+     
+
+        "combine_dataset_1_path": "/data/TGSSE/ALE/",
+        "combine_dataset_2_path": "/data/TGSSE/ALE/",
+        "combine_dataset_save_path": "/data/TGSSE/ALE/",
+
+        "train_data_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/data/default.yaml",
+        "train_model_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/model/default.yaml",
+        "train_train_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/train/default.yaml"
+
+    }
+
+    update_unverified_data_path()
+    update_unverified_frame()
+    
 # Define constants and load images
 label_list = st.session_state.label_list
 image_path_list = st.session_state.image_path_list
 image_size = [st.session_state.image_width, st.session_state.image_height]
 DEFAULT_HEIGHT = st.session_state.image_height
-DEFAULT_LINE_WIDTH = 1.0
 tabs = st.tabs(["Auto Label", "Manual Labeling" , "GPU Status"])
 
 # ----------------------- Auto Label Tab -----------------------
-# TODO - cd into /data/TGSSE and create an ALE dir. Then create the cfgs/yolo/data dirs for a default yaml (can just choose the hololense one)
 with tabs[0]:
 
+    with st.expander("Manual Label Settings"):
+        path_navigator("unverified_data_yaml_path")
+
     # Create an expander for the auto label settings (data, weights, and save_path)
-    with st.expander("Settings"):
+    with st.expander("Auto Label Settings"):
         c1, c2, c3 = st.columns(3)
         
         # The path the labeled images will go to (unverified - user will verify)
@@ -246,6 +391,7 @@ with tabs[0]:
 
 # ----------------------- Detection Tab -----------------------
 with tabs[1]:
+
     # Generate Screen
     st.session_state.out = detection(
         **st.session_state.detection_config
@@ -285,6 +431,7 @@ with tabs[1]:
                 st.session_state.frame_index += 1
                 st.rerun()
 
+    update_unverified_frame()
 # ----------------------- GPU Status Tab -----------------------
 with tabs[2]:  # Third tab
     st.header("GPU Status")
