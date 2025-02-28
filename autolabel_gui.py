@@ -5,10 +5,115 @@ import subprocess
 import glob
 from PIL import Image
 from streamlit_label_kit import detection
+from streamlit_ace import st_ace
+from pathlib import Path
 
+def check_gpu_status(button_key):
+    if st.button("Check GPU Status", key=button_key):
+        try:
+            # Run the gpustat command and capture its output
+            output = subprocess.check_output(["gpustat"]).decode("utf-8")
+            st.text(output)  # Display the raw output
+        except Exception as e:
+            st.error(f"Failed to run gpustat: {e}")
 
-import os
-import streamlit as st
+def yaml_editor(yaml_key):
+    """
+    Display a YAML file in two columns: one for editing (with auto-save) and one for the currently saved YAML.
+    Uses st.session_state.paths[yaml_key] as the YAML file path and st.session_state.yamls as a dict to store last saved content.
+    
+    Also allows copying the YAML to a new file by entering a new save path. The text input auto-fills with the current
+    file path modified to include "_copy" before the extension.
+    
+    Args:
+        yaml_key (str): Unique key to index this YAML file in st.session_state.paths and st.session_state.yamls.
+    """
+    # Retrieve the file path from session state
+    if "paths" not in st.session_state or yaml_key not in st.session_state.paths:
+        st.error(f"Path for key '{yaml_key}' not found in st.session_state.paths")
+        return
+    file_path = st.session_state.paths[yaml_key]
+
+    # Check if the file exists
+    if not os.path.exists(file_path):
+        st.error(f"File not found: {file_path}")
+        return
+
+    # Read the YAML file content
+    try:
+        with open(file_path, 'r') as file:
+            file_content = file.read()
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        return
+
+    # Initialize the session state dictionary for YAML contents if not already present
+    if "yamls" not in st.session_state:
+        st.session_state.yamls = {}
+
+    # Initialize the last saved content for this YAML file if not set
+    if yaml_key not in st.session_state.yamls:
+        st.session_state.yamls[yaml_key] = file_content
+
+    ace_key = f"edited_content_{yaml_key}"
+    
+    # with col1:
+    st.markdown("Edit YAML content")
+
+    lines = file_content.splitlines()
+    line_count = len(lines) if len(lines) > 0 else 1
+    calculated_height = max(300, line_count * 19)
+
+    edited_content = st_ace(
+        value=file_content,
+        language="yaml",
+        theme="",
+        height=calculated_height,
+        font_size=17, 
+        key=ace_key
+    )
+
+    # Auto-save if the edited content has changed compared to the last saved version
+    if edited_content != st.session_state.yamls[yaml_key]:
+        try:
+            # Validate the YAML content
+            parsed_yaml = yaml.safe_load(edited_content)
+        except yaml.YAMLError as e:
+            st.error(f"Invalid YAML format: {e}")
+        else:
+            try:
+                # Save the validated YAML back to the file
+                with open(file_path, 'w') as file:
+                    yaml.dump(parsed_yaml, file, default_flow_style=False, sort_keys=False)
+                # Update the stored content for this YAML file
+                st.session_state.yamls[yaml_key] = edited_content
+                update_unverified_data_path()
+                st.rerun()  # Re-run to update the displayed current YAML content
+            except Exception as e:
+                st.error(f"Error saving file: {e}")
+  
+    # Compute default copy path by inserting "_copy" before the extension.
+    base, ext = os.path.splitext(file_path)
+    default_copy_path = base + "_copy" + ext
+    new_save_path = st.text_input("Enter new file path", key=f"copy_path_{yaml_key}", value=default_copy_path)
+    if st.button("Copy YAML to new file", key=f"copy_button_{yaml_key}"):
+        if new_save_path:
+            st.session_state.paths[yaml_key] = new_save_path
+            try:
+                # Validate the YAML content again
+                parsed_yaml = yaml.safe_load(edited_content)
+            except yaml.YAMLError as e:
+                st.error(f"Invalid YAML format, cannot copy: {e}")
+            else:
+                try:
+                    with open(new_save_path, 'w') as new_file:
+                        yaml.dump(parsed_yaml, new_file, default_flow_style=False, sort_keys=False)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error copying file: {e}")
+        else:
+            st.error("Please enter a valid new file path")
+
 
 def path_navigator(key, button_and_selectbox_display_size=[1, 25]):
     """
@@ -25,7 +130,7 @@ def path_navigator(key, button_and_selectbox_display_size=[1, 25]):
     current_path = os.path.normpath(current_path)
 
     # Allow user to choose "Default" navigation or "Enter Path as Text" path
-    save_path_option = st.radio("Choose save path option:", ["File Explorer", "Enter Path as Text"], key=f"{key}_radio")
+    save_path_option = st.radio("Choose save path option:", ["File Explorer", "Enter Path as Text"], key=f"{key}_radio", label_visibility="collapsed")
 
     if save_path_option == "Enter Path as Text":
         # -- CUSTOM PATH MODE --
@@ -36,6 +141,8 @@ def path_navigator(key, button_and_selectbox_display_size=[1, 25]):
             key=f"{key}_custom_path_input",
             label_visibility="collapsed"
         )
+
+        st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
 
         if custom_path:
             custom_path = os.path.normpath(custom_path)
@@ -180,7 +287,6 @@ def path_navigator(key, button_and_selectbox_display_size=[1, 25]):
             new_path = options_mapping[selected_label]
             if new_path is not None:
                 st.session_state.paths[key] = new_path
-                # Removed st.rerun() here because callbacks already trigger a re-run
 
         with col2:
             st.selectbox(
@@ -309,14 +415,16 @@ def update_unverified_frame():
     }
 
 def update_unverified_data_path():
-    data_yaml_path = os.path.join(
-        st.session_state.paths["unverified_data_yaml_path"]
-    )
 
+    data_yaml_path = st.session_state.paths["unverified_data_yaml_path"]
+
+    if Path(data_yaml_path).suffix.lower() in ['.yaml', '.yml']:
+        pass
+    
     with open(data_yaml_path, 'r') as file:
         data_cfg = yaml.safe_load(file)
 
-    image_dir = os.path.join(data_cfg["path"], "images")
+    image_dir = data_cfg["path"]
     image_path_list = glob.glob(os.path.join(image_dir, "*.png")) + glob.glob(os.path.join(image_dir, "*.jpg"))
     image_path_list.sort()
     label_list=list(data_cfg["names"].values())
@@ -333,15 +441,15 @@ if "session_running" not in st.session_state:
     st.set_page_config(layout="wide")
 
     st.session_state.paths = {
-        "unverified_data_yaml_path" : "/data/TGSSE/ALE/cfgs/yolo/data/default.yaml",
+        "unverified_data_yaml_path" : "/data/TGSSE/ALE/cfgs/verify/default.yaml",
 
-        "split_data_path" : "/data/TGSSE/HololensCombined/random_subset_50/images/",
+        "split_data_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
+        "split_data_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
 
         "auto_label_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/labels/",
         "auto_label_model_weight_path" : "/data/TGSSE/weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
         "auto_label_data_path" :  "/data/TGSSE/HololensCombined/random_subset_50/images/",
      
-
         "combine_dataset_1_path": "/data/TGSSE/ALE/",
         "combine_dataset_2_path": "/data/TGSSE/ALE/",
         "combine_dataset_save_path": "/data/TGSSE/ALE/",
@@ -353,106 +461,190 @@ if "session_running" not in st.session_state:
     }
 
     update_unverified_data_path()
-    update_unverified_frame()
     
-# Define constants and load images
-label_list = st.session_state.label_list
-image_path_list = st.session_state.image_path_list
-image_size = [st.session_state.image_width, st.session_state.image_height]
-DEFAULT_HEIGHT = st.session_state.image_height
-tabs = st.tabs(["Auto Label", "Manual Labeling" , "GPU Status"])
+# Define tabs
+tabs = st.tabs(["Auto Label", "Generate Datasets", "Manual Labeling", "Finetune Model"])
 
 # ----------------------- Auto Label Tab -----------------------
 with tabs[0]:
-
-    with st.expander("Manual Label Settings"):
-        path_navigator(
-            "unverified_data_yaml_path", 
-            button_and_selectbox_display_size=[1,25]
-        )
 
     # Create an expander for the auto label settings (data, weights, and save_path)
     with st.expander("Auto Label Settings"):
         c1, c2, c3 = st.columns(3)
         
-        # The path the labeled images will go to (unverified - user will verify)
         with c1:
+            st.subheader("Model Weights Path")
+            path_navigator(
+                "auto_label_model_weight_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+        
+        with c2:
+            st.subheader("Images Path")
+            path_navigator(
+                "auto_label_data_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+            
+        with c3:
+
             st.subheader("Save Path")
             path_navigator(
                 "auto_label_save_path", 
                 button_and_selectbox_display_size=[4,30]
             )
+
+    with st.expander("Check GPU Status") :
+        check_gpu_status("auto_label_check_gpu_status_button")
+
+    # TODO
+    # with st.expander("Auto Label"):
+        # Auto Label Button
+        # Function for inference
+
+# ----------------------- Generate Data Tab -----------------------
+with tabs[1]:  
+    with st.expander("Split Dataset Settings"):
+        c1, c2 = st.columns(2)
         
-        # The trained weights to use for auto-labeling
-        with c2:
-            st.subheader("Model Weights")
+        with c1:
+            st.subheader("Dataset To Be Split")
             path_navigator(
-                "auto_label_model_weight_path", 
+                "split_data_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+        
+        with c2:
+            st.subheader("Save Path")
+
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
+            key = "split_data_save_path"
+            if save_path_option == "Default":
+                st.session_state.paths[key] = st.session_state.paths["split_data_path"]
+                st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+
+            else:
+                path_navigator(
+                    key,
+                    button_and_selectbox_display_size=[4,30]
+                )
+                
+    with st.expander("Combine Datasets Settings"):
+        c1, c2, c3 = st.columns(3)
+        
+        with c1:
+            st.subheader("Dataset 1")
+            path_navigator(
+                "combine_dataset_1_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+        
+        with c2:
+            st.subheader("Dataset 2")
+            path_navigator(
+                "combine_dataset_2_path", 
                 button_and_selectbox_display_size=[4,30]
             )
             
-        
-        # The data configs to auto-label from (default option or define the file yourself)
         with c3:
-            st.subheader("Data YAML")
+
+            st.subheader("Save Path")
             path_navigator(
-                "auto_label_data_path", 
+                "combine_dataset_save_path", 
                 button_and_selectbox_display_size=[4,30]
             )
-# ----------------------- Detection Tab -----------------------
-with tabs[1]:
+                
+# ----------------------- Manual Label Tab -----------------------
+with tabs[2]:
+
+    with st.expander("Manual Label Settings"):
+        key = "unverified_data_yaml_path"
+        path_navigator(
+            key, 
+            button_and_selectbox_display_size=[1,25]
+        )
+
+        yaml_editor(key)
 
     # Generate Screen
-    st.session_state.out = detection(
-        **st.session_state.detection_config
-    )
+    if len(st.session_state.image_path_list) > 0:
+        update_unverified_frame()
 
-    # Check for label changes
-    if st.session_state.out["key"] != 0:
-        update_labels()
-
-    # Navigation controls: Save labels before navigating away.
-    frame_index = st.number_input(
-        "Jump to Image", min_value=0, max_value=len(image_path_list)-1,
-        value=st.session_state.frame_index, step=10, key="jump_page"
-    )
-    if st.session_state.frame_index != frame_index:
-        st.session_state.frame_index = frame_index
-        st.rerun()
-    
-    # Frame Index Prev/Slider/Next
-    col_prev, col_slider, col_next = st.columns([1, 10, 2])
-    with col_prev:
-        if st.button("Prev", key="prev_btn"):
-            if st.session_state.frame_index > 0:
-                st.session_state.frame_index -= 1
-                st.rerun()
-    with col_slider:
-        frame_index = st.slider(
-            "Frame Index", 0, len(st.session_state.image_path_list) - 1,
-            st.session_state.frame_index, key="slider_det"
+        st.session_state.out = detection(
+            **st.session_state.detection_config
         )
-        if frame_index != st.session_state.frame_index:
+
+        # Check for label changes
+        if st.session_state.out["key"] != 0:
+            update_labels()
+
+        # Navigation controls: Save labels before navigating away.
+        frame_index = st.number_input(
+            "Jump to Image", min_value=0, max_value=len(st.session_state.image_path_list)-1,
+            value=st.session_state.frame_index, step=10, key="jump_page"
+        )
+        if st.session_state.frame_index != frame_index:
             st.session_state.frame_index = frame_index
             st.rerun()
-    with col_next:
-        if st.button("Next", key="next_btn"):
-            if st.session_state.frame_index < len(image_path_list) - 1:
-                st.session_state.frame_index += 1
+        
+        # Frame Index Prev/Slider/Next
+        col_prev, col_slider, col_next = st.columns([1, 10, 2])
+        with col_prev:
+            if st.button("Prev", key="prev_btn"):
+                if st.session_state.frame_index > 0:
+                    st.session_state.frame_index -= 1
+                    st.rerun()
+        with col_slider:
+            frame_index = st.slider(
+                "Frame Index", 0, len(st.session_state.image_path_list) - 1,
+                st.session_state.frame_index, key="slider_det"
+            )
+            if frame_index != st.session_state.frame_index:
+                st.session_state.frame_index = frame_index
                 st.rerun()
+        with col_next:
+            if st.button("Next", key="next_btn"):
+                if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
+                    st.session_state.frame_index += 1
+                    st.rerun()
 
-    update_unverified_frame()
-# ----------------------- GPU Status Tab -----------------------
-with tabs[2]:  # Third tab
-    st.header("GPU Status")
+        update_unverified_frame()
 
-    st.write("Click the button below to check the GPU status on Lambda 2.")
+    else:
+        st.warning("Data Path is empty...")
+# ----------------------- Train Status Tab -----------------------
+with tabs[3]: 
+
+    with st.expander("Data YAML"):
+        key = "train_data_yaml_path"
+        path_navigator(
+            key, 
+            # button_and_selectbox_display_size=[4,30]
+        )
+        yaml_editor(key)
     
-    if st.button("Check GPU Status"):
-        try:
-            # Run the gpustat command and capture output
-            output = subprocess.check_output(["gpustat"]).decode("utf-8")
-            st.text(output)  # Display the raw output
-        except Exception as e:
-            st.error(f"Failed to run gpustat: {e}")
+    with st.expander("Model YAML"):
+        key = "train_model_yaml_path"
+        path_navigator(
+            key, 
+            # button_and_selectbox_display_size=[4,30]
+        )
+        yaml_editor(key)
+        
+    with st.expander("Train YAML Path"):
+        key = "train_train_yaml_path"
+        path_navigator(
+            key, 
+            # button_and_selectbox_display_size=[4,30]
+        )
+        yaml_editor(key)
+ 
+
+    with st.expander("Check GPU Status") :
+        check_gpu_status("train_check_gpu_status_button")
+
+    # TODO
+    # with st.expander("Auto Label"):
+        # Auto Label Button
+        # Function for inference
 
