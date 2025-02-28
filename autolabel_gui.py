@@ -7,126 +7,194 @@ from PIL import Image
 from streamlit_label_kit import detection
 
 
-def path_navigator(key):
+import os
+import streamlit as st
+
+def path_navigator(key, button_and_selectbox_display_size=[1, 25]):
     """
-    A file/directory navigator with:
-      1) A ".." button to move up a directory (calls st.rerun()).
-      2) A selectbox (with on_change) to select directories/files.
-      3) Special handling when there's only one item in a directory:
-         - We add a placeholder option, so the user can still 'change' to the single item.
-      4) No auto-selection for single entries.
+    A file/directory navigator that can operate in two modes:
+    1) Default: Navigate through directories with a selectbox and a ".." button.
+    2) Custom: Manually enter a path in a text input field.
+
+    If a chosen path doesn't exist, you'll be prompted to either create it
+    or go up directories until you find one that exists.
     """
 
-    # ----------------------------------------------------------------------
-    # 1) Get the current path from session_state or default to "/"
-    # ----------------------------------------------------------------------
+    # Retrieve or set initial path in session state
     current_path = st.session_state.paths.get(key, "/")
     current_path = os.path.normpath(current_path)
 
-    # If the current path is a file, list that file's parent
-    if os.path.isfile(current_path):
-        directory_to_list = os.path.dirname(current_path)
-    else:
-        directory_to_list = current_path
+    # Allow user to choose "Default" navigation or "Enter Path as Text" path
+    save_path_option = st.radio("Choose save path option:", ["File Explorer", "Enter Path as Text"], key=f"{key}_radio")
 
-    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
-
-    # ----------------------------------------------------------------------
-    # 2) Layout with two columns: button on the left, selectbox on the right
-    # ----------------------------------------------------------------------
-    col1, col2 = st.columns([1, 25], gap="small")
-
-    # ----------------------------------------------------------------------
-    # 3) The "Go Up" button
-    # ----------------------------------------------------------------------
-    with col1:
-        # Just pushes the button down slightly
-        st.write("")  
-        
-        go_up_button_key = f"go_up_button_{key}"
-        if st.button("..", key=go_up_button_key):
-            # If we're in a directory, go up one level
-            # If it's a file, go up from the file's parent
-            if os.path.isdir(current_path):
-                parent = os.path.dirname(current_path)
-            else:
-                parent = os.path.dirname(os.path.dirname(current_path))
-
-            parent = os.path.normpath(parent)
-            # Update session state
-            st.session_state.paths[key] = parent
-            # Force rerun so the UI updates immediately
-            st.rerun()
-
-    # ----------------------------------------------------------------------
-    # 4) Try listing the directory contents
-    # ----------------------------------------------------------------------
-    try:
-        entries = os.listdir(directory_to_list)
-    except Exception as e:
-        st.error(f"Error reading directory: {e}")
-        return current_path
-
-    # Build a mapping from label -> full path
-    options_list = []
-    options_mapping = {}
-
-    for entry in entries:
-        full_path = os.path.join(directory_to_list, entry)
-        full_path = os.path.normpath(full_path)
-        label = f"[D] {entry}" if os.path.isdir(full_path) else f"[F] {entry}"
-        options_list.append(label)
-        options_mapping[label] = full_path
-
-    # ----------------------------------------------------------------------
-    # 5) If there's more than one item, highlight the "current_path" by default
-    # ----------------------------------------------------------------------
-    default_index = 0
-    if len(options_list) > 1:
-        # Find which item matches current_path
-        for i, (lbl, path_val) in enumerate(options_mapping.items()):
-            if os.path.normpath(path_val) == current_path:
-                default_index = i
-                break
-    else:
-        # If there's exactly one item, do NOT highlight it by default
-        # We'll insert a placeholder at the top. The user must actively select.
-        if len(options_list) == 1:
-            options_list = ["-- Select an item --"] + options_list
-            # Map the placeholder to None
-            options_mapping = {"-- Select an item --": None, **options_mapping}
-            default_index = 0
-
-    # ----------------------------------------------------------------------
-    # 6) Define the callback for the selectbox
-    # ----------------------------------------------------------------------
-    widget_key = f"navigator_select_{key}"
-
-    def on_selectbox_change():
-        new_label = st.session_state[widget_key]
-        if new_label is None:
-            # The user picked the placeholder (do nothing)
-            return
-        new_path = options_mapping[new_label]
-        if new_path:
-            st.session_state.paths[key] = new_path
-
-    # ----------------------------------------------------------------------
-    # 7) Render the selectbox in the right column
-    # ----------------------------------------------------------------------
-    with col2:
-        st.selectbox(
-            "Select a subdirectory or file:",
-            options_list,
-            index=default_index,
-            key=widget_key,
-            on_change=on_selectbox_change
+    if save_path_option == "Enter Path as Text":
+        # -- CUSTOM PATH MODE --
+        # Now default to the current path in the text input
+        custom_path = st.text_input(
+            "Enter custom save path:",
+            value=current_path,  # <--- Prefills with current path
+            key=f"{key}_custom_path_input",
+            label_visibility="collapsed"
         )
 
-    # ----------------------------------------------------------------------
-    # 8) Return the final path stored in session_state
-    # ----------------------------------------------------------------------
-    return st.session_state.paths[key]
+        if custom_path:
+            custom_path = os.path.normpath(custom_path)
+            if not os.path.exists(custom_path):
+                # Path doesn't exist; ask user how to proceed
+                st.warning(f"Path '{custom_path}' does not exist. Choose an option below:")
+                create_col, up_col = st.columns(2)
+
+                with create_col:
+                    if st.button("Create this path", key=f"{key}_create_custom"):
+                        # Prompt user for a final directory or filename to create
+                        new_name = st.text_input(
+                            "Optionally enter a different name for the new path:",
+                            value=custom_path,
+                            key=f"{key}_new_path_name"
+                        )
+                        if new_name:
+                            try:
+                                os.makedirs(new_name, exist_ok=True)
+                                st.session_state.paths[key] = new_name
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to create directory: {e}")
+                                return custom_path
+
+                with up_col:
+                    if st.button("Go up until path exists", key=f"{key}_go_up_custom"):
+                        temp_path = custom_path
+                        while not os.path.exists(temp_path) and temp_path not in ("/", ""):
+                            temp_path = os.path.dirname(temp_path)
+
+                        if not os.path.exists(temp_path):
+                            st.error("No valid parent directory found.")
+                            return custom_path
+                        else:
+                            st.session_state.paths[key] = temp_path
+                            st.rerun()
+
+                return custom_path
+            else:
+                # Path exists, store in session and proceed
+                st.session_state.paths[key] = custom_path
+                return custom_path
+        else:
+            # If user hasn't typed a path yet, just return whatever was stored
+            return st.session_state.paths.get(key, "/")
+
+    else:
+        # -- DEFAULT NAVIGATION MODE --
+
+        if os.path.isfile(current_path):
+            directory_to_list = os.path.dirname(current_path)
+        else:
+            directory_to_list = current_path
+
+        col1, col2 = st.columns(button_and_selectbox_display_size, gap="small")
+
+        # ".." Button to go up
+        with col1:
+            go_up_button_key = f"go_up_button_{key}"
+            if st.button("..", key=go_up_button_key):
+                if os.path.isdir(current_path):
+                    parent = os.path.dirname(current_path)
+                else:
+                    parent = os.path.dirname(os.path.dirname(current_path))
+                parent = os.path.normpath(parent)
+                st.session_state.paths[key] = parent
+                st.rerun()
+
+        # Attempt to list directory
+        if not os.path.exists(directory_to_list):
+            st.warning(f"Path '{directory_to_list}' does not exist. Choose an option below:")
+            create_col, up_col = st.columns(2)
+
+            with create_col:
+                if st.button("Create this path", key=f"{key}_create_default"):
+                    # Ask for a final directory name to create
+                    new_name = st.text_input(
+                        "Optionally enter a different name for the new path:",
+                        value=directory_to_list,
+                        key=f"{key}_new_default_path_name"
+                    )
+                    if new_name:
+                        try:
+                            os.makedirs(new_name, exist_ok=True)
+                            st.session_state.paths[key] = new_name
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to create directory: {e}")
+                            return current_path
+
+            with up_col:
+                if st.button("Go up until path exists", key=f"{key}_go_up_default"):
+                    temp_path = directory_to_list
+                    while not os.path.exists(temp_path) and temp_path not in ("/", ""):
+                        temp_path = os.path.dirname(temp_path)
+
+                    if not os.path.exists(temp_path):
+                        st.error("No valid parent directory found.")
+                        return current_path
+                    else:
+                        st.session_state.paths[key] = temp_path
+                        st.rerun()
+
+            return current_path
+
+        try:
+            entries = os.listdir(directory_to_list)
+        except Exception as e:
+            st.error(f"Error reading directory: {e}")
+            return current_path
+
+        # Build the selectbox options
+        options_list = []
+        options_mapping = {}
+        indent = "└"
+        top_label = directory_to_list
+        options_list.append(top_label)
+        options_mapping[top_label] = None
+
+        for entry in entries:
+            full_path = os.path.join(directory_to_list, entry)
+            full_path = os.path.normpath(full_path)
+            label = f"{indent} {entry}"
+            options_list.append(label)
+            options_mapping[label] = full_path
+
+        # Determine which item to highlight
+        default_index = 0
+        for i, lbl in enumerate(options_list):
+            if lbl == top_label:
+                continue
+            mapped_path = options_mapping[lbl]
+            if mapped_path and os.path.normpath(mapped_path) == os.path.normpath(current_path):
+                default_index = i
+                break
+
+        widget_key = f"navigator_select_{key}"
+
+        def on_selectbox_change():
+            selected_label = st.session_state[widget_key]
+            new_path = options_mapping[selected_label]
+            if new_path is not None:
+                st.session_state.paths[key] = new_path
+                # Removed st.rerun() here because callbacks already trigger a re-run
+
+        with col2:
+            st.selectbox(
+                "Select a subdirectory or file:",
+                options_list,
+                index=default_index,
+                key=widget_key,
+                on_change=on_selectbox_change,
+                label_visibility="collapsed"
+            )
+
+        st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
+
+        return current_path
 
 def list_files(directory, extension):
         return [f for f in os.listdir(directory) if f.endswith(extension)]
@@ -298,7 +366,10 @@ tabs = st.tabs(["Auto Label", "Manual Labeling" , "GPU Status"])
 with tabs[0]:
 
     with st.expander("Manual Label Settings"):
-        path_navigator("unverified_data_yaml_path")
+        path_navigator(
+            "unverified_data_yaml_path", 
+            button_and_selectbox_display_size=[1,25]
+        )
 
     # Create an expander for the auto label settings (data, weights, and save_path)
     with st.expander("Auto Label Settings"):
@@ -307,88 +378,27 @@ with tabs[0]:
         # The path the labeled images will go to (unverified - user will verify)
         with c1:
             st.subheader("Save Path")
-            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"])
-            if save_path_option == "Default":
-                _save_path = st.selectbox("Select default save path:", ["/data/TGSSE/ALE/unverified", "/data/TGSSE/ALE/testing"])
-            else:
-                _save_path = st.text_input("Enter custom save path:")
+            path_navigator(
+                "auto_label_save_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
         
         # The trained weights to use for auto-labeling
         with c2:
             st.subheader("Model Weights")
-            weights_option = st.radio("Choose weights option:", ["Default", "Upload"])
-            if weights_option == "Default":
-                default_weights = list_files("/data/TGSSE/weights", ".pt")
-                _model_weights = st.selectbox("Select default weights:", default_weights)
-            else:
-                _model_weights = st.file_uploader("Upload model weights", type=["pt"])
+            path_navigator(
+                "auto_label_model_weight_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+            
         
         # The data configs to auto-label from (default option or define the file yourself)
         with c3:
             st.subheader("Data YAML")
-            yaml_option = st.radio("Choose YAML option:", ["Default", "Custom"])
-            if yaml_option == "Default":
-                default_yamls = list_files("/data/TGSSE/ALE/cfgs/yolo/data", ".yaml")
-                _data_yaml = st.selectbox("Select default YAML:", default_yamls)
-            else:
-                st.write("Define custom YAML settings:")
-                _yaml_path = st.text_input("Dataset path:", "/data/TGSSE/HololensCombined/random_subset")
-                _yaml_train = st.text_input("Train folder:", "images")
-                _yaml_val = st.text_input("Validation folder:", "images")
-                _yaml_test = st.text_input("Test folder:", "images")
-                
-                st.write("Define class names:")
-                num_classes = st.number_input("Number of classes:", min_value=1, value=6)
-                class_names = {}
-                for i in range(num_classes):
-                    class_name = st.text_input(f"Class {i}:", value=f"Class_{i}")
-                    class_names[i] = class_name
-                
-                _data_yaml = {
-                    "path": _yaml_path,
-                    "train": _yaml_train,
-                    "val": _yaml_val,
-                    "test": _yaml_test,
-                    "names": class_names
-                }
-
-        if yaml_option == "Custom":
-            st.write("Generated YAML:")
-            st.code(yaml.dump(_data_yaml, default_flow_style=False), language="yaml")
-
-        st.write("Selected save path:", _save_path)
-        st.write("Selected model weights:", _model_weights)
-
-        if yaml_option == "Default":
-            st.write("Selected/Generated data YAML:", _data_yaml)
-
-        # Add a button to save the upload and create data YAML
-        if st.button("Save Upload and Create Data YAML"):
-            try:
-                # Check if the save_path exists, if not, create it
-                if not os.path.exists(_save_path):
-                    os.makedirs(_save_path)
-                    st.info(f"Created directory: {_save_path}")
-
-                # Save the upload to the save_path
-                if weights_option == "Upload" and _model_weights is not None:
-                    upload_path = os.path.join(_save_path, _model_weights.name)
-                    with open(upload_path, "wb") as f:
-                        f.write(_model_weights.getbuffer())
-                    st.success(f"Upload saved to: {upload_path}")
-
-                # Create and save the data YAML
-                if yaml_option == "Custom":
-                    yaml_filename = "data_config.yaml"
-                    yaml_path = os.path.join(_save_path, yaml_filename)
-                    with open(yaml_path, "w") as f:
-                        yaml.dump(_data_yaml, f, default_flow_style=False)
-                    st.success(f"Data YAML saved to: {yaml_path}")
-
-                st.success("Upload saved and Data YAML created successfully!")
-            except Exception as e:
-                st.error(f"An error occurred: {str(e)}")
-
+            path_navigator(
+                "auto_label_data_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
 # ----------------------- Detection Tab -----------------------
 with tabs[1]:
 
