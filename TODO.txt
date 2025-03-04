@@ -1,21 +1,12 @@
-Add ability to add/remove classes
+sort path_navigator subdir alphabetically
+move all default dirs/yamls to AutoLabel not TGSSE              
+add refresh data path button
+add text to indicate that gpustat is not live
+split unverified path and names, unverified path should get a path navigator and names should get a yaml editor
+bug in review (detection function)
 
+make more descriptive text displayed
+add internal variables for success and have them display past rerun
 
-Requirements:
-    - Load data to from local to remote                            
-    - change train settings = data yaml ; model yaml ; train yaml       ===> Sean
-    - check gpustat                                                     ===> Kristian
-    - Train Button -> should run in tmux
-    - Display Train Progress
-    - set auto label settings = data yaml ; model weight ; save path    ===> Craig
-    - load data to verify
-    - Button to split data w/ labels and w/o 
-    - Button to combine datasets
+in file explorer do not auto close
 
-
-    tmux basic:
-        tmux list-sessions
-        tmux new -s name
-        ctrl+B D 
-        tmux attach -t name 
-        Ctrl+B " [ " 
