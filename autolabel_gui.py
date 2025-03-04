@@ -30,7 +30,6 @@ def run_command(command):
     
     return "".join(output).replace('\r', '\n')
 
-
 def run_callback():
     command = st.session_state.command_input
     if command.strip():
@@ -86,7 +85,6 @@ def upload_to_dir(save_dir):
     
         st.rerun()  # Refresh the UI
 
-
 def update_tmux_terminal(session_key):
     try:
         capture_cmd = f"tmux capture-pane -pt {session_key}:0.0"
@@ -97,7 +95,6 @@ def update_tmux_terminal(session_key):
     except subprocess.CalledProcessError as e:
         st.warning("No tmux session")
         return None
-
 
 def kill_tmux_session(session_key):
     """
@@ -194,8 +191,6 @@ def display_terminal_output(output):
     st.session_state.terminal_text = processed_output
     # Display the accumulated output as bash code
     st.code(st.session_state.terminal_text, language="bash")
-
-
 
 def yaml_editor(yaml_key):
     """
@@ -294,7 +289,6 @@ def yaml_editor(yaml_key):
                     st.error(f"Error copying file: {e}")
         else:
             st.error("Please enter a valid new file path")
-
 
 def python_code_editor(code_key):
     """
@@ -695,19 +689,28 @@ def update_unverified_frame():
     }
 
 def update_unverified_data_path():
+    data_yaml_path = st.session_state.paths.get("unverified_data_yaml_path")
 
-    data_yaml_path = st.session_state.paths["unverified_data_yaml_path"]
+    # Check if path exists
+    if not data_yaml_path or not os.path.exists(data_yaml_path):
+        st.warning("Data YAML path does not exist. Using default configuration.")
+        data_cfg = {
+            "path": "./default_images",
+            "names": {0: "default_label"}
+        }
+    else:
+        if Path(data_yaml_path).suffix.lower() not in ['.yaml', '.yml']:
+            st.error("Invalid file format. Please provide a YAML file.")
+            return
 
-    if Path(data_yaml_path).suffix.lower() in ['.yaml', '.yml']:
-        pass
-    
-    with open(data_yaml_path, 'r') as file:
-        data_cfg = yaml.safe_load(file)
+        with open(data_yaml_path, 'r') as file:
+            data_cfg = yaml.safe_load(file)
 
-    image_dir = data_cfg["path"]
+    image_dir = data_cfg.get("path", "./default_images")
     image_path_list = glob.glob(os.path.join(image_dir, "*.png")) + glob.glob(os.path.join(image_dir, "*.jpg"))
     image_path_list.sort()
-    label_list=list(data_cfg["names"].values())
+    
+    label_list = list(data_cfg.get("names", {0: "default_label"}).values())
 
     st.session_state.data_cfg = data_cfg
     st.session_state.label_list = label_list
@@ -730,7 +733,7 @@ if "session_running" not in st.session_state:
 
         "venv_path" : "/home/naddeok5/envs/auto-label-engine/",
 
-        "unverified_data_yaml_path" : "/data/TGSSE/ALE/cfgs/verify/default.yaml",
+        "unverified_data_yaml_path" : "/home/naddeok5/YOLOv8-Playground/cfgs/data/hololens_first_video.yaml",
 
         "upload_save_path": "/data/TGSSE",
 
@@ -935,7 +938,6 @@ with tabs[1]:
                 if st.button("Kill TMUX Session", key="mp4_kill_tmux_session_btn"):
                     output = kill_tmux_session("mp4")
         
-
     elif action_option == "Split YOLO Dataset into Objects / No Objects":
 
         with st.expander("Dataset Settings"):
