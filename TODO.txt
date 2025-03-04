@@ -1,12 +1,16 @@
-sort path_navigator subdir alphabetically
+
+sort path_navigator subdir alphabetically               ===> Tyler
 move all default dirs/yamls to AutoLabel not TGSSE              
 add refresh data path button
-add text to indicate that gpustat is not live
+
 split unverified path and names, unverified path should get a path navigator and names should get a yaml editor
 bug in review (detection function)
 
-make more descriptive text displayed
+make more descriptive text displayed                    ===> Craig
+    add text to indicate that gpustat is not live
+
+
 add internal variables for success and have them display past rerun
 
-in file explorer do not auto close
+in file explorer do not auto close                      ===> Kristian
 
