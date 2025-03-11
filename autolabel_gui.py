@@ -735,29 +735,29 @@ if "session_running" not in st.session_state:
 
         "unverified_data_yaml_path" : "/home/naddeok5/YOLOv8-Playground/cfgs/data/hololens_first_video.yaml",
 
-        "upload_save_path": "/data/TGSSE",
+        "upload_save_path": "/data/AutoLabel",
 
-        "mp4_path" : "/data/TGSSE",
-        "mp4_save_path" : "/data/TGSSE/",
+        "mp4_path" : "/data/AutoLabel",
+        "mp4_save_path" : "/data/AutoLabel/",
         "mp4_script_path" : "/home/naddeok5/AutoLabelEngine/convert_mp4_2_png.py",
 
-        "split_data_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
-        "split_data_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
+        "split_data_path" : "/data/AutoLabel/HololensCombined/random_subset_50/",
+        "split_data_save_path" : "/data/AutoLabel/HololensCombined/random_subset_50/",
         "split_data_script_path" : "/home/naddeok5/AutoLabelEngine/split_yolo_data_by_object.py",
 
-        "auto_label_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/labels/",
-        "auto_label_model_weight_path" : "/data/TGSSE/weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
-        "auto_label_data_path" :  "/data/TGSSE/HololensCombined/random_subset_50/images/",
+        "auto_label_save_path" : "/data/AutoLabel/HololensCombined/random_subset_50/labels/",
+        "auto_label_model_weight_path" : "/data/AutoLabel/weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
+        "auto_label_data_path" :  "/data/AutoLabel/HololensCombined/random_subset_50/images/",
         "auto_label_script_path" : "/home/naddeok5/AutoLabelEngine/inference.py",
      
-        "combine_dataset_1_path": "/data/TGSSE/ALE/",
-        "combine_dataset_2_path": "/data/TGSSE/ALE/",
-        "combine_dataset_save_path": "/data/TGSSE/ALE/",
+        "combine_dataset_1_path": "/data/AutoLabel/ALE/",
+        "combine_dataset_2_path": "/data/AutoLabel/ALE/",
+        "combine_dataset_save_path": "/data/AutoLabel/ALE/",
         "combine_dataset_script_path" : "/home/naddeok5/AutoLabelEngine/combine_yolo_dirs.py",
 
-        "train_data_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/data/default.yaml",
-        "train_model_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/model/default.yaml",
-        "train_train_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/train/default.yaml",
+        "train_data_yaml_path": "/data/AutoLabel/ALE/cfgs/yolo/data/default.yaml",
+        "train_model_yaml_path": "/data/AutoLabel/ALE/cfgs/yolo/model/default.yaml",
+        "train_train_yaml_path": "/data/AutoLabel/ALE/cfgs/yolo/train/default.yaml",
         "train_script_path" : "/home/naddeok5/AutoLabelEngine/train_yolo.py",
 
     }
@@ -1075,12 +1075,15 @@ with tabs[2]:
 
     with st.expander("Settings"):
         key = "unverified_data_yaml_path"
-        path_navigator(
-            key, 
-            button_and_selectbox_display_size=[1,25]
-        )
-
+        path_navigator(key, button_and_selectbox_display_size=[1, 25])
+        
         yaml_editor(key)
+
+        # Add Refresh Data Path Button
+        if st.button("Refresh Data Path"):
+            update_unverified_data_path()
+            st.success("Data path refreshed successfully!")
+
 
     with st.expander("Review"):
         # Generate Screen
@@ -1155,6 +1158,8 @@ with tabs[2]:
                 st.write("No bounding boxes detected.")
         else:
             st.write("Frame not available.")
+
+            
 
 # ----------------------- Train Status Tab -----------------------
 with tabs[3]: 
