@@ -1,7 +1,7 @@
 
 sort path_navigator subdir alphabetically               ===> Tyler
-move all default dirs/yamls to AutoLabel not TGSSE              
-add refresh data path button
+move all default dirs/yamls to AutoLabel not TGSSE      ===> Sean       
+add refresh data path button                           ===> Sean 
 
 split unverified path and names, unverified path should get a path navigator and names should get a yaml editor
 bug in review (detection function)
