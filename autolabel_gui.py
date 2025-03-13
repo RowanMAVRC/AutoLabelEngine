@@ -706,43 +706,47 @@ def are_bboxes_equal(current_bboxes, current_labels, bboxes_xyxy, labels_xyxy, t
     return True
 
 def update_labels():
-    if "out" not in st.session_state:
+    if "out" not in st.session_state or "skip_label_update" not in st.session_state:
+        st.session_state["skip_label_update"] = True
         return None
 
-    current_bboxes = []
-    current_labels = []
-    for bbox in st.session_state.out['bbox']:
-        current_bboxes.append(bbox['bboxes'])
-        current_labels.append(bbox['labels'])
-
-    label_path = st.session_state.label_path
-    image_width = st.session_state.image_width
-    image_height = st.session_state.image_height
-    labels = st.session_state.labels
-    bboxes_xyxy = st.session_state.bboxes_xyxy
+    elif st.session_state["skip_label_update"]:
+        st.session_state["skip_label_update"] = False
+        return None
     
-    if "first_label_update" not in st.session_state: 
-        st.session_state["first_label_update"] = True
-
-    # If the user-changed bboxes differ from what's currently stored, write out to disk
-    if (not are_bboxes_equal(current_bboxes, current_labels, bboxes_xyxy, labels, threshold=0.95)) and not st.session_state["first_label_update"]:
-        st.session_state["first_label_update"] = False
-        # Write normalized YOLO-format labels to file
-        with open(label_path, "w") as f:
-            for label, bbox in zip(current_labels, current_bboxes):
-                x_min, y_min, width, height = bbox
-                # Convert the absolute coordinates back to normalized YOLO format:
-                x_center_norm = (x_min + width / 2) / image_width
-                y_center_norm = (y_min + height / 2) / image_height
-                width_norm = width / image_width
-                height_norm = height / image_height
-                f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
-        
-        # Re-run to refresh the newly saved label data
-        st.rerun()
     else:
-        if st.session_state["first_label_update"]:
-            st.session_state["first_label_update"] = False
+        current_bboxes = []
+        current_labels = []
+        for bbox in st.session_state.out['bbox']:
+            current_bboxes.append(bbox['bboxes'])
+            current_labels.append(bbox['labels'])
+
+        label_path = st.session_state.label_path
+        image_width = st.session_state.image_width
+        image_height = st.session_state.image_height
+        labels = st.session_state.labels
+        bboxes_xyxy = st.session_state.bboxes_xyxy
+
+        # If the user-changed bboxes differ from what's currently stored, write out to disk
+        if (not are_bboxes_equal(current_bboxes, current_labels, bboxes_xyxy, labels, threshold=0.9)) and not st.session_state["skip_label_update"]:
+            st.session_state["skip_label_update"] = False
+            # Write normalized YOLO-format labels to file
+            with open(label_path, "w") as f:
+                print("Writing with Update Labels")
+                for label, bbox in zip(current_labels, current_bboxes):
+                    x_min, y_min, width, height = bbox
+                    # Convert the absolute coordinates back to normalized YOLO format:
+                    x_center_norm = (x_min + width / 2) / image_width
+                    y_center_norm = (y_min + height / 2) / image_height
+                    width_norm = width / image_width
+                    height_norm = height / image_height
+                    f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+            
+            # Re-run to refresh the newly saved label data
+            st.rerun()
+        else:
+            if st.session_state["skip_label_update"]:
+                st.session_state["skip_label_update"] = False
 
 def update_unverified_frame():
     image_dir = st.session_state.image_dir
@@ -851,6 +855,79 @@ def update_unverified_data_path():
     st.session_state.image_path_list = image_path_list
     st.session_state.frame_index = 0
 
+def zoom_edit_callback(i):
+    # Get the old bbox for bbox i.
+    old_bbox = st.session_state.bboxes_xyxy[i]
+    # Read the new values from session_state using the unique keys.
+    new_center_x = st.session_state[f"bbox_{i}_center_x_input"]
+    # Here we assume the UI is showing the flipped center y (0 at bottom).
+    flipped_center_y = st.session_state[f"bbox_{i}_center_y_input"]
+    image_height = st.session_state.image_height
+    # Convert flipped center y to actual center y (standard: 0 at top).
+    actual_center_y = image_height - flipped_center_y
+
+    new_w = st.session_state[f"bbox_{i}_w_input"]
+    new_h = st.session_state[f"bbox_{i}_h_input"]
+
+    # Calculate new top-left x and y based on the actual center and new dimensions.
+    new_x = new_center_x - new_w / 2
+    new_y = actual_center_y - new_h / 2
+
+    # Clamp the bounding box to the image boundaries.
+    if new_x < 0:
+        new_x = 0.0
+    if new_y < 0:
+        new_y = 0.0
+    if new_x + new_w > st.session_state.image_width:
+        new_x = st.session_state.image_width - new_w
+    if new_y + new_h > image_height:
+        new_y = image_height - new_h
+
+    # If any parameter changed, update the bbox and write changes to the label file.
+    if (new_x, new_y, new_w, new_h) != tuple(old_bbox):
+        st.session_state.bboxes_xyxy[i] = [new_x, new_y, new_w, new_h]
+
+        label_path = st.session_state.label_path
+        image_width = st.session_state.image_width
+        with open(label_path, "w") as f:
+            print("Writing with Zoom Labels")
+            for label, bbox in zip(st.session_state.labels, st.session_state.bboxes_xyxy):
+                bx, by, bw, bh = bbox
+                x_center_norm = (bx + bw / 2) / image_width
+                y_center_norm = (by + bh / 2) / image_height
+                width_norm = bw / image_width
+                height_norm = bh / image_height
+                f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+
+        st.session_state["skip_label_update"] = True
+
+def next_callback():
+
+    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
+        st.session_state.frame_index += 1
+        st.session_state["skip_label_update"] = True
+
+def prev_callback():
+    
+    if st.session_state.frame_index > 0:
+        st.session_state.frame_index -= 1
+        st.session_state["skip_label_update"] = True
+
+def frame_slider_callback():
+    # Get the new value from the slider (using the key "slider_det")
+    new_frame_index = st.session_state.slider_det
+    # Compare with the current frame_index stored in session_state
+    if new_frame_index != st.session_state.frame_index:
+        st.session_state.frame_index = new_frame_index
+        st.session_state["skip_label_update"] = True
+
+def jump_page_callback():
+    # Retrieve the new value from the number input via its key "jump_page"
+    new_frame_index = st.session_state.jump_page
+    # Compare it with the current frame_index in session_state
+    if st.session_state.frame_index != new_frame_index:
+        st.session_state.frame_index = new_frame_index
+        st.session_state["skip_label_update"] = True
 #--------------------------------------------------------------------------------------------------------------------------------#
 
 
@@ -1269,7 +1346,7 @@ with tabs[2]:
         )
         if float(image_scale) != st.session_state.unverified_image_scale:
             st.session_state.unverified_image_scale = image_scale
-            st.session_state["first_label_update"] = True
+            st.session_state["skip_label_update"] = True
             st.rerun()
 
         st.write("Images Path")
@@ -1286,17 +1363,9 @@ with tabs[2]:
             # --- Top Navigation (Prev / Next) ---
             col_prev, _, col_next = st.columns([1, 10, 2])
             with col_prev:
-                if st.button("Prev", key="top_prev_btn"):
-                    if st.session_state.frame_index > 0:
-                        st.session_state.frame_index -= 1
-                        st.session_state["first_label_update"] = True
-                        st.rerun()
+                st.button("Prev", key="top_prev_btn", on_click=prev_callback)
             with col_next:
-                if st.button("Next", key="top_next_btn"):
-                    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
-                        st.session_state.frame_index += 1
-                        st.session_state["first_label_update"] = True
-                        st.rerun()
+                st.button("Next", key="top_next_btn", on_click=next_callback)
 
             # Read from .txt file & build detection_config
             update_unverified_frame()
@@ -1304,47 +1373,38 @@ with tabs[2]:
             # Let user annotate with detection()
             st.session_state.out = detection(**st.session_state.detection_config)
 
-            # If changed, save new labels
+            # Update labels if changed in detection()
             update_labels()
+                
 
             # Additional navigation (jump, slider, second Prev/Next)
-            frame_index = st.number_input(
+            st.number_input(
                 "Jump to Image", min_value=0, max_value=len(st.session_state.image_path_list)-1,
-                value=st.session_state.frame_index, step=10, key="jump_page"
+                value=st.session_state.frame_index, step=10, key="jump_page",
+                on_change=jump_page_callback
             )
-            if st.session_state.frame_index != frame_index:
-                st.session_state.frame_index = frame_index
-                st.session_state["first_label_update"] = True
-                st.rerun()
+            
 
             col_prev, col_slider, col_next = st.columns([1, 10, 2])
             with col_prev:
-                if st.button("Prev", key="prev_btn"):
-                    if st.session_state.frame_index > 0:
-                        st.session_state.frame_index -= 1
-                        st.session_state["first_label_update"] = True
-                        st.rerun()
+                st.button("Prev", key="prev_btn", on_click=prev_callback)
             with col_slider:
-                frame_index = st.slider(
+                st.slider(
                     "Frame Index", 0, len(st.session_state.image_path_list) - 1,
-                    st.session_state.frame_index, key="slider_det"
+                    st.session_state.frame_index, key="slider_det",
+                    on_change=frame_slider_callback
                 )
-                if frame_index != st.session_state.frame_index:
-                    st.session_state.frame_index = frame_index
-                    st.session_state["first_label_update"] = True
-                    st.rerun()
+
             with col_next:
-                if st.button("Next", key="next_btn"):
-                    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
-                        st.session_state.frame_index += 1
-                        st.session_state["first_label_update"] = True
-                        st.rerun()
+                st.button("Next", key="next_btn", on_click=next_callback)
 
         else:
             st.warning("Data Path is empty...")
 
     with st.expander("Zoomed-in Bounding Box Regions"):
         if 'image' in st.session_state and 'bboxes_xyxy' in st.session_state:
+            update_unverified_frame()
+
             bboxes = st.session_state.bboxes_xyxy
             labels = st.session_state.labels
             bbox_ids = st.session_state.bbox_ids
@@ -1352,16 +1412,17 @@ with tabs[2]:
                 for i, bbox in enumerate(bboxes):
                     # bbox is stored as [x, y, width, height] (XYWH)
                     x, y, w, h = bbox
+                    x, y = max(x, 0.0) , max(y, 0.0)
                     x1, y1, x2, y2 = x, y, x + w, y + h
-                    
+
                     # Check for invalid bounding box coordinates before cropping
                     if x2 <= x1 or y2 <= y1:
-                        st.warning(f"Bounding box {i} has invalid coordinates (x1: {x1}, x2: {x2}). Deleting label and re-running.")
                         st.session_state.labels.pop(i)
                         st.session_state.bboxes_xyxy.pop(i)
                         st.session_state.bbox_ids.pop(i)
                         st.rerun()
 
+                    # Crop the image and prepare the caption
                     cropped = st.session_state.image.crop((x1, y1, x2, y2))
                     if "label_list" in st.session_state and i < len(labels):
                         try:
@@ -1370,12 +1431,56 @@ with tabs[2]:
                             label_name = f"Label {labels[i]}"
                     else:
                         label_name = f"Label {labels[i]}" if i < len(labels) else "Unknown"
-                    caption = f"ID: {bbox_ids[i]}, Label: {label_name}, BBox: ({int(x1)}, {int(y1)}, {int(x2)}, {int(y2)})"
-                    st.image(cropped, caption=caption)
-            else:
-                st.write("No bounding boxes detected.")
-        else:
-            st.write("Frame not available.")
+                    caption = f"ID: {bbox_ids[i]}, Label: {label_name}, BBox: ({x1}, {y1}, {x2}, {y2})"
+
+                    st.markdown(f"#### Edit Bounding Box {i} Parameters")
+
+                    # Create two columns: left for the image, right for the number inputs.
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.image(cropped, caption=caption)
+
+                    # Read the center values from session state if they exist; otherwise use default (x + w/2, y + h/2)
+                    center_x = x + w / 2
+                    center_y = y + h / 2
+
+                    with col2:
+                        new_center_x = st.number_input(
+                            f"Center X for bbox {i}",
+                            min_value=0.0,
+                            max_value=float(st.session_state.image_width),
+                            value=center_x,
+                            key=f"bbox_{i}_center_x_input",
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i)
+                        )
+                        new_center_y = st.number_input(
+                            f"Center Y for bbox {i}",
+                            min_value=0.0,
+                            max_value=float(st.session_state.image_height),
+                            value=st.session_state.image_height - center_y,
+                            key=f"bbox_{i}_center_y_input",
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i)
+                        )
+                        new_w = st.number_input(
+                            f"Width for bbox {i}",
+                            min_value=1.0,
+                            max_value=float(st.session_state.image_width),
+                            value=float(w),
+                            key=f"bbox_{i}_w_input",
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i)
+                        )
+                        new_h = st.number_input(
+                            f"Height for bbox {i}",
+                            min_value=1.0,
+                            max_value=float(st.session_state.image_height),
+                            value=float(h),
+                            key=f"bbox_{i}_h_input",
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i)
+                        )
 
 # ----------------------- Train Status Tab -----------------------
 with tabs[3]:
