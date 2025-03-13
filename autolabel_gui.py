@@ -6,12 +6,66 @@ import glob
 import zipfile
 from PIL import Image
 from streamlit_label_kit import detection
+# from streamlit_img_label.manage import ImageManager, ImageDirManager
 from streamlit_ace import st_ace
 from pathlib import Path
 import time
 
 ## Functions
 #-------------------------------------------------------------------------------------------------------------------------#
+
+# List of keys to save and load from session_state
+SELECTED_KEYS = [
+    "auto_label_gpu",
+    "copy_path_auto_label_script_path",
+    "copy_path_train_script_path",
+    "copy_path_unverified_names_yaml_path",
+    "data_cfg",
+    "frame_index",
+    "gpu_list",
+    "image_dir",
+    "image_path_list",
+    "label_list",
+    "paths",
+    "python_codes",
+    "yamls",
+    "unverified_image_scale"
+]
+
+def load_session_state(default_yaml_path="cfgs/gui/default.yaml"):
+    """
+    Load selected session state keys from a YAML file.
+    If the file doesn't exist, create it with the current session state.
+    This version removes null characters that might corrupt the file.
+    """
+    if os.path.exists(default_yaml_path):
+        try:
+            with open(default_yaml_path, "r") as f:
+                content = f.read()
+                # Remove null characters that can cause YAML parsing errors
+                content = content.replace("\x00", "")
+                saved_state = yaml.safe_load(content)
+            if saved_state:
+                for key in SELECTED_KEYS:
+                    if key in saved_state:
+                        st.session_state[key] = saved_state[key]
+        except Exception as e:
+            st.error(f"Error loading session state: {e}")
+            # Optionally delete the corrupt file to allow regeneration
+            os.remove(default_yaml_path)
+    else:
+        save_session_state(default_yaml_path)
+        
+def save_session_state(default_yaml_path="cfgs/gui/default.yaml"):
+    """
+    Save only the selected session state keys to a YAML file.
+    """
+    try:
+        state_to_save = {key: st.session_state[key] for key in SELECTED_KEYS if key in st.session_state}
+        with open(default_yaml_path, "w") as f:
+            yaml.dump(state_to_save, f)
+    except Exception as e:
+        st.error(f"Error saving session state: {e}")
 
 def run_command(command):
     output = []
@@ -37,7 +91,7 @@ def run_callback():
         run_command(command)
     else:
         st.warning("Please enter a valid command.")
-        
+
 def upload_to_dir(save_dir):
     """
     Allows the user to upload a single file or a ZIP archive (representing a directory) 
@@ -232,12 +286,11 @@ def yaml_editor(yaml_key):
 
     ace_key = f"edited_content_{yaml_key}"
     
-    # with col1:
     st.markdown("Edit YAML content")
 
     lines = file_content.splitlines()
     line_count = len(lines) if len(lines) > 0 else 1
-    calculated_height = max(300, line_count * 19)
+    calculated_height = max(100, line_count * 20 + 25)
 
     edited_content = st_ace(
         value=file_content,
@@ -577,9 +630,85 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
         return current_path
 
 def list_files(directory, extension):
-        return [f for f in os.listdir(directory) if f.endswith(extension)]
+    return [f for f in os.listdir(directory) if f.endswith(extension)]
+
+def iou(box1, box2):
+    """
+    Compute the Intersection over Union (IoU) of two bounding boxes.
+    Boxes are expected in [x, y, width, height] format, where (x, y) is the top-left corner.
+    """
+    # Unpack the boxes
+    x1, y1, w1, h1 = box1
+    x2, y2, w2, h2 = box2
+
+    # Calculate the (x, y) coordinates of the bottom-right corner of each box
+    box1_x2 = x1 + w1
+    box1_y2 = y1 + h1
+    box2_x2 = x2 + w2
+    box2_y2 = y2 + h2
+
+    # Determine the coordinates of the intersection rectangle
+    inter_x1 = max(x1, x2)
+    inter_y1 = max(y1, y2)
+    inter_x2 = min(box1_x2, box2_x2)
+    inter_y2 = min(box1_y2, box2_y2)
+
+    # Compute the width and height of the intersection rectangle
+    inter_width = max(0, inter_x2 - inter_x1)
+    inter_height = max(0, inter_y2 - inter_y1)
+    inter_area = inter_width * inter_height
+
+    # Compute the area of each bounding box
+    area_box1 = w1 * h1
+    area_box2 = w2 * h2
+
+    # Compute the union area
+    union_area = area_box1 + area_box2 - inter_area
+
+    if union_area == 0:
+        return 0.0
+
+    # Compute the IoU
+    return inter_area / union_area
+
+def are_bboxes_equal(current_bboxes, current_labels, bboxes_xyxy, labels_xyxy, threshold=0.9):
+    """
+    Compare two sets of bounding boxes with their associated labels.
+    
+    Two boxes match if:
+      - IoU(box1, box2) >= threshold, and
+      - Their associated labels are equal.
+    
+    The function returns True if every bbox in current_bboxes (with its label)
+    can be matched with a unique bbox in bboxes_xyxy (with its label) and vice versa.
+    """
+    # Early exit if the number of boxes or labels do not match
+    if len(current_bboxes) != len(bboxes_xyxy) or len(current_labels) != len(labels_xyxy):
+        return False
+
+    # Create a list of tuples for the second set for easy removal when matched
+    unmatched = list(zip(bboxes_xyxy, labels_xyxy))
+    
+    # For each box in current_bboxes, try to find a matching box in the second set
+    for box, label in zip(current_bboxes, current_labels):
+        found_match = False
+        for i, (box2, label2) in enumerate(unmatched):
+            if iou(box, box2) >= threshold and label == label2:
+                found_match = True
+                del unmatched[i]  # Remove the matched box so it is not reused
+                break
+        if not found_match:
+            return False  # A box in current_bboxes has no matching counterpart
+
+    # If there are any leftover boxes in unmatched, they are extra in the second set
+    if unmatched:
+        return False
+    return True
 
 def update_labels():
+    if "out" not in st.session_state:
+        return None
+
     current_bboxes = []
     current_labels = []
     for bbox in st.session_state.out['bbox']:
@@ -591,28 +720,34 @@ def update_labels():
     image_height = st.session_state.image_height
     labels = st.session_state.labels
     bboxes_xyxy = st.session_state.bboxes_xyxy
+    
+    if "first_label_update" not in st.session_state: 
+        st.session_state["first_label_update"] = True
 
-    if current_bboxes != bboxes_xyxy or current_labels != labels:
+    # If the user-changed bboxes differ from what's currently stored, write out to disk
+    if (not are_bboxes_equal(current_bboxes, current_labels, bboxes_xyxy, labels, threshold=0.95)) and not st.session_state["first_label_update"]:
+        st.session_state["first_label_update"] = False
         # Write normalized YOLO-format labels to file
         with open(label_path, "w") as f:
             for label, bbox in zip(current_labels, current_bboxes):
-
                 x_min, y_min, width, height = bbox
                 # Convert the absolute coordinates back to normalized YOLO format:
-                # Calculate center coordinates normalized by image dimensions.
                 x_center_norm = (x_min + width / 2) / image_width
                 y_center_norm = (y_min + height / 2) / image_height
-                # Normalize width and height.
                 width_norm = width / image_width
                 height_norm = height / image_height
-                # Write the line in YOLO format: class x_center y_center width height
                 f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+        
+        # Re-run to refresh the newly saved label data
+        st.rerun()
+    else:
+        if st.session_state["first_label_update"]:
+            st.session_state["first_label_update"] = False
 
 def update_unverified_frame():
-    
     image_dir = st.session_state.image_dir
     image_path = st.session_state.image_path_list[st.session_state.frame_index]
-    
+
     image = Image.open(image_path)
     image_width, image_height = image.size
 
@@ -657,13 +792,14 @@ def update_unverified_frame():
     st.session_state.labels = labels
     st.session_state.bbox_ids = bbox_ids
 
+    # Build detection_config to show in detection()
     st.session_state["detection_config"] = {
         "image_path": st.session_state.image_path,
-        "image_height": st.session_state.image_height,
-        "image_width": st.session_state.image_width,
+        "image_height": int(st.session_state.unverified_image_scale*st.session_state.image_height),
+        "image_width": int(st.session_state.unverified_image_scale*st.session_state.image_width),
         "label_list": st.session_state.label_list,
-        "bboxes": st.session_state.bboxes_xyxy,
-        "labels": st.session_state.labels,
+        "bboxes": bboxes_xyxy,
+        "labels": labels,
         "bbox_show_label": True,
         "info_dict": [],
         "meta_data": [],
@@ -685,28 +821,25 @@ def update_unverified_frame():
         "item_selector_position": "right",
         "bbox_format": "XYWH",
         "bbox_show_info": True,
-        "key": None
+        "key": "detector"
     }
 
 def update_unverified_data_path():
-    data_yaml_path = st.session_state.paths.get("unverified_data_yaml_path")
+    data_yaml_path = st.session_state.paths.get("unverified_names_yaml_path")
 
     # Check if path exists
     if not data_yaml_path or not os.path.exists(data_yaml_path):
-        st.warning("Data YAML path does not exist. Using default configuration.")
         data_cfg = {
-            "path": "./default_images",
             "names": {0: "default_label"}
         }
     else:
         if Path(data_yaml_path).suffix.lower() not in ['.yaml', '.yml']:
-            st.error("Invalid file format. Please provide a YAML file.")
             return
 
         with open(data_yaml_path, 'r') as file:
             data_cfg = yaml.safe_load(file)
 
-    image_dir = data_cfg.get("path", "./default_images")
+    image_dir = st.session_state.paths["unverified_images_path"]
     image_path_list = glob.glob(os.path.join(image_dir, "*.png")) + glob.glob(os.path.join(image_dir, "*.jpg"))
     image_path_list.sort()
     
@@ -733,13 +866,18 @@ if "session_running" not in st.session_state:
 
         "venv_path" : "/home/naddeok5/envs/auto-label-engine/",
 
-        "unverified_data_yaml_path" : "/home/naddeok5/YOLOv8-Playground/cfgs/data/hololens_first_video.yaml",
+        "prev_unverified_images_path" : "/data/TGSSE",
+        "unverified_images_path" : "/data/TGSSE",
+        "unverified_names_yaml_path" : "/home/naddeok5/YOLOv8-Playground/cfgs/data/hololens_first_video.yaml",
 
         "upload_save_path": "/data/TGSSE",
 
         "mp4_path" : "/data/TGSSE",
         "mp4_save_path" : "/data/TGSSE/",
         "mp4_script_path" : "/home/naddeok5/AutoLabelEngine/convert_mp4_2_png.py",
+
+        "rotate_images_path":  "/data/TGSSE/",
+        "rotate_images_script_path" : "/home/naddeok5/AutoLabelEngine/rotate_images.py",
 
         "split_data_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
         "split_data_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
@@ -766,20 +904,289 @@ if "session_running" not in st.session_state:
 
     gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
+
+    st.session_state.unverified_image_scale = 1.0
+
+    load_session_state()
     
 #--------------------------------------------------------------------------------------------------------------------------------#
 
+## Run each iteration
+save_session_state()
 
-## Define tabs
+if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"]:
+    st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+    update_unverified_data_path()
+
+    if len(st.session_state.image_path_list) > 0:
+        update_unverified_frame()
+
+# Define tabs
 #--------------------------------------------------------------------------------------------------------------------------------#
-tabs = st.tabs(["Auto Label", "Generate Datasets", "Manual Labeling", "Finetune Model", "Linux Terminal"])
+tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Finetune Model", "Linux Terminal"])
+
+# ----------------------- Generate Data Tab -----------------------
+with tabs[0]:  
+    output = None
+    action_option = st.radio(
+        "Choose save path option:", 
+        [
+            "Upload Data", 
+            "Convert MP4 to PNGs", 
+            "Rotate Image Dataset",
+            "Split YOLO Dataset into Objects / No Objects", 
+            "Combine YOLO Datasets"
+        ],
+        key=f"split_vs_combine_radio",
+        label_visibility="collapsed"
+    )
+
+    if action_option == "Upload Data":
+        with st.expander("Upload Data"):
+            st.write("Save Path")
+            path_navigator("upload_save_path")
+            upload_to_dir(st.session_state.paths["upload_save_path"])
+
+    elif action_option == "Convert MP4 to PNGs":
+        with st.expander("Settings"):
+            c1, c2 = st.columns(2)
+            
+            with c1:
+                st.subheader("MP4 Path")
+                path_navigator(
+                    "mp4_path", 
+                    button_and_selectbox_display_size=[4,30]
+                )
+            
+            with c2:
+                st.subheader("Save Path")
+                save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
+                key = "mp4_save_path"
+                if save_path_option == "Default":
+                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/")
+                    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+                else:
+                    path_navigator(
+                        key,
+                        button_and_selectbox_display_size=[4,30]
+                    )
+
+        with st.expander("Venv Path"):
+            path_navigator("venv_path", radio_button_prefix="convert_mp4")
+
+        with st.expander("Script"):
+            path_navigator("mp4_script_path")
+            python_code_editor("mp4_script_path")
+
+        with st.expander("Convert MP4 to PNGs"):
+            output = None
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+            with c1:
+                if st.button("Begin Converting", key="begin_converting_data_btn"):
+                    run_in_tmux(
+                        session_key="mp4_data", 
+                        py_file_path=st.session_state.paths["mp4_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "video_path" : st.session_state.paths["mp4_path"],
+                            "output_folder" : st.session_state.paths["mp4_save_path"],
+                        }
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("mp4")
+
+            with c2:
+                if st.button("Update Terminal Output", key="check_mp4_btn"):
+                    output = update_tmux_terminal("mp4")
+
+            with c3:
+                if st.button("Clear Terminal Output", key="mp4_clear_terminal_btn"):
+                    output = None
+
+            with c4:
+                if st.button("Kill TMUX Session", key="mp4_kill_tmux_session_btn"):
+                    output = kill_tmux_session("mp4")
+
+    elif action_option == "Rotate Image Dataset":
+        with st.expander("Settings"):
+            st.subheader("Image Path")
+            path_navigator(
+                "rotate_images_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+
+        with st.expander("Venv Path"):
+            path_navigator("venv_path", radio_button_prefix="rotate_images")
+
+        with st.expander("Script"):
+            path_navigator("rotate_images_script_path")
+            python_code_editor("rotate_images_script_path")
+
+        with st.expander("Rotate Images"):
+            output = None
+            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+
+            with c1: 
+                action_option = st.radio(
+                    "Choose Rotation:", 
+                    [
+                        "CW", 
+                        "CCW", 
+                        "180",
+                    ],
+                    key=f"rotate_images_radio",
+                    label_visibility="collapsed"
+                )
+
+            with c2:
+                if st.button("Begin Rotating Images", key="begin_rotating_data_btn"):
+                    run_in_tmux(
+                        session_key="rotate_images", 
+                        py_file_path=st.session_state.paths["rotate_images_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "directory" : st.session_state.paths["rotate_images_path"],
+                            "rotation" : action_option,
+                        }
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("rotate_images")
+
+            with c3:
+                if st.button("Update Terminal Output", key="check_rotate_images_btn"):
+                    output = update_tmux_terminal("rotate_images")
+
+            with c4:
+                if st.button("Clear Terminal Output", key="rotate_images_clear_terminal_btn"):
+                    output = None
+
+            with c5:
+                if st.button("Kill TMUX Session", key="rotate_images_kill_tmux_session_btn"):
+                    output = kill_tmux_session("rotate_images")
+
+    elif action_option == "Split YOLO Dataset into Objects / No Objects":
+        with st.expander("Dataset Settings"):
+            c1, c2 = st.columns(2)
+            with c1:
+                st.subheader("Dataset To Be Split")
+                path_navigator(
+                    "split_data_path", 
+                    button_and_selectbox_display_size=[4,30]
+                )
+            with c2:
+                st.subheader("Save Path")
+                save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
+                key = "split_data_save_path"
+                if save_path_option == "Default":
+                    st.session_state.paths[key] = st.session_state.paths["split_data_path"]
+                    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+                else:
+                    path_navigator(
+                        key,
+                        button_and_selectbox_display_size=[4,30]
+                    )
+
+        with st.expander("Venv Path"):
+            path_navigator("venv_path", radio_button_prefix="split_data")
+
+        with st.expander("Script"):
+            path_navigator("split_data_script_path")
+            python_code_editor("split_data_script_path")
+
+        with st.expander("Split Data"):
+            output = None
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+
+            with c1:
+                if st.button("Begin Splitting Data", key="begin_split_data_btn"):
+                    run_in_tmux(
+                        session_key="split_data", 
+                        py_file_path=st.session_state.paths["split_data_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "data_path" : st.session_state.paths["split_data_path"],
+                            "save_path" : st.session_state.paths["split_data_save_path"],
+                        }
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("split_data")
+
+            with c2:
+                if st.button("Update Terminal Output", key="check_split_data_btn"):
+                    output = update_tmux_terminal("split_data")
+
+            with c3:
+                if st.button("Clear Terminal Output", key="split_data_clear_terminal_btn"):
+                    output = None
+
+            with c4:
+                if st.button("Kill TMUX Session", key="split_data_kill_tmux_session_btn"):
+                    output = kill_tmux_session("split_data")
+    else:
+        # Combine YOLO Datasets
+        with st.expander("Dataset Settings"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.subheader("Dataset 1")
+                path_navigator(
+                    "combine_dataset_1_path", 
+                    button_and_selectbox_display_size=[4,30]
+                )
+            with c2:
+                st.subheader("Dataset 2")
+                path_navigator(
+                    "combine_dataset_2_path", 
+                    button_and_selectbox_display_size=[4,30]
+                )
+            with c3:
+                st.subheader("Save Path")
+                path_navigator(
+                    "combine_dataset_save_path", 
+                    button_and_selectbox_display_size=[4,30]
+                )
+
+        with st.expander("Script"):
+            path_navigator("combine_dataset_script_path")
+            python_code_editor("combine_dataset_script_path")
+
+        with st.expander("Combine Data"):
+            output = None
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+
+            with c1:
+                if st.button("Begin Combining Data", key="begin_combine_dataset_btn"):
+                    run_in_tmux(
+                        session_key="combine_dataset", 
+                        py_file_path=st.session_state.paths["combine_dataset_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "dataset1" : st.session_state.paths["combine_dataset_1_path"],
+                            "dataset2" : st.session_state.paths["combine_dataset_2_path"],
+                            "dst_dir" : st.session_state.paths["combine_dataset_save_path"]
+                        }
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("combine_dataset")
+
+            with c2:
+                if st.button("Update Terminal Output", key="check_combine_dataset_btn"):
+                    output = update_tmux_terminal("combine_dataset")
+
+            with c3:
+                if st.button("Clear Terminal Output", key="combine_dataset_clear_terminal_btn"):
+                    output = None
+
+            with c4:
+                if st.button("Kill TMUX Session", key="combine_dataset_kill_tmux_session_btn"):
+                    output = kill_tmux_session("combine_dataset")
+    
+    terminal_output = st.empty()
+    if output is not None:
+        display_terminal_output(output)
 
 # ----------------------- Auto Label Tab -----------------------
-with tabs[0]:
-
-    # Create an expander for the auto label settings (data, weights, and save_path)
+with tabs[1]:
     with st.expander("Auto Label Settings"):
-        
         st.subheader("Model Weights Path")
         path_navigator("auto_label_model_weight_path")
 
@@ -797,8 +1204,6 @@ with tabs[0]:
         python_code_editor("auto_label_script_path")
 
     with st.expander("Auto Label Data"):
-
-        # Define a placeholder for terminal output so we can update or clear it.
         output = None
         c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
 
@@ -807,12 +1212,10 @@ with tabs[0]:
 
         with c2:
             try:
-                # Get the list of available GPUs using nvidia-smi
-                
                 if st.session_state.gpu_list:
                     selected_gpu = st.selectbox("Select GPU", options=list(range(len(st.session_state.gpu_list))),
-                                                  format_func=lambda x: f"GPU {x}", label_visibility="collapsed")
-                    st.session_state.auto_label_gpu = int(selected_gpu)  # store as numeric value
+                                                format_func=lambda x: f"GPU {x}", label_visibility="collapsed")
+                    st.session_state.auto_label_gpu = int(selected_gpu)
                     st.write(f"Selected GPU: GPU {st.session_state.auto_label_gpu}")
                 else:
                     st.warning("No GPUs found, defaulting to CPU")
@@ -853,263 +1256,73 @@ with tabs[0]:
         if output is not None:
             terminal_output.text(output)
 
-# ----------------------- Generate Data Tab -----------------------
-with tabs[1]:  
-    action_option = st.radio(
-        "Choose save path option:", 
-        [
-            "Upload Data", 
-            "Convert MP4 to PNGs", 
-            "Split YOLO Dataset into Objects / No Objects", 
-            "Combine YOLO Datasets"
-        ],
-        key=f"split_vs_combine_radio",
-        label_visibility="collapsed"
-    )
-
-    if action_option == "Upload Data":
-        with st.expander("Upload Data"):
-
-            st.write("Save Path")
-            path_navigator("upload_save_path")
-            
-            upload_to_dir(st.session_state.paths["upload_save_path"])
-
-    elif action_option == "Convert MP4 to PNGs":
-        
-        with st.expander("Settings"):
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                st.subheader("MP4 Path")
-                path_navigator(
-                    "mp4_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
-            
-            with c2:
-                st.subheader("Save Path")
-
-                save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
-                key = "mp4_save_path"
-                if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/")
-                    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
-
-                else:
-                    path_navigator(
-                        key,
-                        button_and_selectbox_display_size=[4,30]
-                    )
-
-        with st.expander("Script"):
-            path_navigator("mp4_script_path")
-            python_code_editor("mp4_script_path")
-
-        with st.expander("Convert MP4 to PNGs"):
-
-            # Define a placeholder for terminal output so we can update or clear it.
-            output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-
-            with c1:
-                if st.button("Begin Converting", key="begin_converting_data_btn"):
-                    run_in_tmux(
-                        session_key="mp4_data", 
-                        py_file_path=st.session_state.paths["mp4_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "video_path" : st.session_state.paths["mp4_path"],
-                            "output_folder" : st.session_state.paths["mp4_save_path"],
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("mp4")
-
-            with c2:
-                if st.button("Update Terminal Output", key="check_mp4_btn"):
-                    output = update_tmux_terminal("mp4")
-
-            with c3:
-                if st.button("Clear Terminal Output", key="mp4_clear_terminal_btn"):
-                    output = None
-
-            with c4:
-                if st.button("Kill TMUX Session", key="mp4_kill_tmux_session_btn"):
-                    output = kill_tmux_session("mp4")
-        
-    elif action_option == "Split YOLO Dataset into Objects / No Objects":
-
-        with st.expander("Dataset Settings"):
-            c1, c2 = st.columns(2)
-            
-            with c1:
-                st.subheader("Dataset To Be Split")
-                path_navigator(
-                    "split_data_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
-            
-            with c2:
-                st.subheader("Save Path")
-
-                save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
-                key = "split_data_save_path"
-                if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths["split_data_path"]
-                    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
-
-                else:
-                    path_navigator(
-                        key,
-                        button_and_selectbox_display_size=[4,30]
-                    )
-
-        with st.expander("Script"):
-            path_navigator("split_data_script_path")
-            python_code_editor("split_data_script_path")
-
-        with st.expander("Split Data"):
-
-            # Define a placeholder for terminal output so we can update or clear it.
-            output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-
-            with c1:
-                if st.button("Begin Splitting Data", key="begin_split_data_btn"):
-                    run_in_tmux(
-                        session_key="split_data", 
-                        py_file_path=st.session_state.paths["split_data_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "data_path" : st.session_state.paths["split_data_path"],
-                            "save_path" : st.session_state.paths["split_data_save_path"],
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("split_data")
-
-            with c2:
-                if st.button("Update Terminal Output", key="check_split_data_btn"):
-                    output = update_tmux_terminal("split_data")
-
-            with c3:
-                if st.button("Clear Terminal Output", key="split_data_clear_terminal_btn"):
-                    output = None
-
-            with c4:
-                if st.button("Kill TMUX Session", key="split_data_kill_tmux_session_btn"):
-                    output = kill_tmux_session("split_data")
-        
-    else:
-        with st.expander("Dataset Settings"):
-            c1, c2, c3 = st.columns(3)
-        
-            with c1:
-                st.subheader("Dataset 1")
-                path_navigator(
-                    "combine_dataset_1_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
-            
-            with c2:
-                st.subheader("Dataset 2")
-                path_navigator(
-                    "combine_dataset_2_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
-                
-            with c3:
-
-                st.subheader("Save Path")
-                path_navigator(
-                    "combine_dataset_save_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
-                    
-
-        with st.expander("Script"):
-            path_navigator("combine_dataset_script_path")
-            python_code_editor("combine_dataset_script_path")
-
-
-        with st.expander("Combine Data"):
-
-            # Define a placeholder for terminal output so we can update or clear it.
-            output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-
-            with c1:
-                if st.button("Begin Combining Data", key="begin_combine_dataset_btn"):
-                    run_in_tmux(
-                        session_key="combine_dataset", 
-                        py_file_path=st.session_state.paths["combine_dataset_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "dataset1" : st.session_state.paths["combine_dataset_1_path"],
-                            "dataset2" : st.session_state.paths["combine_dataset_2_path"],
-                            "dst_dir" : st.session_state.paths["combine_dataset_save_path"]
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("combine_dataset")
-
-            with c2:
-                if st.button("Update Terminal Output", key="check_combine_dataset_btn"):
-                    output = update_tmux_terminal("combine_dataset")
-
-            with c3:
-                if st.button("Clear Terminal Output", key="combine_dataset_clear_terminal_btn"):
-                    output = None
-
-            with c4:
-                if st.button("Kill TMUX Session", key="combine_dataset_kill_tmux_session_btn"):
-                    output = kill_tmux_session("combine_dataset")
-      
-    terminal_output = st.empty()
-    if output is not None:
-        display_terminal_output(output)
-
 # ----------------------- Manual Label Tab -----------------------
 with tabs[2]:
 
     with st.expander("Settings"):
-        key = "unverified_data_yaml_path"
-        path_navigator(
-            key, 
-            button_and_selectbox_display_size=[1,25]
+        st.write("Image Scale")
+        image_scale = st.number_input(
+            "Image Scale", 
+            value=1.0, 
+            step=0.25, 
+            label_visibility="collapsed"
         )
+        if float(image_scale) != st.session_state.unverified_image_scale:
+            st.session_state.unverified_image_scale = image_scale
+            st.session_state["first_label_update"] = True
+            st.rerun()
 
-        yaml_editor(key)
+        st.write("Images Path")
+        path_navigator("unverified_images_path", button_and_selectbox_display_size=[1,25])
+
+        st.write("Label Names YAML Path")
+        path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[1,25])
+        
+        yaml_editor("unverified_names_yaml_path")
 
     with st.expander("Review"):
-        # Generate Screen
         if len(st.session_state.image_path_list) > 0:
+            
+            # --- Top Navigation (Prev / Next) ---
+            col_prev, _, col_next = st.columns([1, 10, 2])
+            with col_prev:
+                if st.button("Prev", key="top_prev_btn"):
+                    if st.session_state.frame_index > 0:
+                        st.session_state.frame_index -= 1
+                        st.session_state["first_label_update"] = True
+                        st.rerun()
+            with col_next:
+                if st.button("Next", key="top_next_btn"):
+                    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
+                        st.session_state.frame_index += 1
+                        st.session_state["first_label_update"] = True
+                        st.rerun()
+
+            # Read from .txt file & build detection_config
             update_unverified_frame()
 
-            st.session_state.out = detection(
-                **st.session_state.detection_config
-            )
+            # Let user annotate with detection()
+            st.session_state.out = detection(**st.session_state.detection_config)
 
-            # Check for label changes
-            if st.session_state.out["key"] != 0:
-                update_labels()
+            # If changed, save new labels
+            update_labels()
 
-            # Navigation controls: Save labels before navigating away.
+            # Additional navigation (jump, slider, second Prev/Next)
             frame_index = st.number_input(
                 "Jump to Image", min_value=0, max_value=len(st.session_state.image_path_list)-1,
                 value=st.session_state.frame_index, step=10, key="jump_page"
             )
             if st.session_state.frame_index != frame_index:
                 st.session_state.frame_index = frame_index
+                st.session_state["first_label_update"] = True
                 st.rerun()
-            
-            # Frame Index Prev/Slider/Next
+
             col_prev, col_slider, col_next = st.columns([1, 10, 2])
             with col_prev:
                 if st.button("Prev", key="prev_btn"):
                     if st.session_state.frame_index > 0:
                         st.session_state.frame_index -= 1
+                        st.session_state["first_label_update"] = True
                         st.rerun()
             with col_slider:
                 frame_index = st.slider(
@@ -1118,14 +1331,14 @@ with tabs[2]:
                 )
                 if frame_index != st.session_state.frame_index:
                     st.session_state.frame_index = frame_index
+                    st.session_state["first_label_update"] = True
                     st.rerun()
             with col_next:
                 if st.button("Next", key="next_btn"):
                     if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
                         st.session_state.frame_index += 1
+                        st.session_state["first_label_update"] = True
                         st.rerun()
-
-            update_unverified_frame()
 
         else:
             st.warning("Data Path is empty...")
@@ -1140,8 +1353,16 @@ with tabs[2]:
                     # bbox is stored as [x, y, width, height] (XYWH)
                     x, y, w, h = bbox
                     x1, y1, x2, y2 = x, y, x + w, y + h
+                    
+                    # Check for invalid bounding box coordinates before cropping
+                    if x2 <= x1 or y2 <= y1:
+                        st.warning(f"Bounding box {i} has invalid coordinates (x1: {x1}, x2: {x2}). Deleting label and re-running.")
+                        st.session_state.labels.pop(i)
+                        st.session_state.bboxes_xyxy.pop(i)
+                        st.session_state.bbox_ids.pop(i)
+                        st.rerun()
+
                     cropped = st.session_state.image.crop((x1, y1, x2, y2))
-                    # Lookup label name if available; fallback to the label index.
                     if "label_list" in st.session_state and i < len(labels):
                         try:
                             label_name = st.session_state.label_list[labels[i]]
@@ -1157,8 +1378,7 @@ with tabs[2]:
             st.write("Frame not available.")
 
 # ----------------------- Train Status Tab -----------------------
-with tabs[3]: 
-
+with tabs[3]:
     with st.expander("Data YAML"):
         path_navigator("train_data_yaml_path")
         yaml_editor("train_data_yaml_path")
@@ -1179,10 +1399,8 @@ with tabs[3]:
         python_code_editor("train_script_path")
 
     with st.expander("Finetune Model"):
-    
-        # Define a placeholder for terminal output so we can update or clear it.
         output = None
-        c1, c2, c3, c4, c5, = st.columns(5, gap="small")
+        c1, c2, c3, c4, c5 = st.columns(5, gap="small")
 
         with c1:
             output = check_gpu_status("train_check_gpu_status_button")
@@ -1214,11 +1432,10 @@ with tabs[3]:
             if st.button("Kill TMUX Session", key="kill_tmux_session_btn"):
                 output = kill_tmux_session("auto_label_trainer")
 
-        
         terminal_output = st.empty()
         if output is not None:
             terminal_output.text(output)
-        
+
 # ----------------------- Linux Terminal Tab -----------------------
 with tabs[4]:
     # Initialize accumulated terminal output in session state.
@@ -1241,11 +1458,9 @@ with tabs[4]:
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, bufsize=1
             )
-            # Stream stdout line-by-line and update the same placeholder.
             for line in process.stdout:
                 st.session_state.terminal_text += line
                 output_placeholder.code(st.session_state.terminal_text, language="bash")
-            # Stream stderr line-by-line and update the same placeholder.
             for line in process.stderr:
                 st.session_state.terminal_text += line
                 output_placeholder.code(st.session_state.terminal_text, language="bash")
@@ -1267,8 +1482,5 @@ with tabs[4]:
     with text_input_container:
         st.text_input("Enter a Linux command:", "", key="command_input", on_change=local_run_callback)
 
-    # Display the accumulated terminal output in one code block below the input.
+    # Display the accumulated terminal output
     output_placeholder.code(st.session_state.terminal_text, language="bash")
-
-#--------------------------------------------------------------------------------------------------------------------------------#
-
