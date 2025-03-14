@@ -10,6 +10,9 @@ from streamlit_label_kit import detection
 from streamlit_ace import st_ace
 from pathlib import Path
 import time
+import numpy as np
+from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
+from PIL import Image, ImageDraw, ImageFont
 
 ## Functions
 #-------------------------------------------------------------------------------------------------------------------------#
@@ -732,7 +735,6 @@ def update_labels():
             st.session_state["skip_label_update"] = False
             # Write normalized YOLO-format labels to file
             with open(label_path, "w") as f:
-                print("Writing with Update Labels")
                 for label, bbox in zip(current_labels, current_bboxes):
                     x_min, y_min, width, height = bbox
                     # Convert the absolute coordinates back to normalized YOLO format:
@@ -890,7 +892,6 @@ def zoom_edit_callback(i):
         label_path = st.session_state.label_path
         image_width = st.session_state.image_width
         with open(label_path, "w") as f:
-            print("Writing with Zoom Labels")
             for label, bbox in zip(st.session_state.labels, st.session_state.bboxes_xyxy):
                 bx, by, bw, bh = bbox
                 x_center_norm = (bx + bw / 2) / image_width
@@ -928,6 +929,202 @@ def jump_page_callback():
     if st.session_state.frame_index != new_frame_index:
         st.session_state.frame_index = new_frame_index
         st.session_state["skip_label_update"] = True
+
+def add_labels(frame, image_path):
+    """
+    Overlay YOLO-format labels onto a video frame.
+    
+    For the given image file path, this function constructs the corresponding
+    text file path (by replacing the image extension with .txt). If the text file exists,
+    it reads each line (assumed to be in YOLO format: class x_center y_center width height)
+    and draws a red bounding box and the class id onto the image.
+    
+    Args:
+        frame (np.array): The video frame as a NumPy array.
+        image_path (str): Path to the current image.
+    
+    Returns:
+        np.array: The frame with drawn labels.
+    """
+    # Convert frame (NumPy array) to a PIL Image for drawing.
+    pil_img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(pil_img)
+    
+    # Construct the label file path by replacing the image extension with .txt
+    base, _ = os.path.splitext(image_path)
+    label_file = base + ".txt"
+    label_file = label_file.replace("/images/", "/labels/")
+    
+    if os.path.exists(label_file):
+        with open(label_file, "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            parts = line.strip().split()
+            if len(parts) < 5:
+                continue
+            cls, x_center, y_center, w, h = parts[:5]
+            try:
+                x_center, y_center, w, h = map(float, (x_center, y_center, w, h))
+            except Exception:
+                continue
+            # Get image dimensions
+            img_w, img_h = pil_img.size
+            # Convert normalized coordinates to absolute pixel values.
+            box_w = w * img_w
+            box_h = h * img_h
+            top_left_x = (x_center * img_w) - (box_w / 2)
+            top_left_y = (y_center * img_h) - (box_h / 2)
+            bottom_right_x = top_left_x + box_w
+            bottom_right_y = top_left_y + box_h
+            # Draw the bounding box.
+            draw.rectangle([top_left_x, top_left_y, bottom_right_x, bottom_right_y], outline="red", width=2)
+            # Draw the class id (you can later map this to a class name if needed).
+            draw.text((top_left_x, top_left_y), str(cls), fill="red")
+    # If no label file exists, leave the frame unchanged.
+    return np.array(pil_img)
+
+def overlay_frame_text(frame, index):
+    """
+    Overlays a large text at the center of the image.
+    The text is "Frame Number: {index}".
+    
+    Args:
+        frame (numpy.array): The image as a numpy array.
+        index (int): The frame index.
+        
+    Returns:
+        numpy.array: The image with the overlaid text.
+    """
+    # Convert the frame (numpy array) to a PIL Image.
+    img = Image.fromarray(frame)
+    draw = ImageDraw.Draw(img)
+    
+    # Attempt to load a large TrueType font.
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 100)
+    except IOError:
+        font = ImageFont.load_default()
+    
+    # Create the overlay text.
+    text = f"Frame Number: {index}"
+    
+    # Calculate text dimensions using draw.textbbox.
+    bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    
+    # Calculate the center position of the image.
+    width, height = img.size
+    x = (width - text_width) / 2
+    y = int((0.95 * height) - text_height)
+    
+    # Draw a text outline for better visibility.
+    outline_range = 2  # Adjust for thicker outline if needed.
+    for dx in range(-outline_range, outline_range + 1):
+        for dy in range(-outline_range, outline_range + 1):
+            if dx != 0 or dy != 0:
+                draw.text((x + dx, y + dy), text, font=font, fill="black")
+                
+    # Draw the main text in white.
+    draw.text((x, y), text, font=font, fill="white")
+    
+    return np.array(img)
+
+def create_video_file(image_paths, fps, scale=1.0, output_path="temp_label_review_video.mp4"):
+    """
+    Create a composite video with two side-by-side panels:
+      - Left panel: original video frames.
+      - Right panel: video frames with YOLO labels overlaid (if a corresponding .txt file exists).
+      
+    After combining the panels, the final composite image has an overlay at its center showing the frame number.
+    
+    Args:
+        image_paths (list): List of file paths to the images.
+        fps (float): Frames per second.
+        scale (float): Scaling factor for the video size.
+        output_path (str): File path to save the generated MP4 video.
+    
+    Returns:
+        str: The output video file path.
+    """
+    duration = len(image_paths) / fps
+
+    # Create the original clip without any overlay.
+    clip_original = ImageSequenceClip(image_paths, fps=fps)
+    
+    # Create the labeled clip using a custom frame function.
+    def make_labeled_frame(t):
+        index = int(t * fps)
+        if index >= len(image_paths):
+            index = len(image_paths) - 1
+        current_path = image_paths[index]
+        frame = np.array(Image.open(current_path))
+        # add_labels should be defined elsewhere to overlay YOLO labels.
+        frame_with_labels = add_labels(frame, current_path)
+        return frame_with_labels
+    
+    clip_labeled = VideoClip(make_labeled_frame, duration=duration).set_fps(fps)
+    
+    # Combine the two clips side by side.
+    final_clip = clips_array([[clip_original, clip_labeled]])
+    
+    # Apply a final overlay to the composite image.
+    def add_overlay(get_frame, t):
+        frame = get_frame(t)
+        index = int(t * fps)
+        return overlay_frame_text(frame, index)
+    
+    final_clip = final_clip.fl(add_overlay, apply_to=['mask', 'video'])
+    
+    # Write the final composite clip to an MP4 file.
+    final_clip.write_videofile(output_path, codec="libx264", audio=False, verbose=False, logger=None)
+    
+    return output_path
+
+# Cache the generated video file to avoid re-encoding if the parameters haven't changed.
+@st.cache_data(show_spinner=True)
+def generating_mp4(image_paths, fps):
+    return create_video_file(image_paths, fps)
+
+def copy_labels_from_slide(source_index):
+    """
+    Copies labels from the slide at source_index to the current slide.
+    Assumes label files are stored in a parallel "labels" folder with the same filename (but .txt extension).
+    """
+    src_image_path = st.session_state.image_path_list[source_index]
+    # Compute source label file path (adjust the replacement if needed)
+    src_label_path = src_image_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
+    if os.path.exists(src_label_path):
+        with open(src_label_path, "r") as f:
+            src_labels = f.read()
+    else:
+        st.warning(f"No labels found in slide {source_index}.")
+        src_labels = ""
+    
+    # Compute current label file path
+    curr_image_path = st.session_state.image_path_list[st.session_state.frame_index]
+    curr_label_path = curr_image_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
+    with open(curr_label_path, "w") as f:
+        f.write(src_labels)
+
+    st.session_state["skip_label_update"] = True
+
+def copy_prev_labels():
+    """Copies labels from the previous slide, if it exists."""
+    if st.session_state.frame_index > 0:
+        source_index = st.session_state.frame_index - 1
+        copy_labels_from_slide(source_index)
+    else:
+        st.warning("No previous slide exists.")
+
+def copy_next_labels():
+    """Copies labels from the next slide, if it exists."""
+    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
+        source_index = st.session_state.frame_index + 1
+        copy_labels_from_slide(source_index)
+    else:
+        st.warning("No next slide exists.")
+
 #--------------------------------------------------------------------------------------------------------------------------------#
 
 
@@ -936,6 +1133,12 @@ def jump_page_callback():
 
 if "session_running" not in st.session_state:
     st.session_state.session_running = True
+
+    st.session_state.playback_active = False
+    st.session_state.fps = 1
+    st.session_state.video_index = 0
+    st.session_state.include_labels = True
+    st.session_state.video_image_scale = 1.0
 
     st.set_page_config(layout="wide")
 
@@ -1357,7 +1560,7 @@ with tabs[2]:
         
         yaml_editor("unverified_names_yaml_path")
 
-    with st.expander("Review"):
+    with st.expander("Manual Label Review"):
         if len(st.session_state.image_path_list) > 0:
             
             # --- Top Navigation (Prev / Next) ---
@@ -1366,6 +1569,12 @@ with tabs[2]:
                 st.button("Prev", key="top_prev_btn", on_click=prev_callback)
             with col_next:
                 st.button("Next", key="top_next_btn", on_click=next_callback)
+
+            _, col_copy_prev, _, col_copy_next, _ = st.columns([3,1,1,1,3])
+            with col_copy_prev:
+                st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels)
+            with col_copy_next:
+                st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels)
 
             # Read from .txt file & build detection_config
             update_unverified_frame()
@@ -1376,7 +1585,6 @@ with tabs[2]:
             # Update labels if changed in detection()
             update_labels()
                 
-
             # Additional navigation (jump, slider, second Prev/Next)
             st.number_input(
                 "Jump to Image", min_value=0, max_value=len(st.session_state.image_path_list)-1,
@@ -1394,7 +1602,6 @@ with tabs[2]:
                     st.session_state.frame_index, key="slider_det",
                     on_change=frame_slider_callback
                 )
-
             with col_next:
                 st.button("Next", key="next_btn", on_click=next_callback)
 
@@ -1481,6 +1688,45 @@ with tabs[2]:
                             step=1.0,
                             on_change=lambda i=i: zoom_edit_callback(i)
                         )
+
+    with st.expander("Video Review"):
+        c1, c2, c3 = st.columns([10,10,100])
+        with c1:
+            # Slider to adjust the playback speed (seconds per frame).
+            st.session_state.fps = st.number_input(
+                "FPS",
+                min_value=1,
+                max_value=10,
+                value=int(st.session_state.fps),
+                step=1
+            )
+
+        with c2:
+            # Slider to adjust the image scale.
+            st.session_state.video_image_scale = st.number_input(
+                "Image Scale",
+                min_value=0.1,
+                max_value=2.0,
+                value=st.session_state.video_image_scale,
+                step=0.1
+            )
+
+        if st.button("Refresh"):
+            generating_mp4.clear() 
+            st.rerun()
+
+        if st.session_state.image_path_list:
+            # Filter out any None values from the image path list.
+            valid_image_paths = [item for item in st.session_state.image_path_list if item is not None]
+            # Generate the video file with the selected fps and image scale.
+            video_file_path = generating_mp4(valid_image_paths, st.session_state.fps)
+
+            col1, col2, col3 = st.columns([1/st.session_state.video_image_scale, 1.5, 1/st.session_state.video_image_scale])
+            with col2:
+                st.video(video_file_path, autoplay=True, loop=True)
+
+        else:
+            st.write("No images available to generate a video.")
 
 # ----------------------- Train Status Tab -----------------------
 with tabs[3]:
