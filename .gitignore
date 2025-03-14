@@ -73,3 +73,5 @@ package-lock.json
 run_hololens_combined_v11/*
 *.pt
 *.code-workspace
+cfgs/gui/*
+temp_*
