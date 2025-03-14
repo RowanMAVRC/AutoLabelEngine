@@ -75,3 +75,4 @@ run_hololens_combined_v11/*
 *.code-workspace
 cfgs/gui/*
 temp_*
+example_data/*
