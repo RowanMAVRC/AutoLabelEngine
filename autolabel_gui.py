@@ -35,7 +35,7 @@ SELECTED_KEYS = [
     "unverified_image_scale"
 ]
 
-def load_session_state(default_yaml_path="cfgs/gui/default.yaml"):
+def load_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
     """
     Load selected session state keys from a YAML file.
     If the file doesn't exist, create it with the current session state.
@@ -59,7 +59,7 @@ def load_session_state(default_yaml_path="cfgs/gui/default.yaml"):
     else:
         save_session_state(default_yaml_path)
         
-def save_session_state(default_yaml_path="cfgs/gui/default.yaml"):
+def save_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
     """
     Save only the selected session state keys to a YAML file.
     """
