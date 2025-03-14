@@ -1,7 +1,7 @@
-path: /data/TGSSE/HololensCombined/random_subset
-train: 'images'
-val: 'images' 
-test: 'images' 
+path: /data/TGSSE/
+train: 'train/images'
+val: 'val/images' 
+test: 'test/images' 
  
 # class names
 names: 

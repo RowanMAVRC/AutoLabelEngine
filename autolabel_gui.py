@@ -1144,39 +1144,39 @@ if "session_running" not in st.session_state:
 
     st.session_state.paths = {
 
-        "venv_path" : "/home/naddeok5/envs/auto-label-engine/",
+        "venv_path" : "../envs/auto-label-engine/",
 
-        "prev_unverified_images_path" : "/data/TGSSE",
-        "unverified_images_path" : "/data/TGSSE",
-        "unverified_names_yaml_path" : "/home/naddeok5/YOLOv8-Playground/cfgs/data/hololens_first_video.yaml",
+        "prev_unverified_images_path" : "example_data",
+        "unverified_images_path" : "example_data",
+        "unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
 
-        "upload_save_path": "/data/TGSSE",
+        "upload_save_path": "",
 
-        "mp4_path" : "/data/TGSSE",
-        "mp4_save_path" : "/data/TGSSE/",
-        "mp4_script_path" : "/home/naddeok5/AutoLabelEngine/convert_mp4_2_png.py",
+        "mp4_path" : "",
+        "mp4_save_path" : "",
+        "mp4_script_path" : "convert_mp4_2_png.py",
 
-        "rotate_images_path":  "/data/TGSSE/",
-        "rotate_images_script_path" : "/home/naddeok5/AutoLabelEngine/rotate_images.py",
+        "rotate_images_path":  "example_data",
+        "rotate_images_script_path" : "rotate_images.py",
 
-        "split_data_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
-        "split_data_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/",
-        "split_data_script_path" : "/home/naddeok5/AutoLabelEngine/split_yolo_data_by_object.py",
+        "split_data_path" : "example_data",
+        "split_data_save_path" : "",
+        "split_data_script_path" : "split_yolo_data_by_object.py",
 
-        "auto_label_save_path" : "/data/TGSSE/HololensCombined/random_subset_50/labels/",
-        "auto_label_model_weight_path" : "/data/TGSSE/weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
-        "auto_label_data_path" :  "/data/TGSSE/HololensCombined/random_subset_50/images/",
-        "auto_label_script_path" : "/home/naddeok5/AutoLabelEngine/inference.py",
+        "auto_label_save_path" : "example_data/labels/",
+        "auto_label_model_weight_path" : "weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
+        "auto_label_data_path" :  "example_data/images/",
+        "auto_label_script_path" : "inference.py",
      
-        "combine_dataset_1_path": "/data/TGSSE/ALE/",
-        "combine_dataset_2_path": "/data/TGSSE/ALE/",
-        "combine_dataset_save_path": "/data/TGSSE/ALE/",
-        "combine_dataset_script_path" : "/home/naddeok5/AutoLabelEngine/combine_yolo_dirs.py",
+        "combine_dataset_1_path": "example_data/",
+        "combine_dataset_2_path": "example_data/",
+        "combine_dataset_save_path": "example_data_combined/",
+        "combine_dataset_script_path" : "combine_yolo_dirs.py",
 
-        "train_data_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/data/default.yaml",
-        "train_model_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/model/default.yaml",
-        "train_train_yaml_path": "/data/TGSSE/ALE/cfgs/yolo/train/default.yaml",
-        "train_script_path" : "/home/naddeok5/AutoLabelEngine/train_yolo.py",
+        "train_data_yaml_path": "cfgs/yolo/data/default.yaml",
+        "train_model_yaml_path": "cfgs/yolo/model/default.yaml",
+        "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
+        "train_script_path" : "train_yolo.py",
 
     }
 
