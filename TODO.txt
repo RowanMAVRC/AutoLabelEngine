@@ -1,10 +1,7 @@
 
 sort path_navigator subdir alphabetically               ===> Tyler
 move all default dirs/yamls to AutoLabel not TGSSE              
-add refresh data path button
 
-split unverified path and names, unverified path should get a path navigator and names should get a yaml editor
-bug in review (detection function)
 
 make more descriptive text displayed                    ===> Craig
     add text to indicate that gpustat is not live
