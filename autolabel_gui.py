@@ -1,4 +1,5 @@
 import os
+import re
 import yaml
 import streamlit as st
 import subprocess
@@ -13,6 +14,9 @@ import time
 import numpy as np
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from PIL import Image, ImageDraw, ImageFont
+import shutil
+import hashlib
+
 
 ## Functions
 #-------------------------------------------------------------------------------------------------------------------------#
@@ -26,8 +30,7 @@ SELECTED_KEYS = [
     "data_cfg",
     "frame_index",
     "gpu_list",
-    "image_dir",
-    "image_path_list",
+    "images_dir",
     "label_list",
     "paths",
     "python_codes",
@@ -69,6 +72,65 @@ def save_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
             yaml.dump(state_to_save, f)
     except Exception as e:
         st.error(f"Error saving session state: {e}")
+
+def infer_image_pattern(images_dir, extensions=(".jpg", ".png")):
+    """
+    Infers a naming pattern for images in the given directory.
+    Returns a tuple (pattern, start_index, end_index) if successful,
+    but only if all files in the directory follow the same numeric pattern.
+    Otherwise, a warning is set in st.session_state.naming_pattern_warning and None is returned.
+
+    For example, if files are like frame001.jpg, frame002.jpg, etc.,
+    it returns ("frame{:03d}.jpg", 1, N). If no valid pattern is found,
+    a warning is issued and None is returned.
+    """
+    files = []
+    for ext in extensions:
+        files.extend(glob.glob(os.path.join(images_dir, f"*{ext}")))
+    if not files:
+        st.session_state.no_images_warning = "No images found in directory."
+        return None
+    else:
+        st.session_state.no_images_warning = None
+
+    patterns = {}
+    for filepath in files:
+        filename = os.path.basename(filepath)
+        # Match filenames that contain a numeric sequence.
+        match = re.search(r"^(.*?)(\d+)(\.[^.]+)$", filename)
+        if match:
+            prefix, number_str, ext = match.groups()
+            num_length = len(number_str)
+            pattern = f"{prefix}{{:0{num_length}d}}{ext}"
+            num = int(number_str)
+            patterns.setdefault(pattern, []).append(num)
+        else:
+            return None
+    
+    if not patterns:
+        return None
+
+    # Choose the pattern with the most files.
+    best_pattern, numbers = max(patterns.items(), key=lambda item: len(item[1]))
+    
+    # Check if the best pattern covers ALL files.
+    if len(numbers) != len(files):
+        return None
+
+    numbers.sort()
+
+    # Check that the numbers form a consecutive sequence.
+    for i in range(len(numbers) - 1):
+        if numbers[i] + 1 != numbers[i+1]:
+            return None
+
+    start_index = numbers[0]
+    end_index = numbers[-1]
+
+    # Clear any previous naming pattern warning.
+    st.session_state.naming_pattern_warning = None
+
+    return best_pattern, start_index, end_index
 
 def run_command(command):
     output = []
@@ -265,6 +327,7 @@ def yaml_editor(yaml_key):
         st.error(f"Path for key '{yaml_key}' not found in st.session_state.paths")
         return
     file_path = st.session_state.paths[yaml_key]
+   
 
     # Check if the file exists
     if not os.path.exists(file_path):
@@ -284,10 +347,10 @@ def yaml_editor(yaml_key):
         st.session_state.yamls = {}
 
     # Initialize the last saved content for this YAML file if not set
-    if yaml_key not in st.session_state.yamls:
-        st.session_state.yamls[yaml_key] = file_content
+    st.session_state.yamls[yaml_key] = file_content
 
-    ace_key = f"edited_content_{yaml_key}"
+    content_hash = hashlib.md5(file_content.encode('utf-8')).hexdigest()
+    ace_key = f"edited_content_{yaml_key}_{content_hash}"
     
     st.markdown("Edit YAML content")
 
@@ -295,16 +358,17 @@ def yaml_editor(yaml_key):
     line_count = len(lines) if len(lines) > 0 else 1
     calculated_height = max(100, line_count * 20 + 25)
 
+     # Auto-save if the edited content has changed compared to the last saved version
+    
     edited_content = st_ace(
         value=file_content,
         language="yaml",
         theme="",
         height=calculated_height,
         font_size=17, 
-        key=ace_key
+        key=ace_key,
     )
 
-    # Auto-save if the edited content has changed compared to the last saved version
     if edited_content != st.session_state.yamls[yaml_key]:
         try:
             # Validate the YAML content
@@ -445,7 +509,7 @@ def python_code_editor(code_key):
         else:
             st.error("Please enter a valid new file path")
 
-def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[1, 25]):
+def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[2, 25]):
     """
     A file/directory navigator that can operate in two modes:
     1) Default: Navigate through directories with a selectbox and a ".." button.
@@ -751,20 +815,36 @@ def update_labels():
                 st.session_state["skip_label_update"] = False
 
 def update_unverified_frame():
-    image_dir = st.session_state.image_dir
-    image_path = st.session_state.image_path_list[st.session_state.frame_index]
 
+    # Ensure frame index is feasible
+    st.session_state.frame_index = st.session_state.max_images - 1 if st.session_state.frame_index < 0 else st.session_state.frame_index
+    st.session_state.frame_index = 0 if st.session_state.frame_index > st.session_state.max_images - 1 else st.session_state.frame_index
+
+    # Get Image Path
+    images_dir = st.session_state.images_dir
+    if st.session_state.image_pattern:
+        image_path = os.path.join(images_dir, st.session_state.image_pattern.format(st.session_state.frame_index))
+    elif "image_list" in st.session_state and st.session_state.image_list:
+        try:
+            image_path = st.session_state.image_list[st.session_state.frame_index]
+        except IndexError:
+            st.error("Frame index out of range for image list.")
+            return
+    else:
+        st.error("No image naming pattern or image list set.")
+        return
+
+    # Open Image
     image = Image.open(image_path)
     image_width, image_height = image.size
 
-    labels_dir = image_dir.replace("images", "labels")
+    # Get Labels
+    labels_dir = images_dir.replace("images", "labels")
     label_path = image_path.replace("images", "labels").replace("jpg", "txt").replace("png", "txt")
 
-    # Ensure label path exists
     if not os.path.exists(labels_dir):
         os.makedirs(labels_dir)
 
-    # Read the YOLO-format labels (rows of: class x y w h normalized).
     bboxes_xyxy = []
     labels = []
     if os.path.exists(label_path):
@@ -788,6 +868,7 @@ def update_unverified_frame():
 
     bbox_ids = ["bbox-" + str(i) for i in range(len(bboxes_xyxy))]
 
+    # Store Internally
     st.session_state.image_path = image_path
     st.session_state.image = image
     st.session_state.labels_dir = labels_dir
@@ -798,14 +879,31 @@ def update_unverified_frame():
     st.session_state.labels = labels
     st.session_state.bbox_ids = bbox_ids
 
-    # Build detection_config to show in detection()
+    # Add unknown labels to display
+    known_labels = st.session_state.label_list
+
+    # Map out-of-range labels to a valid index and store the display-friendly mapping
+    display_labels = known_labels.copy()  # Start with known labels
+    unknown_label_map = {}
+
+    updated_labels = []
+    for label in labels:
+        if label < len(known_labels):
+            updated_labels.append(label)
+        else:
+            # Ensure a unique entry for each unknown label
+            if label not in unknown_label_map:
+                unknown_label_map[label] = len(display_labels)
+                display_labels.append(f"Unknown: {label}")
+            updated_labels.append(unknown_label_map[label])  # Use mapped index
+
     st.session_state["detection_config"] = {
         "image_path": st.session_state.image_path,
-        "image_height": int(st.session_state.unverified_image_scale*st.session_state.image_height),
-        "image_width": int(st.session_state.unverified_image_scale*st.session_state.image_width),
-        "label_list": st.session_state.label_list,
+        "image_height": int(st.session_state.unverified_image_scale * st.session_state.image_height),
+        "image_width": int(st.session_state.unverified_image_scale * st.session_state.image_width),
+        "label_list": display_labels,
         "bboxes": bboxes_xyxy,
-        "labels": labels,
+        "labels": updated_labels,
         "bbox_show_label": True,
         "info_dict": [],
         "meta_data": [],
@@ -832,34 +930,45 @@ def update_unverified_frame():
 
 def update_unverified_data_path():
     data_yaml_path = st.session_state.paths.get("unverified_names_yaml_path")
-
-    # Check if path exists
     if not data_yaml_path or not os.path.exists(data_yaml_path):
-        data_cfg = {
-            "names": {0: "default_label"}
-        }
+        data_cfg = {"names": {0: "default_label"}}
     else:
         if Path(data_yaml_path).suffix.lower() not in ['.yaml', '.yml']:
             return
-
         with open(data_yaml_path, 'r') as file:
             data_cfg = yaml.safe_load(file)
 
-    image_dir = st.session_state.paths["unverified_images_path"]
-    image_path_list = glob.glob(os.path.join(image_dir, "*.png")) + glob.glob(os.path.join(image_dir, "*.jpg"))
-    image_path_list.sort()
-    
-    label_list = list(data_cfg.get("names", {0: "default_label"}).values())
+    images_dir = st.session_state.paths["unverified_images_path"]
+    # Instead of building a full list, infer the naming pattern.
+    pattern_info = infer_image_pattern(images_dir)
+    if pattern_info is None:
+        # Set a flag instead of immediately showing a warning.
+        st.session_state.naming_pattern_warning = "Could not infer an image naming pattern or sequential numeric sequence found."
+        st.session_state.max_images = 0
+        st.session_state.start_index = 0
+        st.session_state.image_pattern = None
+    else:
+        st.session_state.naming_pattern_warning = None
+        image_pattern, start_index, end_index = pattern_info
+        st.session_state.image_pattern = image_pattern
+        st.session_state.start_index = start_index
+        st.session_state.max_images = end_index - start_index + 1
 
+    label_list = list(data_cfg.get("names", {0: "default_label"}).values())
     st.session_state.data_cfg = data_cfg
     st.session_state.label_list = label_list
-    st.session_state.image_dir = image_dir
-    st.session_state.image_path_list = image_path_list
-    st.session_state.frame_index = 0
+    st.session_state.images_dir = images_dir
+    st.session_state.frame_index = st.session_state.start_index
 
 def zoom_edit_callback(i):
-    # Get the old bbox for bbox i.
-    old_bbox = st.session_state.bboxes_xyxy[i]
+    # Try to get the old bounding box. If the index is out of range,
+    # display a warning and exit the callback.
+    try:
+        old_bbox = st.session_state.bboxes_xyxy[i]
+    except IndexError:
+        st.warning(f"Bounding box index {i} is out of range. Skipping update.")
+        return
+    
     # Read the new values from session_state using the unique keys.
     new_center_x = st.session_state[f"bbox_{i}_center_x_input"]
     # Here we assume the UI is showing the flipped center y (0 at bottom).
@@ -904,15 +1013,13 @@ def zoom_edit_callback(i):
 
 def next_callback():
 
-    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
-        st.session_state.frame_index += 1
-        st.session_state["skip_label_update"] = True
+    st.session_state.frame_index += 1
+    st.session_state["skip_label_update"] = True
 
 def prev_callback():
     
-    if st.session_state.frame_index > 0:
-        st.session_state.frame_index -= 1
-        st.session_state["skip_label_update"] = True
+    st.session_state.frame_index -= 1
+    st.session_state["skip_label_update"] = True
 
 def frame_slider_callback():
     # Get the new value from the slider (using the key "slider_det")
@@ -1081,18 +1188,23 @@ def create_video_file(image_paths, fps, scale=1.0, output_path="temp_label_revie
     
     return output_path
 
-# Cache the generated video file to avoid re-encoding if the parameters haven't changed.
 @st.cache_data(show_spinner=True)
 def generating_mp4(image_paths, fps):
     return create_video_file(image_paths, fps)
 
 def copy_labels_from_slide(source_index):
-    """
-    Copies labels from the slide at source_index to the current slide.
-    Assumes label files are stored in a parallel "labels" folder with the same filename (but .txt extension).
-    """
-    src_image_path = st.session_state.image_path_list[source_index]
-    # Compute source label file path (adjust the replacement if needed)
+    if st.session_state.image_pattern:
+        src_image_path = os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(source_index))
+    elif "image_list" in st.session_state and st.session_state.image_list:
+        try:
+            src_image_path = st.session_state.image_list[source_index]
+        except IndexError:
+            st.warning(f"Source index {source_index} is out of range for image list.")
+            return
+    else:
+        st.error("No image naming pattern or image list set.")
+        return
+
     src_label_path = src_image_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
     if os.path.exists(src_label_path):
         with open(src_label_path, "r") as f:
@@ -1101,8 +1213,18 @@ def copy_labels_from_slide(source_index):
         st.warning(f"No labels found in slide {source_index}.")
         src_labels = ""
     
-    # Compute current label file path
-    curr_image_path = st.session_state.image_path_list[st.session_state.frame_index]
+    if st.session_state.image_pattern:
+        curr_image_path = os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(st.session_state.frame_index))
+    elif "image_list" in st.session_state and st.session_state.image_list:
+        try:
+            curr_image_path = st.session_state.image_list[st.session_state.frame_index]
+        except IndexError:
+            st.error("Current frame index is out of range for image list.")
+            return
+    else:
+        st.error("No image naming pattern or image list set.")
+        return
+
     curr_label_path = curr_image_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
     with open(curr_label_path, "w") as f:
         f.write(src_labels)
@@ -1115,15 +1237,111 @@ def copy_prev_labels():
         source_index = st.session_state.frame_index - 1
         copy_labels_from_slide(source_index)
     else:
-        st.warning("No previous slide exists.")
+        source_index = st.session_state.max_images - 1
+        copy_labels_from_slide(source_index)
 
 def copy_next_labels():
     """Copies labels from the next slide, if it exists."""
-    if st.session_state.frame_index < len(st.session_state.image_path_list) - 1:
+    if st.session_state.frame_index < st.session_state.start_index + st.session_state.max_images - 1:
         source_index = st.session_state.frame_index + 1
         copy_labels_from_slide(source_index)
     else:
-        st.warning("No next slide exists.")
+        source_index = 0
+        copy_labels_from_slide(source_index)
+
+def safe_rename_images(images_dir):
+    """
+    Safely renames all image files in images_dir to a common pattern (image_0000, image_0001, …)
+    without conflicts by using a two-phase renaming process. It also renames corresponding label files,
+    ensuring that each image and its label remain paired throughout the process.
+    
+    The function assumes that:
+      - Image files can be .jpg, .jpeg, or .png and will be forced to have a .jpg extension.
+      - Label files are stored in a parallel directory obtained by replacing "images" with "labels"
+        and have a .txt extension.
+    
+    If multiple images share the same original label file, the first occurrence moves the file and
+    subsequent images get a copy of that label.
+    """
+    # Define the image extensions to process.
+    extensions = [".jpg", ".jpeg", ".png"]
+    
+    # Collect all image paths.
+    image_paths = []
+    for ext in extensions:
+        image_paths.extend(glob.glob(os.path.join(images_dir, f"*{ext}")))
+    image_paths.sort()
+
+    # Determine the labels directory (assumes "images" is part of the path).
+    labels_dir = images_dir.replace("images", "labels")
+    os.makedirs(labels_dir, exist_ok=True)
+    
+    # Calculate total steps (phase 1 and phase 2)
+    total_steps = len(image_paths) * 2
+    current_step = 0
+
+    # Create Streamlit placeholders for the progress bar and status text.
+    progress_bar = st.progress(0)
+    progress_text = st.empty()
+    
+    # Phase 1: Rename images and corresponding labels to temporary names.
+    temp_image_label_pairs = []  # List of tuples: (temp_image_path, temp_label_path, original_image_name)
+    label_temp_mapping = {}
+
+    for i, orig_image_path in enumerate(image_paths):
+        orig_dir, orig_image_name = os.path.split(orig_image_path)
+        
+        # Build the temporary image name (force .jpg extension).
+        temp_image_name = "__tmp__image_{:04d}.jpg".format(i)
+        temp_image_path = os.path.join(orig_dir, temp_image_name)
+        os.rename(orig_image_path, temp_image_path)
+        
+        # Determine the corresponding original label file.
+        orig_label_name = os.path.splitext(orig_image_name)[0] + ".txt"
+        orig_label_path = os.path.join(labels_dir, orig_label_name)
+        
+        # Build the temporary label name.
+        temp_label_name = "__tmp__image_{:04d}.txt".format(i)
+        temp_label_path = os.path.join(labels_dir, temp_label_name)
+        
+        # If this label file was already processed for a previous image, copy it.
+        if orig_label_name in label_temp_mapping:
+            shutil.copy2(label_temp_mapping[orig_label_name], temp_label_path)
+        elif os.path.exists(orig_label_path):
+            os.rename(orig_label_path, temp_label_path)
+            label_temp_mapping[orig_label_name] = temp_label_path
+        else:
+            # If no corresponding label file exists, create an empty one.
+            with open(temp_label_path, "w") as f:
+                pass
+        
+        temp_image_label_pairs.append((temp_image_path, temp_label_path, orig_image_name))
+        
+        current_step += 1
+        progress_bar.progress(current_step / total_steps)
+        progress_text.text(f"Phase 1: Renaming images {i+1} of {len(image_paths)}")
+    
+    # Phase 2: Rename temporary files to final names.
+    new_pattern_image = "image_{:04d}.jpg"
+    new_pattern_label = "image_{:04d}.txt"
+    
+    for i, (temp_image_path, temp_label_path, orig_image_name) in enumerate(temp_image_label_pairs):
+        # Final image name and path.
+        final_image_name = new_pattern_image.format(i)
+        final_image_path = os.path.join(os.path.dirname(temp_image_path), final_image_name)
+        os.rename(temp_image_path, final_image_path)
+        
+        # Final label name and path.
+        final_label_name = new_pattern_label.format(i)
+        final_label_path = os.path.join(os.path.dirname(temp_label_path), final_label_name)
+        os.rename(temp_label_path, final_label_path)
+        
+        current_step += 1
+        progress_bar.progress(current_step / total_steps)
+        progress_text.text(f"Phase 2: Renaming files {i+1} of {len(temp_image_label_pairs)}")
+    
+    progress_text.text("Renaming complete!")
+    return new_pattern_image, len(image_paths)
 
 #--------------------------------------------------------------------------------------------------------------------------------#
 
@@ -1148,6 +1366,7 @@ if "session_running" not in st.session_state:
 
         "prev_unverified_images_path" : "example_data",
         "unverified_images_path" : "example_data",
+        "prev_unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
         "unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
 
         "upload_save_path": "",
@@ -1180,26 +1399,21 @@ if "session_running" not in st.session_state:
 
     }
 
+    st.session_state.unverified_image_scale = 1.0
+
+    load_session_state()
+    
     update_unverified_data_path()
 
     gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
 
-    st.session_state.unverified_image_scale = 1.0
-
-    load_session_state()
-    
 #--------------------------------------------------------------------------------------------------------------------------------#
 
 ## Run each iteration
 save_session_state()
 
-if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"]:
-    st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
-    update_unverified_data_path()
 
-    if len(st.session_state.image_path_list) > 0:
-        update_unverified_frame()
 
 # Define tabs
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -1556,57 +1770,113 @@ with tabs[2]:
         path_navigator("unverified_images_path", button_and_selectbox_display_size=[1,25])
 
         st.write("Label Names YAML Path")
-        path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[1,25])
+        path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[2,25])
+
+        if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+            st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+            st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+            update_unverified_data_path()
+
+            if st.session_state.max_images > 0:
+                update_unverified_frame()
+                
+            st.rerun()
         
         yaml_editor("unverified_names_yaml_path")
 
     with st.expander("Manual Label Review"):
-        if len(st.session_state.image_path_list) > 0:
-            
-            # --- Top Navigation (Prev / Next) ---
-            col_prev, _, col_next = st.columns([1, 10, 2])
-            with col_prev:
-                st.button("Prev", key="top_prev_btn", on_click=prev_callback)
-            with col_next:
-                st.button("Next", key="top_next_btn", on_click=next_callback)
 
-            _, col_copy_prev, _, col_copy_next, _ = st.columns([3,1,1,1,3])
-            with col_copy_prev:
-                st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels)
-            with col_copy_next:
-                st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels)
+        if st.session_state.get("no_images_warning"):
+            st.warning(st.session_state.no_images_warning)
 
-            # Read from .txt file & build detection_config
-            update_unverified_frame()
-
-            # Let user annotate with detection()
-            st.session_state.out = detection(**st.session_state.detection_config)
-
-            # Update labels if changed in detection()
-            update_labels()
-                
-            # Additional navigation (jump, slider, second Prev/Next)
-            st.number_input(
-                "Jump to Image", min_value=0, max_value=len(st.session_state.image_path_list)-1,
-                value=st.session_state.frame_index, step=10, key="jump_page",
-                on_change=jump_page_callback
+        elif st.session_state.get("naming_pattern_warning"):
+            st.warning(st.session_state.naming_pattern_warning)
+            option = st.radio(
+                "Select an option to proceed:",
+                options=["Rename files with a pattern (lose original file names for faster performance)", "Store list of all images (retain orignal file names but lose performance)"],
+                key="naming_pattern_choice"
             )
-            
-
-            col_prev, col_slider, col_next = st.columns([1, 10, 2])
-            with col_prev:
-                st.button("Prev", key="prev_btn", on_click=prev_callback)
-            with col_slider:
-                st.slider(
-                    "Frame Index", 0, len(st.session_state.image_path_list) - 1,
-                    st.session_state.frame_index, key="slider_det",
-                    on_change=frame_slider_callback
-                )
-            with col_next:
-                st.button("Next", key="next_btn", on_click=next_callback)
+            if option == "Rename files with a pattern (lose original file names for faster performance)":
+                if st.button("Apply Rename", key="apply_rename"):
+                    # Get the images directory from session state.
+                    images_dir = st.session_state.paths["unverified_images_path"]
+                    
+                    # Call the safe renaming function.
+                    new_pattern, total_images = safe_rename_images(images_dir)
+                    
+                    if new_pattern is not None:
+                        # Update the session state.
+                        st.session_state.image_pattern = new_pattern
+                        st.session_state.start_index = 0
+                        st.session_state.max_images = total_images
+                        st.session_state.naming_pattern_warning = None
+                        st.session_state.image_list = None
+                        st.success("Session state updated after renaming.")
+                        st.rerun()
+            else:
+                if st.button("Store Image List", key="store_image_list"):
+                    images_dir = st.session_state.paths["unverified_images_path"]
+                    images = []
+                    for ext in [".jpg", ".png"]:
+                        images.extend(glob.glob(os.path.join(images_dir, f"*{ext}")))
+                    images.sort()
+                    st.session_state.image_list = images
+                    st.session_state.max_images = len(images)
+                    st.session_state.start_index = 0
+                    st.session_state.image_pattern = None
+                    st.session_state.naming_pattern_warning = None
+                    st.success("Image list stored. Note: This may slow down performance for large datasets.")
+                    st.rerun()
 
         else:
-            st.warning("Data Path is empty...")
+            if st.session_state.max_images > 0:
+                
+                # --- Top Navigation (Prev / Next) ---
+                col_prev, _, col_next = st.columns([4, 5, 4])
+                with col_prev:
+                    st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback)
+                with col_next:
+                    st.button("Next Frame", key="top_next_btn", on_click=next_callback)
+
+                col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
+                with col_copy_prev:
+                    st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels)
+                with col_copy_next:
+                    st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels)
+
+                # Read from .txt file & build detection_config
+                update_unverified_frame()
+
+                # Display current frame file path
+                st.write(f"Current File Path: {st.session_state.image_path}")
+
+                # Let user annotate with detection()
+                st.session_state.out = detection(**st.session_state.detection_config)
+
+                # Update labels if changed in detection()
+                update_labels()
+                    
+                # Additional navigation (jump, slider, second Prev/Next)
+                st.number_input(
+                    "Jump to Image", min_value=0, max_value=st.session_state.max_images-1,
+                    value=st.session_state.frame_index, step=10, key="jump_page",
+                    on_change=jump_page_callback
+                )
+                
+                col_prev, col_slider, col_next = st.columns([2, 10, 4])
+                with col_prev:
+                    st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
+                with col_slider:
+                    st.slider(
+                        "Frame Index", 0, st.session_state.max_images - 1,
+                        st.session_state.frame_index, key="slider_det",
+                        on_change=frame_slider_callback
+                    )
+                with col_next:
+                    st.button("Next Frame", key="next_btn", on_click=next_callback)
+ 
+            else:
+                st.warning("Data Path is empty...")
 
     with st.expander("Zoomed-in Bounding Box Regions"):
         if 'image' in st.session_state and 'bboxes_xyxy' in st.session_state:
@@ -1711,23 +1981,30 @@ with tabs[2]:
                 step=0.1
             )
 
-        if st.button("Refresh"):
-            generating_mp4.clear() 
-            st.rerun()
+        if st.button("Generate Video on Current Labels"):            
 
-        if st.session_state.image_path_list:
-            # Filter out any None values from the image path list.
-            valid_image_paths = [item for item in st.session_state.image_path_list if item is not None]
-            # Generate the video file with the selected fps and image scale.
-            video_file_path = generating_mp4(valid_image_paths, st.session_state.fps)
+            if st.session_state.max_images > 0:
+                if st.session_state.image_pattern:
+                    image_list = [
+                        os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(i))
+                        for i in range(st.session_state.start_index, st.session_state.start_index + st.session_state.max_images)
+                    ]
+                elif "image_list" in st.session_state and st.session_state.image_list:
+                    image_list = st.session_state.image_list
+                else:
+                    st.write("No images available to generate a video.")
+                    image_list = []
 
-            col1, col2, col3 = st.columns([1/st.session_state.video_image_scale, 1.5, 1/st.session_state.video_image_scale])
-            with col2:
-                st.video(video_file_path, autoplay=True, loop=True)
+                if image_list:
+                    generating_mp4.clear() 
+                    video_file_path = generating_mp4(image_list, st.session_state.fps)
+                    st.video(video_file_path, autoplay=True, loop=True)
+                else:
+                    st.write("No images available to generate a video.")
 
-        else:
-            st.write("No images available to generate a video.")
-
+            else:
+                st.write("No images available to generate a video.")
+                
 # ----------------------- Train Status Tab -----------------------
 with tabs[3]:
     with st.expander("Data YAML"):
