@@ -531,10 +531,10 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
         # Now default to the current path in the text input
         custom_path = st.text_input(
             "Enter custom save path:",
-            value=current_path,  # <--- Prefills with current path
+            value=current_path.strip(),  # Strip spaces from initial value
             key=f"{radio_button_prefix}_{key}_custom_path_input",
             label_visibility="collapsed"
-        )
+        ).strip()  # Strip spaces from the input
 
         st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
 
@@ -963,6 +963,8 @@ def update_unverified_data_path():
 def zoom_edit_callback(i):
     # Try to get the old bounding box. If the index is out of range,
     # display a warning and exit the callback.
+    st.session_state.video_needs_update = True
+
     try:
         old_bbox = st.session_state.bboxes_xyxy[i]
     except IndexError:
@@ -1360,53 +1362,64 @@ if "session_running" not in st.session_state:
 
     st.set_page_config(layout="wide")
 
-    st.session_state.paths = {
+    # Ensure `paths` exists in session state
+    if "paths" not in st.session_state:
+        st.session_state.paths = {}
 
-        "venv_path" : "../envs/auto-label-engine/",
+    # Define default paths
+    default_paths = {
+        "venv_path": "../envs/auto-label-engine/",
 
-        "prev_unverified_images_path" : "example_data",
-        "unverified_images_path" : "example_data",
-        "prev_unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
-        "unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
+        "prev_unverified_images_path": "example_data",
+        "unverified_images_path": "example_data",
+        "prev_unverified_names_yaml_path": "cfgs/gui/manual_labels/default.yaml",
+        "unverified_names_yaml_path": "cfgs/gui/manual_labels/default.yaml",
 
         "upload_save_path": "",
 
-        "mp4_path" : "",
-        "mp4_save_path" : "",
-        "mp4_script_path" : "convert_mp4_2_png.py",
+        "mp4_path": "",
+        "mp4_save_path": "",
+        "mp4_script_path": "convert_mp4_2_png.py",
 
-        "rotate_images_path":  "example_data",
-        "rotate_images_script_path" : "rotate_images.py",
+        "rotate_images_path": "example_data",
+        "rotate_images_script_path": "rotate_images.py",
 
-        "split_data_path" : "example_data",
-        "split_data_save_path" : "",
-        "split_data_script_path" : "split_yolo_data_by_object.py",
+        "split_data_path": "example_data",
+        "split_data_save_path": "",
+        "split_data_script_path": "split_yolo_data_by_object.py",
 
-        "auto_label_save_path" : "example_data/labels/",
-        "auto_label_model_weight_path" : "weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
-        "auto_label_data_path" :  "example_data/images/",
-        "auto_label_script_path" : "inference.py",
-     
+        "auto_label_save_path": "example_data/labels/",
+        "auto_label_model_weight_path": "weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
+        "auto_label_data_path": "example_data/images/",
+        "auto_label_script_path": "inference.py",
+
         "combine_dataset_1_path": "example_data/",
         "combine_dataset_2_path": "example_data/",
         "combine_dataset_save_path": "example_data_combined/",
-        "combine_dataset_script_path" : "combine_yolo_dirs.py",
+        "combine_dataset_script_path": "combine_yolo_dirs.py",
 
         "train_data_yaml_path": "cfgs/yolo/data/default.yaml",
         "train_model_yaml_path": "cfgs/yolo/model/default.yaml",
         "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
-        "train_script_path" : "train_yolo.py",
-
+        "train_script_path": "train_yolo.py",
     }
+
+    # Ensure all required keys exist in `st.session_state.paths`
+    for key, value in default_paths.items():
+        st.session_state.paths.setdefault(key, value)
 
     st.session_state.unverified_image_scale = 1.0
 
     load_session_state()
-    
+
     update_unverified_data_path()
 
-    gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
-    st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
+    try:
+        gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
+        st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
+    except subprocess.CalledProcessError:
+        st.session_state.gpu_list = []
+
 
 #--------------------------------------------------------------------------------------------------------------------------------#
 
@@ -1772,13 +1785,54 @@ with tabs[2]:
         st.write("Label Names YAML Path")
         path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[2,25])
 
-        if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
-            st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
-            st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
-            update_unverified_data_path()
+    # Ensure `paths` exists in session state
+    if "paths" not in st.session_state:
+        st.session_state.paths = {}
+
+    # Ensure all required keys exist before accessing them
+    required_keys = [
+        "prev_unverified_images_path",
+        "unverified_images_path",
+        "prev_unverified_names_yaml_path",
+        "unverified_names_yaml_path"
+    ]
+
+    for key in required_keys:
+    if key not in st.session_state.paths:
+        st.session_state.paths[key] = ""  # Set to empty string as default            if "paths" not in st.session_state:
+                st.session_state.paths = {}
+
+            # Ensure all required keys exist before accessing them
+            required_keys = [
+                "prev_unverified_images_path",
+                "unverified_images_path",
+                "prev_unverified_names_yaml_path",
+                "unverified_names_yaml_path"
+            ]
+
+            for key in required_keys:
+                if key not in st.session_state.paths:
+                    st.session_state.paths[key] = ""  # Set default value
+
+            # Now safely check the condition
+            if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or \
+            st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+                
+                st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+                st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+
+                update_unverified_data_path()
+
 
             if st.session_state.max_images > 0:
                 update_unverified_frame()
+
+            if "video_needs_update" in st.session_state and st.session_state.video_needs_update:
+                st.session_state.video_path = generating_mp4(image_paths, fps)
+                st.session_state.video_needs_update = False  
+
+            if "video_path" in st.session_state and st.session_state.video_path:
+                st.video(st.session_state.video_path)
                 
             st.rerun()
         
