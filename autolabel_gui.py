@@ -767,7 +767,7 @@ def are_bboxes_equal(current_bboxes, current_labels, bboxes_xyxy, labels_xyxy, t
         return False
     return True
 
-def update_labels():
+def update_labels_from_detection():
     if "out" not in st.session_state or "skip_label_update" not in st.session_state:
         st.session_state["skip_label_update"] = True
         return None
@@ -1007,30 +1007,25 @@ def update_unverified_data_path():
             st.session_state.frame_index = 0
 
 def zoom_edit_callback(i):
-    # Try to get the old bounding box. If the index is out of range,
-    # display a warning and exit the callback.
+    # Skip update if object view is active
+    if st.session_state.get("active_edit_view") == "object":
+        return
     try:
         old_bbox = st.session_state.bboxes_xyxy[i]
     except IndexError:
         st.warning(f"Bounding box index {i} is out of range. Skipping update.")
         return
-    
-    # Read the new values from session_state using the unique keys.
+
     new_center_x = st.session_state[f"bbox_{i}_center_x_input"]
-    # Here we assume the UI is showing the flipped center y (0 at bottom).
     flipped_center_y = st.session_state[f"bbox_{i}_center_y_input"]
     image_height = st.session_state.image_height
-    # Convert flipped center y to actual center y (standard: 0 at top).
     actual_center_y = image_height - flipped_center_y
-
     new_w = st.session_state[f"bbox_{i}_w_input"]
     new_h = st.session_state[f"bbox_{i}_h_input"]
 
-    # Calculate new top-left x and y based on the actual center and new dimensions.
-    new_x = new_center_x - new_w / 2
-    new_y = actual_center_y - new_h / 2
+    new_x = new_center_x - new_w/2
+    new_y = actual_center_y - new_h/2
 
-    # Clamp the bounding box to the image boundaries.
     if new_x < 0:
         new_x = 0.0
     if new_y < 0:
@@ -1040,22 +1035,81 @@ def zoom_edit_callback(i):
     if new_y + new_h > image_height:
         new_y = image_height - new_h
 
-    # If any parameter changed, update the bbox and write changes to the label file.
     if (new_x, new_y, new_w, new_h) != tuple(old_bbox):
         st.session_state.bboxes_xyxy[i] = [new_x, new_y, new_w, new_h]
-
         label_path = st.session_state.label_path
         image_width = st.session_state.image_width
         with open(label_path, "w") as f:
             for label, bbox in zip(st.session_state.labels, st.session_state.bboxes_xyxy):
                 bx, by, bw, bh = bbox
-                x_center_norm = (bx + bw / 2) / image_width
-                y_center_norm = (by + bh / 2) / image_height
+                x_center_norm = (bx + bw/2) / image_width
+                y_center_norm = (by + bh/2) / image_height
                 width_norm = bw / image_width
                 height_norm = bh / image_height
                 f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
-
         st.session_state["skip_label_update"] = True
+
+def object_by_object_edit_callback():
+    """
+    Reads new values from session_state keys for the current object,
+    recalculates the bounding box (clamped to image boundaries), and
+    updates the corresponding line in the label file if changes occurred.
+    After a successful update, the function re-reads the label file to sync
+    the frame-by-frame state with the object-by-object changes.
+    """
+    current_obj = get_object_by_global_index(st.session_state.global_object_index)
+    if current_obj is None:
+        st.warning("No object found to update.")
+        return
+
+    img = current_obj["img"]
+    old_bbox = current_obj["bbox"]  # Format: [x, y, w, h]
+    global_idx = current_obj["global_index"]
+
+    # Retrieve new values from session state (fallback to old values if not set)
+    new_center_x = st.session_state.get(f"object_{global_idx}_center_x", old_bbox[0] + old_bbox[2] / 2)
+    new_center_y = st.session_state.get(f"object_{global_idx}_center_y", old_bbox[1] + old_bbox[3] / 2)
+    new_w = st.session_state.get(f"object_{global_idx}_w", old_bbox[2])
+    new_h = st.session_state.get(f"object_{global_idx}_h", old_bbox[3])
+
+    # Calculate new top-left corner
+    new_x = new_center_x - new_w / 2
+    new_y = new_center_y - new_h / 2
+
+    # Clamp to image boundaries
+    if new_x < 0:
+        new_x = 0.0
+    if new_y < 0:
+        new_y = 0.0
+    if new_x + new_w > img.width:
+        new_x = img.width - new_w
+    if new_y + new_h > img.height:
+        new_y = img.height - new_h
+
+    new_bbox = [new_x, new_y, new_w, new_h]
+
+    # Only update if changes occurred
+    if new_bbox != old_bbox:
+        label_file = current_obj["label_path"]
+        try:
+            with open(label_file, "r") as f:
+                lines = f.readlines()
+            local_idx = current_obj["local_index"]
+            x_center_norm = (new_x + new_w / 2) / img.width
+            y_center_norm = (new_y + new_h / 2) / img.height
+            width_norm = new_w / img.width
+            height_norm = new_h / img.height
+            new_line = f"{current_obj['label']} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n"
+            lines[local_idx] = new_line
+            with open(label_file, "w") as f:
+                f.writelines(lines)
+            st.success("Object updated.")
+            # Re-read the updated label file and update the frame-by-frame state
+            update_unverified_frame()
+        except Exception as e:
+            st.error(f"Error updating label file: {e}")
+    else:
+        st.info("No changes detected.")
 
 def next_callback():
 
@@ -1433,6 +1487,175 @@ def checkbox_callback():
     # Call the functions.
     update_unverified_data_path()
     update_unverified_frame()
+
+def load_objects_from_image(image_path):
+    try:
+        img = Image.open(image_path)
+    except Exception as e:
+        st.error(f"Error loading image: {e}")
+        return None, None, None, None
+    width, height = img.size
+    label_path = image_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
+    bboxes = []
+    labels = []
+    if os.path.exists(label_path):
+        with open(label_path, "r") as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) >= 5:
+                    try:
+                        cls = int(parts[0])
+                        x_center, y_center, w_norm, h_norm = map(float, parts[1:5])
+                    except Exception:
+                        continue
+                    w_abs = w_norm * width
+                    h_abs = h_norm * height
+                    x_abs = (x_center * width) - (w_abs / 2)
+                    y_abs = (y_center * height) - (h_abs / 2)
+                    bboxes.append([x_abs, y_abs, w_abs, h_abs])
+                    labels.append(cls)
+    return img, bboxes, labels, label_path
+
+def get_object_by_global_index(global_idx):
+    # Build the image list using naming pattern if available; otherwise use the stored image list.
+    if st.session_state.get("image_pattern") is not None:
+        image_list = [
+            os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(i))
+            for i in range(st.session_state.start_index, st.session_state.start_index + st.session_state.max_images)
+        ]
+    else:
+        image_list = st.session_state.image_list if "image_list" in st.session_state else []
+    cumulative = 0
+    for image_path in image_list:
+        img, bboxes, labels, label_path = load_objects_from_image(image_path)
+        if img is None:
+            continue
+        n_obj = len(bboxes)
+        if global_idx < cumulative + n_obj:
+            local_idx = global_idx - cumulative
+            return {
+                "img": img,
+                "bbox": bboxes[local_idx],
+                "label": labels[local_idx],
+                "image_path": image_path,
+                "label_path": label_path,
+                "local_index": local_idx,
+                "global_index": global_idx
+            }
+        cumulative += n_obj
+    return None
+
+def get_object_by_global_index(global_index):
+    """
+    Iterates over the image list (built using the naming pattern if available)
+    and returns the object (bounding box and label) corresponding to the given global index.
+    Returns a dictionary with keys: img, image_path, label_path, bbox, label, local_index, global_index.
+    """
+    # Build image list based on naming pattern if available; otherwise, use stored list.
+    if st.session_state.get("image_pattern") is not None:
+        image_list = [
+            os.path.join(st.session_state.paths["unverified_images_path"],
+                         st.session_state.image_pattern.format(i))
+            for i in range(st.session_state.start_index, st.session_state.start_index + st.session_state.max_images)
+        ]
+    else:
+        image_list = st.session_state.image_list if "image_list" in st.session_state else []
+    
+    count = 0
+    for image_path in image_list:
+        try:
+            img = Image.open(image_path)
+        except Exception:
+            continue
+        label_file = image_path.replace("images", "labels").rsplit(".", 1)[0] + ".txt"
+        bboxes = []
+        labels = []
+        if os.path.exists(label_file):
+            with open(label_file, "r") as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        try:
+                            cls = int(parts[0])
+                            x_center, y_center, w_norm, h_norm = map(float, parts[1:5])
+                        except Exception:
+                            continue
+                        w_abs = w_norm * img.width
+                        h_abs = h_norm * img.height
+                        x_abs = (x_center * img.width) - (w_abs / 2)
+                        y_abs = (y_center * img.height) - (h_abs / 2)
+                        bboxes.append([x_abs, y_abs, w_abs, h_abs])
+                        labels.append(cls)
+        for local_index, bbox in enumerate(bboxes):
+            if count == global_index:
+                return {
+                    "img": img,
+                    "image_path": image_path,
+                    "label_path": label_file,
+                    "bbox": bbox,
+                    "label": labels[local_index] if local_index < len(labels) else None,
+                    "local_index": local_index,
+                    "global_index": global_index
+                }
+            count += 1
+    return None
+
+def object_by_object_edit_callback():
+    """
+    Reads new values from session_state keys for the current object,
+    recalculates the bounding box (clamping to image boundaries), and
+    updates the corresponding line in the label file if changes occurred.
+    """
+    current_obj = get_object_by_global_index(st.session_state.global_object_index)
+    if current_obj is None:
+        st.warning("No object found to update.")
+        return
+
+    img = current_obj["img"]
+    old_bbox = current_obj["bbox"]  # Format: [x, y, w, h]
+    global_idx = current_obj["global_index"]
+
+    # Retrieve new values from session_state; use old values if not set.
+    new_center_x = st.session_state.get(f"object_{global_idx}_center_x", old_bbox[0] + old_bbox[2]/2)
+    new_center_y = st.session_state.get(f"object_{global_idx}_center_y", old_bbox[1] + old_bbox[3]/2)
+    new_w = st.session_state.get(f"object_{global_idx}_w", old_bbox[2])
+    new_h = st.session_state.get(f"object_{global_idx}_h", old_bbox[3])
+
+    # Calculate new top-left corner based on center and dimensions.
+    new_x = new_center_x - new_w/2
+    new_y = new_center_y - new_h/2
+
+    # Clamp the new bounding box within image boundaries.
+    if new_x < 0:
+        new_x = 0.0
+    if new_y < 0:
+        new_y = 0.0
+    if new_x + new_w > img.width:
+        new_x = img.width - new_w
+    if new_y + new_h > img.height:
+        new_y = img.height - new_h
+
+    new_bbox = [new_x, new_y, new_w, new_h]
+
+    # Update the label file if the bounding box has changed.
+    if new_bbox != old_bbox:
+        label_file = current_obj["label_path"]
+        try:
+            with open(label_file, "r") as f:
+                lines = f.readlines()
+            local_idx = current_obj["local_index"]
+            x_center_norm = (new_x + new_w/2) / img.width
+            y_center_norm = (new_y + new_h/2) / img.height
+            width_norm = new_w / img.width
+            height_norm = new_h / img.height
+            new_line = f"{current_obj['label']} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n"
+            lines[local_idx] = new_line
+            with open(label_file, "w") as f:
+                f.writelines(lines)
+        except Exception as e:
+            st.error(f"Error updating label file: {e}")
+    else:
+        st.info("No changes detected.")
 
 #--------------------------------------------------------------------------------------------------------------------------------#
 
@@ -2010,7 +2233,7 @@ with tabs[2]:
         else:
             st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
-    with st.expander("Manual Label Review"):
+    with st.expander("Frame by Frame Label Review"):
 
         if st.session_state.get("no_images_warning"):
             st.warning(st.session_state.no_images_warning)
@@ -2095,7 +2318,7 @@ with tabs[2]:
                 st.session_state.out = detection(**st.session_state.detection_config)
 
                 # Update labels if changed in detection()
-                update_labels()
+                update_labels_from_detection()
 
                 c1, c2, c3 = st.columns([10,10,10])
                 with c1:
@@ -2223,6 +2446,115 @@ with tabs[2]:
                             step=1.0,
                             on_change=lambda i=i: zoom_edit_callback(i)
                         )
+
+    with st.expander("Object by Object Label Review"):
+        # Initialize global object index if not present
+        if "global_object_index" not in st.session_state:
+            st.session_state.global_object_index = 0
+
+        current_obj = get_object_by_global_index(st.session_state.global_object_index)
+        if current_obj is None:
+            st.info("No objects found in the dataset.")
+        else:
+            img = current_obj["img"]
+            bbox = current_obj["bbox"]
+            obj_label = current_obj["label"]
+            image_path = current_obj["image_path"]
+            label_path = current_obj["label_path"]
+            x, y, w, h = bbox
+            center_x = x + w / 2
+            center_y = y + h / 2
+
+            # Create a display mode radio button to toggle view.
+            mode = st.radio(
+                "Display Mode",
+                options=["Cropped Object", "Full Image with BBox"],
+                key=f"object_display_mode_{current_obj['global_index']}"
+            )
+
+            # Determine which image to display based on the mode.
+            if mode == "Cropped Object":
+                display_img = img.crop((x, y, x + w, y + h))
+                caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Cropped)"
+            else:
+                # Draw bounding box on a copy of the full image.
+                full_img = img.copy()
+                from PIL import ImageDraw
+                draw = ImageDraw.Draw(full_img)
+                draw.rectangle((x, y, x + w, y + h), outline="red", width=2)
+                display_img = full_img
+                caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Full Image)"
+                
+            col_img, col_ctrl = st.columns(2)
+            with col_img:
+                st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                st.image(display_img, caption=caption, use_container_width=True)
+                st.markdown("</div>", unsafe_allow_html=True)
+            with col_ctrl:
+                st.number_input(
+                    f"Center X for object {current_obj['global_index']}",
+                    min_value=0.0,
+                    max_value=float(img.width),
+                    value=center_x,
+                    key=f"object_{current_obj['global_index']}_center_x",
+                    step=1.0,
+                    on_change=object_by_object_edit_callback
+                )
+                st.number_input(
+                    f"Center Y for object {current_obj['global_index']}",
+                    min_value=0.0,
+                    max_value=float(img.height),
+                    value=center_y,
+                    key=f"object_{current_obj['global_index']}_center_y",
+                    step=1.0,
+                    on_change=object_by_object_edit_callback
+                )
+                st.number_input(
+                    f"Width for object {current_obj['global_index']}",
+                    min_value=1.0,
+                    max_value=float(img.width),
+                    value=w,
+                    key=f"object_{current_obj['global_index']}_w",
+                    step=1.0,
+                    on_change=object_by_object_edit_callback
+                )
+                st.number_input(
+                    f"Height for object {current_obj['global_index']}",
+                    min_value=1.0,
+                    max_value=float(img.height),
+                    value=h,
+                    key=f"object_{current_obj['global_index']}_h",
+                    step=1.0,
+                    on_change=object_by_object_edit_callback
+                )
+            col_nav1, col_nav2, col_nav3 = st.columns(3)
+            with col_nav1:
+                if st.button("Previous Object", key="prev_global_obj"):
+                    st.session_state.global_object_index = max(0, st.session_state.global_object_index - 1)
+                    st.rerun()
+            with col_nav2:
+                if st.button("Next Object", key="next_global_obj"):
+                    st.session_state.global_object_index += 1
+                    if get_object_by_global_index(st.session_state.global_object_index) is None:
+                        st.session_state.global_object_index -= 1
+                        st.warning("No next object found.")
+                    st.rerun()
+            with col_nav3:
+                if st.button("Delete Object", key="delete_global_obj"):
+                    try:
+                        with open(label_path, "r") as f:
+                            lines = f.readlines()
+                        local_idx = current_obj["local_index"]
+                        if local_idx < len(lines):
+                            del lines[local_idx]
+                            with open(label_path, "w") as f:
+                                f.writelines(lines)
+                            st.success("Object deleted.")
+                        else:
+                            st.error("Local object index out of range in label file.")
+                    except Exception as e:
+                        st.error(f"Error deleting object: {e}")
+                    st.rerun()
 
     with st.expander("Video Review"):
         c0, c1, c2, c3 = st.columns([30, 10,10,100])
