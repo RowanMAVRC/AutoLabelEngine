@@ -1529,6 +1529,21 @@ def get_frame_index_from_filename(filename):
 
     return base_index
 
+def add_frame_callback(key):
+    add_val = st.session_state[key]
+    if add_val not in st.session_state.subset_frames:
+        st.session_state.subset_frames.append(add_val)
+        save_subset_frames(csv_file, st.session_state.subset_frames)
+        st.session_state["skip_label_update"] = True
+
+def remove_frame_callback(key):
+    remove_val = st.session_state[key]
+    if remove_val in st.session_state.subset_frames:
+        st.session_state.subset_frames.remove(remove_val)
+        save_subset_frames(csv_file, st.session_state.subset_frames)
+        st.session_state["skip_label_update"] = True
+
+
 ## Zoom & Object Edit Callbacks
 
 def zoom_edit_callback(i):
@@ -2446,20 +2461,6 @@ with tabs[2]:
                 subset_df.insert(0, "Subset Index", range(1, len(subset_df) + 1))
 
                 st.subheader("Modify/View Subset")
-                # --- Callback Functions for Adding and Removing Frames ---
-                def add_frame_callback(key):
-                    add_val = st.session_state[key]
-                    if add_val not in st.session_state.subset_frames:
-                        st.session_state.subset_frames.append(add_val)
-                        save_subset_frames(csv_file, st.session_state.subset_frames)
-                        st.session_state["skip_label_update"] = True
-
-                def remove_frame_callback(key):
-                    remove_val = st.session_state[key]
-                    if remove_val in st.session_state.subset_frames:
-                        st.session_state.subset_frames.remove(remove_val)
-                        save_subset_frames(csv_file, st.session_state.subset_frames)
-                        st.session_state["skip_label_update"] = True
 
                 # Add/Remove Frames
                 if st.session_state.max_images > 0:
