@@ -1937,8 +1937,8 @@ if "session_running" not in st.session_state:
         "venv_path" : "../envs/auto-label-engine/",
         "generate_venv_script_path": "setup_venv.sh",
 
-        "prev_unverified_images_path" : "example_data",
-        "unverified_images_path" : "example_data",
+        "prev_unverified_images_path" : "example_data/images",
+        "unverified_images_path" : "example_data/images",
         "prev_unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
         "unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
 
