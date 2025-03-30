@@ -1923,7 +1923,7 @@ with tabs[0]:
                 save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
                 key = "mp4_save_path"
                 if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/")
+                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/").replace("mp4_data", "yolo_format_data")
                     st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
                 else:
                     path_navigator(
