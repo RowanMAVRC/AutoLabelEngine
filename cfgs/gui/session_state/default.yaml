@@ -1,3 +1,4 @@
+auto_label_gpu: 0
 data_cfg:
   names:
     0: Airplane
@@ -5,8 +6,7 @@ data_cfg:
     2: Fixed Wing Drone
     3: Fighter Jet
     4: Birds
-    5: Helicopter
-frame_index: 0
+frame_index: 5
 gpu_list:
 - 'GPU 0: Quadro RTX 8000 (UUID: GPU-0627d9ee-1acc-381e-6717-759d6ddbfaaa)'
 - 'GPU 1: Quadro RTX 8000 (UUID: GPU-fca126cb-c645-592b-b37d-8738191e296f)'
@@ -14,39 +14,376 @@ gpu_list:
 - 'GPU 3: Quadro RTX 8000 (UUID: GPU-06c54b91-735e-c162-dcbb-8e2891de0103)'
 - 'GPU 4: Quadro RTX 8000 (UUID: GPU-c3a3c219-e32d-6131-f1d6-dc84f545257a)'
 - 'GPU 5: Quadro RTX 8000 (UUID: GPU-7ac32abd-d96c-5488-8c44-516e6de1ff50)'
-image_dir: example_data
-image_path_list: []
+images_dir: /data/TGSSE/HololensCombined/images
 label_list:
 - Airplane
 - Rotary Drone
 - Fixed Wing Drone
 - Fighter Jet
 - Birds
-- Helicopter
 paths:
-  auto_label_data_path: example_data/images/
+  auto_label_data_path: /data/TGSSE/AutoLabelEngine/yolo_format_data/area_denial_001/images
   auto_label_model_weight_path: weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt
-  auto_label_save_path: example_data/labels/
+  auto_label_save_path: /data/TGSSE/AutoLabelEngine/yolo_format_data/area_denial_001/labels
   auto_label_script_path: inference.py
-  combine_dataset_1_path: example_data/
-  combine_dataset_2_path: example_data/
+  combine_dataset_1_path: example_data
+  combine_dataset_2_path: example_data
   combine_dataset_save_path: example_data_combined/
   combine_dataset_script_path: combine_yolo_dirs.py
-  mp4_path: ''
-  mp4_save_path: ''
+  mp4_path: /data/TGSSE/AutoLabelEngine/mp4_data/area_denial_001.mp4
+  mp4_save_path: /data/TGSSE/AutoLabelEngine/mp4_data/area_denial_001/images/
   mp4_script_path: convert_mp4_2_png.py
-  prev_unverified_images_path: example_data
-  rotate_images_path: example_data
+  prev_unverified_images_path: /data/TGSSE/HololensCombined/images
+  prev_unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
+  rotate_images_path: /data/TGSSE/AutoLabelEngine/yolo_format_data/area_denial_001/images
   rotate_images_script_path: rotate_images.py
   split_data_path: example_data
-  split_data_save_path: ''
+  split_data_save_path: example_data
   split_data_script_path: split_yolo_data_by_object.py
   train_data_yaml_path: cfgs/yolo/data/default.yaml
   train_model_yaml_path: cfgs/yolo/model/default.yaml
   train_script_path: train_yolo.py
   train_train_yaml_path: cfgs/yolo/train/default.yaml
-  unverified_images_path: example_data
+  unverified_images_path: /data/TGSSE/HololensCombined/images
   unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
-  upload_save_path: ''
-  venv_path: ../envs/auto-label-engine/
+  unverified_subset_csv_path: cfgs/gui/subset/default.csv
+  upload_save_path: /data/TGSSE/AutoLabelEngine/mp4_data
+  venv_path: ../envs/autolabel
+python_codes:
+  auto_label_script_path: "import argparse\nimport cv2\nfrom pathlib import Path\n\
+    from ultralytics import YOLO  # Ensure you have installed ultralytics (pip install\
+    \ ultralytics)\nfrom tqdm import tqdm  # Progress bar\n\ndef convert_to_yolo_format(box,\
+    \ img_width, img_height):\n    \"\"\"\n    Convert box coordinates from (x1, y1,\
+    \ x2, y2) to YOLO format:\n    (class, center_x, center_y, width, height) where\
+    \ coordinates are normalized.\n    \"\"\"\n    # Extract coordinates\n    x1,\
+    \ y1, x2, y2 = box.xyxy[0].cpu().numpy()\n    # Calculate center, width, and height\n\
+    \    center_x = (x1 + x2) / 2.0 / img_width\n    center_y = (y1 + y2) / 2.0 /\
+    \ img_height\n    box_width = (x2 - x1) / img_width\n    box_height = (y2 - y1)\
+    \ / img_height\n    # Get the predicted class (as integer)\n    cls = int(box.cls[0].item())\n\
+    \    return cls, center_x, center_y, box_width, box_height\n\ndef process_images(model_weights,\
+    \ images_dir, labels_dir, gpu_number):\n    # Create the labels directory if it\
+    \ doesn't exist\n    labels_dir = Path(labels_dir)\n    labels_dir.mkdir(parents=True,\
+    \ exist_ok=True)\n    print(f\"Labels directory is set to: {labels_dir.resolve()}\"\
+    )\n\n    # Load the YOLO model on the specified GPU device\n    device = f\"cuda:{gpu_number}\"\
+    \ if gpu_number >= 0 else \"cpu\"\n    print(f\"Loading model weights from {model_weights}\
+    \ on device {device}...\")\n    model = YOLO(model_weights).to(device)\n    print(\"\
+    Model loaded successfully.\\n\")\n\n    # Process each image with extension png,\
+    \ jpg, or jpeg\n    images_path = Path(images_dir)\n    image_files = [p for p\
+    \ in images_path.iterdir() if p.suffix.lower() in [\".png\", \".jpg\", \".jpeg\"\
+    ]]\n    if not image_files:\n        print(\"No images found in the specified\
+    \ directory.\")\n        return\n\n    print(f\"Found {len(image_files)} images.\
+    \ Starting processing...\")\n    for img_path in tqdm(image_files, desc=\"Processing\
+    \ images\"):\n        # Read image to get dimensions\n        image = cv2.imread(str(img_path))\n\
+    \        if image is None:\n            print(f\"Warning: Unable to read {img_path}\"\
+    )\n            continue\n        img_height, img_width = image.shape[:2]\n\n \
+    \       # Run inference on the image using the model\n        results = model.predict(str(img_path),\
+    \ verbose=False)\n        # For each detected box, convert and save in YOLO format\n\
+    \        label_file = labels_dir / f\"{img_path.stem}.txt\"\n        with open(label_file,\
+    \ \"w\") as f:\n            # Assuming results[0] corresponds to the processed\
+    \ image\n            boxes = results[0].boxes\n            for box in boxes:\n\
+    \                cls, center_x, center_y, box_width, box_height = convert_to_yolo_format(box,\
+    \ img_width, img_height)\n                # Write the detection in YOLO format:\
+    \ class center_x center_y width height\n                f.write(f\"{cls} {center_x:.6f}\
+    \ {center_y:.6f} {box_width:.6f} {box_height:.6f}\\n\")\n    print(\"All images\
+    \ processed successfully.\")\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(\n\
+    \        description=\"Auto-label images using a YOLO model and save detections\
+    \ in YOLO format.\"\n    )\n    parser.add_argument(\"--model_weights_path\",\
+    \ help=\"Path to the YOLO model weights file\", required=True)\n    parser.add_argument(\"\
+    --images_dir_path\", help=\"Path to the directory containing images (PNG/JPG)\"\
+    , required=True)\n    parser.add_argument(\"--labels_save_path\", help=\"Path\
+    \ to the directory where label files will be saved\", required=True)\n    parser.add_argument(\"\
+    --gpu_number\", type=int, default=0, help=\"GPU number to use. Set to -1 to use\
+    \ CPU.\")\n    args = parser.parse_args()\n\n    process_images(args.model_weights_path,\
+    \ args.images_dir_path, args.labels_save_path, args.gpu_number)\n"
+  combine_dataset_script_path: "import os\nimport shutil\nfrom pathlib import Path\n\
+    from tqdm import tqdm\nimport argparse\n\ndef combine_yolo_dirs(yolo_dirs, dst_dir):\n\
+    \    \"\"\"\n    Combine two YOLO directories into a single destination directory\
+    \ with prefixed filenames.\n    Resolves duplicate prefixes by appending a higher-level\
+    \ directory name to make them unique.\n\n    Args:\n        yolo_dirs (list of\
+    \ str): List of two YOLO directories to combine. Each directory must contain 'images'\
+    \ and 'labels' subdirectories.\n        dst_dir (str): Destination directory where\
+    \ combined files will be saved.\n    \"\"\"\n    dst_images_dir = Path(dst_dir)\
+    \ / \"images\"\n    dst_labels_dir = Path(dst_dir) / \"labels\"\n\n    # Create\
+    \ destination subdirectories if they don't exist\n    dst_images_dir.mkdir(parents=True,\
+    \ exist_ok=True)\n    dst_labels_dir.mkdir(parents=True, exist_ok=True)\n\n  \
+    \  # Determine unique prefixes for each dataset\n    prefixes = {}\n    for yolo_dir\
+    \ in yolo_dirs:\n        yolo_path = Path(yolo_dir)\n        prefix = f\"{yolo_path.parent.name}_{yolo_path.name}\"\
+    \n        # Ensure the prefix is unique\n        while prefix in prefixes.values():\n\
+    \            prefix = f\"{Path(yolo_path.parent.parent).name}_{prefix}\"\n   \
+    \     if prefix.startswith(\"_\"):\n            prefix = prefix[1:]\n        prefixes[yolo_dir]\
+    \ = prefix\n\n    # Process each YOLO directory\n    for yolo_dir, prefix in prefixes.items():\n\
+    \        yolo_path = Path(yolo_dir)\n        images_dir = yolo_path / \"images\"\
+    \n        labels_dir = yolo_path / \"labels\"\n\n        # Check if subdirectories\
+    \ exist\n        if not images_dir.exists() or not labels_dir.exists():\n    \
+    \        print(f\"Skipping {yolo_dir}: Missing 'images' or 'labels' directory.\"\
+    )\n            continue\n\n        # Copy images with new prefixed filenames\n\
+    \        image_files = list(images_dir.glob(\"*.*\"))  # Match all files\n   \
+    \     for image_file in tqdm(image_files, desc=f\"Copying images from {yolo_dir}\"\
+    , unit=\"file\"):\n            new_name = f\"{prefix}_{image_file.name}\"\n  \
+    \          shutil.copy(image_file, dst_images_dir / new_name)\n\n        # Copy\
+    \ labels with new prefixed filenames\n        label_files = list(labels_dir.glob(\"\
+    *.*\"))  # Match all files\n        for label_file in tqdm(label_files, desc=f\"\
+    Copying labels from {yolo_dir}\", unit=\"file\"):\n            new_name = f\"\
+    {prefix}_{label_file.name}\"\n            shutil.copy(label_file, dst_labels_dir\
+    \ / new_name)\n\n    print(f\"All files have been combined and saved to {dst_dir}.\"\
+    )\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(description=\"\
+    Combine two YOLO dataset directories into one.\")\n    parser.add_argument(\"\
+    --dataset1\", help=\"Path to the first YOLO dataset directory\")\n    parser.add_argument(\"\
+    --dataset2\", help=\"Path to the second YOLO dataset directory\")\n    parser.add_argument(\"\
+    --dst_dir\", help=\"Destination directory where combined files will be saved\"\
+    )\n    args = parser.parse_args()\n\n    combine_yolo_dirs([args.dataset1, args.dataset2],\
+    \ args.dst_dir)\n"
+  mp4_script_path: "import cv2\nimport os\nimport argparse\nfrom tqdm import tqdm\n\
+    \ndef extract_frames(video_path, output_folder):\n    \"\"\"\n    Extracts frames\
+    \ from an MP4 video and saves them as PNG images.\n\n    Args:\n        video_path\
+    \ (str): Path to the input MP4 video.\n        output_folder (str): Path to the\
+    \ folder where images will be saved.\n    \"\"\"\n    # Ensure the output directory\
+    \ exists\n    os.makedirs(output_folder, exist_ok=True)\n\n    # Open the video\
+    \ file\n    video_capture = cv2.VideoCapture(video_path)\n    if not video_capture.isOpened():\n\
+    \        print(f\"Error: Could not open video file {video_path}\")\n        return\n\
+    \n    frame_count = int(video_capture.get(cv2.CAP_PROP_FRAME_COUNT))\n    \n \
+    \   # Initialize tqdm progress bar\n    progress_bar = tqdm(total=frame_count,\
+    \ desc=\"Extracting frames\", unit=\"frame\")\n\n    frame_index = 0\n    while\
+    \ True:\n        ret, frame = video_capture.read()\n        if not ret:\n    \
+    \        break\n\n        # Save the frame as a PNG file\n        frame_filename\
+    \ = os.path.join(output_folder, f\"frame_{frame_index:05d}.png\")\n        cv2.imwrite(frame_filename,\
+    \ frame)\n\n        frame_index += 1\n        progress_bar.update(1)\n\n    progress_bar.close()\n\
+    \    video_capture.release()\n\n    progress_bar.close()\n    print()  \n    print(f\"\
+    Saved images to: {output_folder}\")\n    print()\n\ndef main():\n    parser =\
+    \ argparse.ArgumentParser(\n        description=\"Extract frames from an MP4 video\
+    \ and save them as PNG images.\"\n    )\n    parser.add_argument(\"--video_path\"\
+    , type=str, required=True, help=\"Path to the input MP4 video.\")\n    parser.add_argument(\"\
+    --output_folder\", type=str, required=True, help=\"Path to the folder where images\
+    \ will be saved.\")\n    args = parser.parse_args()\n\n    extract_frames(args.video_path,\
+    \ args.output_folder)\n\nif __name__ == \"__main__\":\n    main()\n"
+  rotate_images_script_path: "import os\nimport argparse\nfrom PIL import Image\n\
+    from tqdm import tqdm\n\ndef rotate_image(image_path, rotation_type):\n    \"\"\
+    \"Rotates an image based on the specified rotation type and saves it in place.\"\
+    \"\"\n    try:\n        with Image.open(image_path) as img:\n            if rotation_type\
+    \ == 'CW':\n                rotated_img = img.rotate(-90, expand=True)  # Clockwise\
+    \ 90 degrees\n            elif rotation_type == 'CCW':\n                rotated_img\
+    \ = img.rotate(90, expand=True)  # Counterclockwise 90 degrees\n            elif\
+    \ rotation_type == '180':\n                rotated_img = img.rotate(180, expand=True)\
+    \  # 180-degree rotation\n            else:\n                print(f\"Invalid\
+    \ rotation type: {rotation_type}\")\n                return\n\n            rotated_img.save(image_path)\n\
+    \    \n    except Exception as e:\n        print(f\"Error processing {image_path}:\
+    \ {e}\")\n\ndef process_images(directory, rotation_type):\n    \"\"\"Processes\
+    \ all images in the directory and applies the specified rotation.\"\"\"\n    if\
+    \ not os.path.exists(directory):\n        print(f\"Directory '{directory}' does\
+    \ not exist.\")\n        return\n\n    valid_extensions = ('.jpg', '.jpeg', '.png')\n\
+    \    image_files = [f for f in os.listdir(directory) if f.lower().endswith(valid_extensions)]\n\
+    \n    if not image_files:\n        print(\"No valid image files found in the directory.\"\
+    )\n        return\n\n    for filename in tqdm(image_files, desc=\"Processing Images\"\
+    , unit=\"file\"):\n        image_path = os.path.join(directory, filename)\n  \
+    \      rotate_image(image_path, rotation_type)\n\nif __name__ == \"__main__\"\
+    :\n    parser = argparse.ArgumentParser(description=\"Rotate images in a directory\"\
+    )\n    parser.add_argument(\"--directory\", type=str, required=True, help=\"Path\
+    \ to the directory containing images\")\n    parser.add_argument(\"--rotation\"\
+    , type=str, choices=['CW', 'CCW', '180'], required=True, \n                  \
+    \      help=\"Rotation type: CW (90\xB0 Clockwise), CCW (90\xB0 Counterclockwise),\
+    \ or 180 (180\xB0 Rotation)\")\n\n    args = parser.parse_args()\n    process_images(args.directory,\
+    \ args.rotation)\n"
+  split_data_script_path: "import os\nimport shutil\nimport argparse\nfrom tqdm import\
+    \ tqdm\n\ndef is_valid_line(line):\n    \"\"\"Check if a line contains valid YOLO\
+    \ format data.\"\"\"\n    parts = line.strip().split()\n    # A valid line should\
+    \ have at least one number (class ID)\n    return len(parts) > 0 and all(part.replace('.',\
+    \ '', 1).isdigit() for part in parts)\n\ndef categorize_images(yolo_dir, output_dir_with_objects,\
+    \ output_dir_no_objects, images_subdir=\"images\", labels_subdir=\"labels\"):\n\
+    \    # Create output directories with subdirectories for images and labels\n \
+    \   output_images_with_objects = os.path.join(output_dir_with_objects, images_subdir)\n\
+    \    output_labels_with_objects = os.path.join(output_dir_with_objects, labels_subdir)\n\
+    \    output_images_no_objects = os.path.join(output_dir_no_objects, images_subdir)\n\
+    \    output_labels_no_objects = os.path.join(output_dir_no_objects, labels_subdir)\n\
+    \    \n    os.makedirs(output_images_with_objects, exist_ok=True)\n    os.makedirs(output_labels_with_objects,\
+    \ exist_ok=True)\n    os.makedirs(output_images_no_objects, exist_ok=True)\n \
+    \   os.makedirs(output_labels_no_objects, exist_ok=True)\n\n    # Get paths to\
+    \ images and labels\n    images_path = os.path.join(yolo_dir, images_subdir)\n\
+    \    labels_path = os.path.join(yolo_dir, labels_subdir)\n\n    if not os.path.exists(images_path):\n\
+    \        print(\"Images directory is missing. Please check the input path.\")\n\
+    \        return\n\n    # Process each image file in the images directory\n   \
+    \ for image_file in tqdm(os.listdir(images_path), desc=\"Categorizing image/label\
+    \ pairs\"):\n        if image_file.lower().endswith(('.jpg', '.jpeg', '.png')):\n\
+    \            image_path = os.path.join(images_path, image_file)\n            #\
+    \ Assume corresponding label file has the same name but with .txt extension\n\
+    \            label_file = os.path.splitext(image_file)[0] + '.txt'\n         \
+    \   label_path = os.path.join(labels_path, label_file)\n            \n       \
+    \     if os.path.exists(label_path):\n                with open(label_path, 'r')\
+    \ as file:\n                    lines = file.readlines()\n                valid_lines\
+    \ = [line for line in lines if is_valid_line(line)]\n                if valid_lines:\
+    \  # Label file contains valid objects\n                    shutil.copy(image_path,\
+    \ os.path.join(output_images_with_objects, image_file))\n                    shutil.copy(label_path,\
+    \ os.path.join(output_labels_with_objects, label_file))\n                else:\
+    \  # Label file exists but no valid objects\n                    shutil.copy(image_path,\
+    \ os.path.join(output_images_no_objects, image_file))\n                    # Create\
+    \ an empty label file in the no-objects directory\n                    empty_label_path\
+    \ = os.path.join(output_labels_no_objects, label_file)\n                    open(empty_label_path,\
+    \ 'w').close()\n            else:\n                # No label file exists: treat\
+    \ as image with no objects\n                shutil.copy(image_path, os.path.join(output_images_no_objects,\
+    \ image_file))\n                # Create a blank label file in the no-objects\
+    \ directory\n                empty_label_path = os.path.join(output_labels_no_objects,\
+    \ label_file)\n                open(empty_label_path, 'w').close()\n\ndef main():\n\
+    \    parser = argparse.ArgumentParser(\n        description=\"Categorize YOLO\
+    \ images into two groups: with valid objects and without valid objects.\"\n  \
+    \  )\n    parser.add_argument('--data_path', help=\"Path to the YOLO directory\
+    \ containing 'images' and 'labels' subdirectories\")\n    parser.add_argument('--save_path',\
+    \ help=\"Directory where the categorized outputs will be saved\")\n    args =\
+    \ parser.parse_args()\n\n    yolo_dir = args.data_path\n    output_dir_with_objects\
+    \ = os.path.join(args.save_path, \"output_with_objects\")\n    output_dir_no_objects\
+    \ = os.path.join(args.save_path, \"output_no_objects\")\n    \n    categorize_images(yolo_dir,\
+    \ output_dir_with_objects, output_dir_no_objects)\n\nif __name__ == \"__main__\"\
+    :\n    main()\n"
+  train_script_path: "import argparse\nfrom ultralytics import YOLO\n\ndef main(model_path,\
+    \ data_path, train_path):\n    # Load a model from the given model configuration\
+    \ file\n    model = YOLO(model_path)\n    # Train the model using the specified\
+    \ training and data configuration files\n    model.train(cfg=train_path, data=data_path)\n\
+    \nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(description=\"\
+    Train a YOLO model using ultralytics\")\n    parser.add_argument(\n        \"\
+    --model_path\",\n        type=str,\n        default=\"cfgs/yolo/model/hololens_combined_v11.yaml\"\
+    ,\n        help=\"Path to the model configuration file\"\n    )\n    parser.add_argument(\n\
+    \        \"--data_path\",\n        type=str,\n        default=\"cfgs/yolo/data/hololens_combined.yaml\"\
+    ,\n        help=\"Path to the data configuration file\"\n    )\n    parser.add_argument(\n\
+    \        \"--train_path\",\n        type=str,\n        default=\"cfgs/yolo/train/hololend_combined_v11.yaml\"\
+    ,\n        help=\"Path to the training configuration file\"\n    )\n    args =\
+    \ parser.parse_args()\n    main(args.model_path, args.data_path, args.train_path)\n"
+subset_frames:
+- 0
+- 1
+- 8
+- 20
+- 36
+- 40
+- 56
 unverified_image_scale: 1.0
+yamls:
+  train_data_yaml_path: "path: /data/TGSSE/\ntrain: 'train/images'\nval: 'val/images'\
+    \ \ntest: 'test/images' \n \n# class names\nnames: \n  0: \"Airplane\"\n  1: \"\
+    Rotary Drone\"\n  2: \"Fixed Wing Drone\"\n  3: \"Fighter Jet\"\n  4: \"Birds\"\
+    \n  5: \"Helicopter\"\n"
+  train_model_yaml_path: "# Ultralytics YOLO \U0001F680, AGPL-3.0 license\n# YOLOv8\
+    \ object detection model with P3-P5 outputs. For Usage examples see https://docs.ultralytics.com/tasks/detect\n\
+    \n# Parameters\nnc: 6  # number of classes\nscales: # model compound scaling constants,\
+    \ i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'\n  # [depth,\
+    \ width, max_channels]\n  n: [0.33, 0.25, 1024]  # YOLOv8n summary: 225 layers,\
+    \  3157200 parameters,  3157184 gradients,   8.9 GFLOPs\n  # s: [0.33, 0.50, 1024]\
+    \  # YOLOv8s summary: 225 layers, 11166560 parameters, 11166544 gradients,  28.8\
+    \ GFLOPs\n  # m: [0.67, 0.75, 768]   # YOLOv8m summary: 295 layers, 25902640 parameters,\
+    \ 25902624 gradients,  79.3 GFLOPs\n  # l: [1.00, 1.00, 512]   # YOLOv8l summary:\
+    \ 365 layers, 43691520 parameters, 43691504 gradients, 165.7 GFLOPs\n  # x: [1.00,\
+    \ 1.25, 512]   # YOLOv8x summary: 365 layers, 68229648 parameters, 68229632 gradients,\
+    \ 258.5 GFLOPs\n\n# YOLOv8.0n backbone\nbackbone:\n  # [from, repeats, module,\
+    \ args]\n  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2\n  - [-1, 1, Conv, [128, 3, 2]]\
+    \  # 1-P2/4\n  - [-1, 3, C2f, [128, True]]\n  - [-1, 1, Conv, [256, 3, 2]]  #\
+    \ 3-P3/8\n  - [-1, 6, C2f, [256, True]]\n  - [-1, 1, Conv, [512, 3, 2]]  # 5-P4/16\n\
+    \  - [-1, 6, C2f, [512, True]]\n  - [-1, 1, Conv, [1024, 3, 2]]  # 7-P5/32\n \
+    \ - [-1, 3, C2f, [1024, True]]\n  - [-1, 1, SPPF, [1024, 5]]  # 9\n\n# YOLOv8.0n\
+    \ head\nhead:\n  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]\n  - [[-1, 6], 1,\
+    \ Concat, [1]]  # cat backbone P4\n  - [-1, 3, C2f, [512]]  # 12\n\n  - [-1, 1,\
+    \ nn.Upsample, [None, 2, 'nearest']]\n  - [[-1, 4], 1, Concat, [1]]  # cat backbone\
+    \ P3\n  - [-1, 3, C2f, [256]]  # 15 (P3/8-small)\n\n  - [-1, 1, Conv, [256, 3,\
+    \ 2]]\n  - [[-1, 12], 1, Concat, [1]]  # cat head P4\n  - [-1, 3, C2f, [512]]\
+    \  # 18 (P4/16-medium)\n\n  - [-1, 1, Conv, [512, 3, 2]]\n  - [[-1, 9], 1, Concat,\
+    \ [1]]  # cat head P5\n  - [-1, 3, C2f, [1024]]  # 21 (P5/32-large)\n\n  - [[15,\
+    \ 18, 21], 1, Detect, [nc]]  # Detect(P3, P4, P5)"
+  train_train_yaml_path: "# Ultralytics \U0001F680 AGPL-3.0 License - https://ultralytics.com/license\n\
+    \n# Global configuration YAML with settings and hyperparameters for YOLO training,\
+    \ validation, prediction and export\n# For documentation see https://docs.ultralytics.com/usage/cfg/\n\
+    \ntask: detect # (str) YOLO task, i.e. detect, segment, classify, pose, obb\n\
+    mode: train # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark\n\
+    \n# Train settings -------------------------------------------------------------------------------------------------------\n\
+    model: # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml\ndata:\
+    \ # (str, optional) path to data file, i.e. coco8.yaml\nepochs: 15 # (int) number\
+    \ of epochs to train for\ntime: # (float, optional) number of hours to train for,\
+    \ overrides epochs if supplied\npatience: 100 # (int) epochs to wait for no observable\
+    \ improvement for early stopping of training\nbatch: 21 # (int) number of images\
+    \ per batch (-1 for AutoBatch)\nimgsz: 640 # (int | list) input images size as\
+    \ int for train and val modes, or list[h,w] for predict and export modes\nsave:\
+    \ True # (bool) save train checkpoints and predict results\nsave_period: -1 #\
+    \ (int) Save checkpoint every x epochs (disabled if < 1)\ncache: True # (bool)\
+    \ True/ram, disk or False. Use cache for data loading\ndevice: 4,5,6 # (int |\
+    \ str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3\
+    \ or device=cpu\nworkers: 8 # (int) number of worker threads for data loading\
+    \ (per RANK if DDP)\nproject:  # (str, optional) project name\nname:  # (str,\
+    \ optional) experiment name, results saved to 'project/name' directory\nexist_ok:\
+    \ False # (bool) whether to overwrite existing experiment\npretrained: True #\
+    \ (bool | str) whether to use a pretrained model (bool) or a model to load weights\
+    \ from (str)\noptimizer: auto # (str) optimizer to use, choices=[SGD, Adam, Adamax,\
+    \ AdamW, NAdam, RAdam, RMSProp, auto]\nverbose: True # (bool) whether to print\
+    \ verbose output\nseed: 0 # (int) random seed for reproducibility\ndeterministic:\
+    \ True # (bool) whether to enable deterministic mode\nsingle_cls: False # (bool)\
+    \ train multi-class data as single-class\nrect: False # (bool) rectangular training\
+    \ if mode='train' or rectangular validation if mode='val'\ncos_lr: False # (bool)\
+    \ use cosine learning rate scheduler\nclose_mosaic: 10 # (int) disable mosaic\
+    \ augmentation for final epochs (0 to disable)\nresume: False # (bool) resume\
+    \ training from last checkpoint\namp: True # (bool) Automatic Mixed Precision\
+    \ (AMP) training, choices=[True, False], True runs AMP check\nfraction: 1.0 #\
+    \ (float) dataset fraction to train on (default is 1.0, all images in train set)\n\
+    profile: False # (bool) profile ONNX and TensorRT speeds during training for loggers\n\
+    freeze: None # (int | list, optional) freeze first n layers, or freeze list of\
+    \ layer indices during training\nmulti_scale: False # (bool) Whether to use multiscale\
+    \ during training\n# Segmentation\noverlap_mask: True # (bool) merge object masks\
+    \ into a single image mask during training (segment train only)\nmask_ratio: 4\
+    \ # (int) mask downsample ratio (segment train only)\n# Classification\ndropout:\
+    \ 0.0 # (float) use dropout regularization (classify train only)\n\n# Val/Test\
+    \ settings ----------------------------------------------------------------------------------------------------\n\
+    val: False # (bool) validate/test during training\nsplit: val # (str) dataset\
+    \ split to use for validation, i.e. 'val', 'test' or 'train'\nsave_json: False\
+    \ # (bool) save results to JSON file\nsave_hybrid: False # (bool) save hybrid\
+    \ version of labels (labels + additional predictions)\nconf: # (float, optional)\
+    \ object confidence threshold for detection (default 0.25 predict, 0.001 val)\n\
+    iou: 0.7 # (float) intersection over union (IoU) threshold for NMS\nmax_det: 300\
+    \ # (int) maximum number of detections per image\nhalf: False # (bool) use half\
+    \ precision (FP16)\ndnn: False # (bool) use OpenCV DNN for ONNX inference\nplots:\
+    \ True # (bool) save plots and images during train/val\n\n# Predict settings -----------------------------------------------------------------------------------------------------\n\
+    source: # (str, optional) source directory for images or videos\nvid_stride: 1\
+    \ # (int) video frame-rate stride\nstream_buffer: False # (bool) buffer all streaming\
+    \ frames (True) or return the most recent frame (False)\nvisualize: False # (bool)\
+    \ visualize model features\naugment: False # (bool) apply image augmentation to\
+    \ prediction sources\nagnostic_nms: False # (bool) class-agnostic NMS\nclasses:\
+    \ # (int | list[int], optional) filter results by class, i.e. classes=0, or classes=[0,2,3]\n\
+    retina_masks: False # (bool) use high-resolution segmentation masks\nembed: #\
+    \ (list[int], optional) return feature vectors/embeddings from given layers\n\n\
+    # Visualize settings ---------------------------------------------------------------------------------------------------\n\
+    show: True # (bool) show predicted images and videos if environment allows\nsave_frames:\
+    \ False # (bool) save predicted individual video frames\nsave_txt: False # (bool)\
+    \ save results as .txt file\nsave_conf: False # (bool) save results with confidence\
+    \ scores\nsave_crop: False # (bool) save cropped images with results\nshow_labels:\
+    \ True # (bool) show prediction labels, i.e. 'person'\nshow_conf: True # (bool)\
+    \ show prediction confidence, i.e. '0.99'\nshow_boxes: True # (bool) show prediction\
+    \ boxes\nline_width: # (int, optional) line width of the bounding boxes. Scaled\
+    \ to image size if None.\n\n# Export settings ------------------------------------------------------------------------------------------------------\n\
+    format: torchscript # (str) format to export to, choices at https://docs.ultralytics.com/modes/export/#export-formats\n\
+    keras: False # (bool) use Kera=s\noptimize: False # (bool) TorchScript: optimize\
+    \ for mobile\nint8: False # (bool) CoreML/TF INT8 quantization\ndynamic: False\
+    \ # (bool) ONNX/TF/TensorRT: dynamic axes\nsimplify: True # (bool) ONNX: simplify\
+    \ model using `onnxslim`\nopset: # (int, optional) ONNX: opset version\nworkspace:\
+    \ # (float, optional) TensorRT: workspace size (GiB), `None` will let TensorRT\
+    \ auto-allocate memory\nnms: False # (bool) CoreML: add NMS\n\n# Hyperparameters\
+    \ ------------------------------------------------------------------------------------------------------\n\
+    lr0: 0.01 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)\nlrf: 0.01\
+    \ # (float) final learning rate (lr0 * lrf)\nmomentum: 0.937 # (float) SGD momentum/Adam\
+    \ beta1\nweight_decay: 0.0005 # (float) optimizer weight decay 5e-4\nwarmup_epochs:\
+    \ 3.0 # (float) warmup epochs (fractions ok)\nwarmup_momentum: 0.8 # (float) warmup\
+    \ initial momentum\nwarmup_bias_lr: 0.1 # (float) warmup initial bias lr\nbox:\
+    \ 7.5 # (float) box loss gain\ncls: 0.5 # (float) cls loss gain (scale with pixels)\n\
+    dfl: 1.5 # (float) dfl loss gain\npose: 12.0 # (float) pose loss gain\nkobj: 1.0\
+    \ # (float) keypoint obj loss gain\nnbs: 64 # (int) nominal batch size\nhsv_h:\
+    \ 0.015 # (float) image HSV-Hue augmentation (fraction)\nhsv_s: 0.7 # (float)\
+    \ image HSV-Saturation augmentation (fraction)\nhsv_v: 0.4 # (float) image HSV-Value\
+    \ augmentation (fraction)\ndegrees: 0.0 # (float) image rotation (+/- deg)\ntranslate:\
+    \ 0.1 # (float) image translation (+/- fraction)\nscale: 0.5 # (float) image scale\
+    \ (+/- gain)\nshear: 0.0 # (float) image shear (+/- deg)\nperspective: 0.0 # (float)\
+    \ image perspective (+/- fraction), range 0-0.001\nflipud: 0.0 # (float) image\
+    \ flip up-down (probability)\nfliplr: 0.5 # (float) image flip left-right (probability)\n\
+    bgr: 0.0 # (float) image channel BGR (probability)\nmosaic: 1.0 # (float) image\
+    \ mosaic (probability)\nmixup: 0.0 # (float) image mixup (probability)\ncopy_paste:\
+    \ 0.0 # (float) segment copy-paste (probability)\ncopy_paste_mode: \"flip\" #\
+    \ (str) the method to do copy_paste augmentation (flip, mixup)\nauto_augment:\
+    \ randaugment # (str) auto augmentation policy for classification (randaugment,\
+    \ autoaugment, augmix)\nerasing: 0.4 # (float) probability of random erasing during\
+    \ classification training (0-0.9), 0 means no erasing, must be less than 1.0.\n\
+    crop_fraction: 1.0 # (float) image crop fraction for classification (0.1-1), 1.0\
+    \ means no crop, must be greater than 0.\n\n# Custom config.yaml ---------------------------------------------------------------------------------------------------\n\
+    cfg: # (str, optional) for overriding defaults.yaml\n\n# Tracker settings ------------------------------------------------------------------------------------------------------\n\
+    tracker: botsort.yaml # (str) tracker type, choices=[botsort.yaml, bytetrack.yaml]"
+  unverified_names_yaml_path: "names:\n  0: Airplane\n  1: Rotary Drone\n  2: Fixed\
+    \ Wing Drone\n  3: Fighter Jet\n  4: Birds\n"
