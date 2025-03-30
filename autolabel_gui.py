@@ -241,12 +241,32 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
                         )
                         if new_name:
                             try:
-                                os.makedirs(new_name, exist_ok=True)
+                                # Check if new_name has an extension
+                                root, ext = os.path.splitext(new_name)
+                                if ext:
+                                    # If an extension exists, treat new_name as a file.
+                                    # Ensure the parent directory exists.
+                                    parent_dir = os.path.dirname(new_name)
+                                    if parent_dir and not os.path.exists(parent_dir):
+                                        os.makedirs(parent_dir, mode=0o777, exist_ok=True)
+                                        os.chmod(parent_dir, 0o777)
+                                    # Create the file if it doesn't already exist.
+                                    if not os.path.exists(new_name):
+                                        with open(new_name, "w") as f:
+                                            pass
+                                    # Set the file's permissions to 777.
+                                    os.chmod(new_name, 0o777)
+                                else:
+                                    # Otherwise, treat new_name as a directory.
+                                    os.makedirs(new_name, mode=0o777, exist_ok=True)
+                                    os.chmod(new_name, 0o777)
+
                                 st.session_state.paths[key] = new_name
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Failed to create directory: {e}")
-                                return custom_path
+                                st.error(f"Failed to create directory or file: {e}")
+                                # Optionally handle the fallback path if necessary
+                                custom_path
 
                 with up_col:
                     if st.button("Go up until path exists", key=f"{radio_button_prefix}_{key}_go_up_custom"):
