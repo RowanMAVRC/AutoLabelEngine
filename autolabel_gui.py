@@ -222,6 +222,9 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
             label_visibility="collapsed"
         )
 
+        # Remove any extra spaces at the beginning or end of the input string
+        custom_path = custom_path.strip()
+
         st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
 
         if custom_path:
@@ -1941,7 +1944,6 @@ if "session_running" not in st.session_state:
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
 
 save_session_state()
-
 
 #--------------------------------------------------------------------------------------------------------------------------------#
 # GUI
