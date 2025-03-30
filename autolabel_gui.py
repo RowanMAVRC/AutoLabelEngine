@@ -76,8 +76,15 @@ def save_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
     """
     Save only the selected session state keys to a YAML file.
     """
+    if not os.path.exists(default_yaml_path):
+        with open(default_yaml_path, "w") as f:
+            f.write("")  # Creates an empty file
+
     try:
+        # Extract the state for the selected keys that exist in session state
         state_to_save = {key: st.session_state[key] for key in SELECTED_KEYS if key in st.session_state}
+        
+        # Dump the state to the YAML file
         with open(default_yaml_path, "w") as f:
             yaml.dump(state_to_save, f)
     except Exception as e:
