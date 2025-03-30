@@ -1993,7 +1993,7 @@ if "session_running" not in st.session_state:
         "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
         "train_script_path" : "train_yolo.py",
 
-        "unverified_subset_csv_path" : "cfgs/gui/manual_labels/subset.csv",
+        "unverified_subset_csv_path" : "cfgs/gui/subset/default.csv",
 
         "video_file_path": "generated_videos/current.mp4"
 
