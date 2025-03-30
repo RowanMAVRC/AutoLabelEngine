@@ -2454,12 +2454,6 @@ with tabs[2]:
                 # Reload the subset frames from the CSV file
                 st.session_state.subset_frames = load_subset_frames(csv_file)
 
-                # --- Editable CSV Display ---
-                subset_df = pd.DataFrame(st.session_state.subset_frames, columns=["Frame Index"])
-                
-                # Insert the count column as the first column (starting count at 1).
-                subset_df.insert(0, "Subset Index", range(1, len(subset_df) + 1))
-
                 st.subheader("Modify/View Subset")
 
                 # Add/Remove Frames
@@ -2610,7 +2604,7 @@ with tabs[2]:
                     if st.session_state.max_images > 1:
                         # Additional navigation (jump, slider, second Prev/Next)
                         st.number_input(
-                            "Jump to Image",
+                            "Current Frame",
                             min_value=0,
                             max_value=st.session_state.max_images-1,
                             value=st.session_state.frame_index,
@@ -2630,7 +2624,8 @@ with tabs[2]:
                                 else len(st.session_state.subset_frames) - 1,
                                 st.session_state.frame_index,
                                 key="slider_det",
-                                on_change=frame_slider_frame_by_frame_callback
+                                on_change=frame_slider_frame_by_frame_callback,
+                                label_visibility="collapsed"
                             )
                         with col_next:
                             st.button("Next Frame", key="next_btn", on_click=next_callback)
