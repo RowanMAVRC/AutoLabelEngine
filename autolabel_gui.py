@@ -191,7 +191,7 @@ def upload_to_dir(save_dir):
     
         st.rerun()  # Refresh the UI
 
-def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[2, 25]):
+def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[4, 25]):
     """
     A file/directory navigator that can operate in two modes:
     1) Default: Navigate through directories with a selectbox and a ".." button.
@@ -609,25 +609,26 @@ def kill_tmux_session(session_key):
     subprocess.call(kill_cmd, shell=True)
     st.success(f"tmux session '{session_key}' has been killed.")
 
-def run_in_tmux(session_key, py_file_path, venv_path, args=""):
+def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="python"):
     """
-    Opens a new tmux session with the given session_key, activates the virtual environment from venv_path,
-    runs the specified Python file with additional arguments, captures its terminal output, displays it in Streamlit,
-    and then kills the session.
+    Opens a new tmux session with the given session_key, optionally activates the virtual environment from venv_path,
+    runs the specified script (Python or Bash) with additional arguments, captures its terminal output,
+    displays it in Streamlit, and then kills the session.
 
     If a tmux session with the same session_key already exists, it will be killed first.
 
     Args:
         session_key (str): Unique key used as the tmux session name.
-        py_file_path (str): Path to the Python (.py) file to be executed.
-        venv_path (str): Path to the virtual environment directory.
-        args (str or dict): Additional command-line arguments to be appended to the Python command.
+        script_path (str): Path to the script file to be executed.
+        venv_path (str or None): Path to the virtual environment directory. If None, no virtual environment is activated.
+        args (str or dict): Additional command-line arguments to be appended to the command.
                             If a dictionary is provided, it will be converted to a string of command-line arguments.
+        script_type (str): Type of script to run. Either "python" or "bash".
     
     Returns:
         str or None: The decoded terminal output if successful; otherwise, None.
     """
-
+    
     # If a session with the given key already exists, kill it.
     try:
         subprocess.check_call(f"tmux kill-session -t {session_key}", shell=True)
@@ -635,27 +636,36 @@ def run_in_tmux(session_key, py_file_path, venv_path, args=""):
         # If there's no such session, ignore the error.
         pass
 
-    # Check if the Python file exists
-    if not os.path.exists(py_file_path):
-        st.error(f"Python file not found: {py_file_path}")
+    # Check if the script file exists
+    if not os.path.exists(script_path):
+        st.error(f"Script file not found: {script_path}")
         return None
 
-    # Check if the virtual environment activation script exists
-    activate_script = os.path.join(venv_path, "bin", "activate")
-    if not os.path.exists(activate_script):
-        st.error(f"Virtual environment activation script not found: {activate_script}")
-        return None
-
-    # If args is provided as a dictionary, convert it to a string of command-line arguments.
+    # Convert args to string if it's a dictionary
     if isinstance(args, dict):
         args = " ".join(f"--{key} {value}" for key, value in args.items())
 
-    # Build the inner command that activates the virtual environment, runs the Python script,
-    # and then executes bash to keep the tmux session open.
-    inner_command = f"source {activate_script} && python {py_file_path} {args}; exec bash"
+    if venv_path is not None:
+        activate_script = os.path.join(venv_path, "bin", "activate")
+        if not os.path.exists(activate_script):
+            st.error(f"Virtual environment activation script not found: {activate_script}")
+            return None
+        # Build the command to activate the venv
+        activation_cmd = f"source {activate_script} && "
+    else:
+        activation_cmd = ""
     
+    # Build the inner command based on script type.
+    if script_type == "python":
+        cmd = f"{activation_cmd}python {script_path} {args}; exec bash"
+    elif script_type == "bash":
+        cmd = f"{activation_cmd}bash {script_path} {args}; exec bash"
+    else:
+        st.error("Invalid script type specified. Use 'python' or 'bash'.")
+        return None
+
     # Build the complete tmux command using bash -c to handle quoting correctly.
-    tmux_cmd = f'tmux new-session -d -s {session_key} "bash -c \'{inner_command}\'"'
+    tmux_cmd = f'tmux new-session -d -s {session_key} "bash -c \'{cmd}\'"'
     
     try:
         # Create the tmux session and run the command
@@ -1917,11 +1927,15 @@ if "session_running" not in st.session_state:
     st.session_state.video_image_scale = 1.0
     st.session_state.unverified_image_scale = 1.0
 
-    st.set_page_config(layout="wide")
+    st.set_page_config(
+        page_title="Autolabel Engine",
+        layout="wide"
+    )
 
     st.session_state.paths = {
 
         "venv_path" : "../envs/auto-label-engine/",
+        "generate_venv_script_path": "setup_venv.sh",
 
         "prev_unverified_images_path" : "example_data",
         "unverified_images_path" : "example_data",
@@ -1983,6 +1997,60 @@ save_session_state()
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
 
+if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/activate")):
+    with st.expander("Please generate a venv before running any modules"):
+        
+
+        action_option = st.radio(
+            "Choose save path option:", 
+            [
+                "Generate New Virtual Enviornement",
+                "Choose Another Path"
+            ],
+            key=f"venv_radio",
+            label_visibility="collapsed"
+        )
+
+        if action_option == "Generate New Virtual Enviornement":
+            st.subheader("Virtual Environment Save Path")
+            path_navigator("venv_path", radio_button_prefix="generate_new_venv")
+
+            output = None
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+            with c1:
+                if st.button("Generate Virtual Enviornment", key="generate_venv_btn"):
+                    run_in_tmux(
+                        session_key="generate_venv", 
+                        script_path=st.session_state.paths["generate_venv_script_path"], 
+                        args=st.session_state.paths["venv_path"],
+                        script_type="bash"
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("generate_venv")
+
+            with c2:
+                if st.button("Update Terminal Output", key="check_generate_venv_btn"):
+                    output = update_tmux_terminal("generate_venv")
+
+            with c3:
+                if st.button("Clear Terminal Output", key="generate_venv_clear_terminal_btn"):
+                    output = None
+
+            with c4:
+                if st.button("Kill TMUX Session", key="generate_venv_kill_tmux_session_btn"):
+                    output = kill_tmux_session("generate_venv")
+
+
+            terminal_output = st.empty()
+            if output is not None:
+                display_terminal_output(output)
+                    
+        else:
+            st.subheader("Choose Virtual Environment Path")
+            path_navigator("venv_path", radio_button_prefix="find_new_venv")
+    
+    st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
+
 ## Main Tabs
 tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Finetune Model", "Linux Terminal"])
 
@@ -2032,7 +2100,7 @@ with tabs[0]:
                         button_and_selectbox_display_size=[4,30]
                     )
 
-        with st.expander("Venv Path"):
+        with st.expander("Virtual Environment Path"):
             path_navigator("venv_path", radio_button_prefix="convert_mp4")
 
         with st.expander("Script"):
@@ -2046,7 +2114,7 @@ with tabs[0]:
                 if st.button("Begin Converting", key="begin_converting_data_btn"):
                     run_in_tmux(
                         session_key="mp4_data", 
-                        py_file_path=st.session_state.paths["mp4_script_path"], 
+                        script_path=st.session_state.paths["mp4_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
                             "video_path" : st.session_state.paths["mp4_path"],
@@ -2076,7 +2144,7 @@ with tabs[0]:
                 button_and_selectbox_display_size=[4,30]
             )
 
-        with st.expander("Venv Path"):
+        with st.expander("Virtual Environment Path"):
             path_navigator("venv_path", radio_button_prefix="rotate_images")
 
         with st.expander("Script"):
@@ -2103,7 +2171,7 @@ with tabs[0]:
                 if st.button("Begin Rotating Images", key="begin_rotating_data_btn"):
                     run_in_tmux(
                         session_key="rotate_images", 
-                        py_file_path=st.session_state.paths["rotate_images_script_path"], 
+                        script_path=st.session_state.paths["rotate_images_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
                             "directory" : st.session_state.paths["rotate_images_path"],
@@ -2147,7 +2215,7 @@ with tabs[0]:
                         button_and_selectbox_display_size=[4,30]
                     )
 
-        with st.expander("Venv Path"):
+        with st.expander("Virtual Environment Path"):
             path_navigator("venv_path", radio_button_prefix="split_data")
 
         with st.expander("Script"):
@@ -2162,7 +2230,7 @@ with tabs[0]:
                 if st.button("Begin Splitting Data", key="begin_split_data_btn"):
                     run_in_tmux(
                         session_key="split_data", 
-                        py_file_path=st.session_state.paths["split_data_script_path"], 
+                        script_path=st.session_state.paths["split_data_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
                             "data_path" : st.session_state.paths["split_data_path"],
@@ -2206,6 +2274,9 @@ with tabs[0]:
                     button_and_selectbox_display_size=[4,30]
                 )
 
+        with st.expander("Virtual Environment Path"):
+            path_navigator("venv_path", radio_button_prefix="combine_data")
+
         with st.expander("Script"):
             path_navigator("combine_dataset_script_path")
             python_code_editor("combine_dataset_script_path")
@@ -2218,7 +2289,7 @@ with tabs[0]:
                 if st.button("Begin Combining Data", key="begin_combine_dataset_btn"):
                     run_in_tmux(
                         session_key="combine_dataset", 
-                        py_file_path=st.session_state.paths["combine_dataset_script_path"], 
+                        script_path=st.session_state.paths["combine_dataset_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
                             "dataset1" : st.session_state.paths["combine_dataset_1_path"],
@@ -2263,7 +2334,7 @@ with tabs[1]:
         else:
             path_navigator(key)
 
-        st.subheader("Venv Path")
+    with st.expander("Virtual Environment Path"):
         path_navigator("venv_path", radio_button_prefix="auto_label")
 
     with st.expander("Script"):
@@ -2295,7 +2366,7 @@ with tabs[1]:
             if st.button("Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
                 run_in_tmux(
                     session_key="auto_label_data", 
-                    py_file_path=st.session_state.paths["auto_label_script_path"], 
+                    script_path=st.session_state.paths["auto_label_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
                         "model_weights_path" : st.session_state.paths["auto_label_model_weight_path"],
@@ -2921,7 +2992,7 @@ with tabs[3]:
         path_navigator("train_train_yaml_path")
         yaml_editor("train_train_yaml_path")
 
-    with st.expander("Venv Path"):
+    with st.expander("Virtual Environment Path"):
         path_navigator("venv_path", radio_button_prefix="train")
 
     with st.expander("Script"):
@@ -2939,7 +3010,7 @@ with tabs[3]:
             if st.button("Begin Training", key="begin_train_btn"):
                 output = run_in_tmux(
                     session_key="auto_label_trainer", 
-                    py_file_path=st.session_state.paths["train_script_path"], 
+                    script_path=st.session_state.paths["train_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
                         "data_path": st.session_state.paths["train_data_yaml_path"],
