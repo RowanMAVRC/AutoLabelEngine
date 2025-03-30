@@ -1795,7 +1795,7 @@ def overlay_frame_text(frame, index):
         try:
             actual_frame = st.session_state.subset_frames[index]
             line1 = f"Frame: {index}"
-            line2 = f"Subs set frame: {actual_frame}"
+            line2 = f"Subset Index: {actual_frame}"
             text = line1 + "\n" + line2
         except Exception:
             text = f"Frame: {index}"
@@ -2445,39 +2445,7 @@ with tabs[2]:
                 # Insert the count column as the first column (starting count at 1).
                 subset_df.insert(0, "Subset Index", range(1, len(subset_df) + 1))
 
-                st.write("Subset Indices:")
-
-                # Custom CSS to style the table for auto-fit column widths and a fixed container height with scrolling.
-                st.markdown(
-                    """
-                    <style>
-                    /* Container to enforce fixed height and scrolling */
-                    .scrollable-table-container {
-                        max-height: 200px;  /* Set the fixed height (adjust as needed) */
-                        overflow-y: auto;
-                        margin: auto;
-                    }
-                    /* Table styling */
-                    .scrollable-table-container table {
-                        table-layout: auto;
-                        width: auto;
-                        border-collapse: collapse;
-                    }
-                    .scrollable-table-container th, .scrollable-table-container td {
-                        padding: 0.5em;
-                        border: 1px solid #ddd;
-                        white-space: nowrap;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True
-                )
-
-                # Generate the HTML table and wrap it in a div with the custom container class.
-                html_table = f'<div class="scrollable-table-container">{subset_df.to_html(index=False)}</div>'
-
-                st.markdown(html_table, unsafe_allow_html=True)
-
+                st.subheader("Modify/View Subset")
                 # --- Callback Functions for Adding and Removing Frames ---
                 def add_frame_callback(key):
                     add_val = st.session_state[key]
@@ -2486,8 +2454,8 @@ with tabs[2]:
                         save_subset_frames(csv_file, st.session_state.subset_frames)
                         st.session_state["skip_label_update"] = True
 
-                def remove_frame_callback():
-                    remove_val = st.session_state["remove_frame"]
+                def remove_frame_callback(key):
+                    remove_val = st.session_state[key]
                     if remove_val in st.session_state.subset_frames:
                         st.session_state.subset_frames.remove(remove_val)
                         save_subset_frames(csv_file, st.session_state.subset_frames)
@@ -2495,7 +2463,7 @@ with tabs[2]:
 
                 # Add/Remove Frames
                 if st.session_state.max_images > 0:
-                    c1, c2 = st.columns([10, 10])
+                    c1, c2, c3 = st.columns([10, 10, 10])
                     with c1:
                         st.number_input(
                             "Add Frame Index",
@@ -2503,20 +2471,24 @@ with tabs[2]:
                             max_value=st.session_state.max_images - 1,
                             value=None,
                             step=1,
-                            key="add_frame_1",
+                            key="subset_add_frame",
                             on_change=add_frame_callback,
-                            args=("add_frame_1",)
+                            args=("subset_add_frame",)
                         )
 
                     with c2:
+                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="subset_view_frames_in_subset")
+
+                    with c3:
                         st.number_input(
                             "Remove Frame Index",
                             min_value=0,
                             max_value=st.session_state.max_images - 1,
                             value=None,
                             step=1,
-                            key="remove_frame",
-                            on_change=remove_frame_callback
+                            key="subset_remove_frame",
+                            on_change=remove_frame_callback,
+                            args=("subset_remove_frame",)
                         )
                 else:
                     st.warning("No images available.")
@@ -2573,7 +2545,7 @@ with tabs[2]:
                     # Update labels if changed
                     update_labels_from_detection()
 
-                    c1, c2, c3 = st.columns([10, 10, 10])
+                    c1, c2 = st.columns([10, 90])
                     with c1:
                         st.markdown(
                             """
@@ -2600,8 +2572,40 @@ with tabs[2]:
                             st.session_state.use_subset_changed = False
                             st.rerun()
 
-                        if not len(st.session_state.subset_frames) > 1:
+                        
+                    
+                    with c2:
+                        c12, c22, c32 = st.columns([10, 10, 10])
+                        with c12:
+                            st.number_input(
+                                "Add Frame Index",
+                                min_value=0,
+                                max_value=st.session_state.max_images - 1,
+                                value=None,
+                                step=1,
+                                key="frame_by_frame_add_frame",
+                                on_change=add_frame_callback,
+                                args=("frame_by_frame_add_frame",)
+                            )
+
+                        with c22:
+                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
+
+                        with c32:
+                            st.number_input(
+                                "Remove Frame Index",
+                                min_value=0,
+                                max_value=st.session_state.max_images - 1,
+                                value=None,
+                                step=1,
+                                key="frame_by_frame_remove_frame",
+                                on_change=remove_frame_callback,
+                                args=("frame_by_frame_remove_frame",)
+                            )
+
+                    if not len(st.session_state.subset_frames) > 1:
                             st.warning("Subset needs to be two or larger.")
+                    
                     if st.session_state.max_images > 1:
                         # Additional navigation (jump, slider, second Prev/Next)
                         st.number_input(
@@ -2828,7 +2832,34 @@ with tabs[2]:
 
                 elif st.session_state.video_saved_for_current_run:
                     st.video(st.session_state.paths["video_file_path"], autoplay=True, loop=True)
-            
+
+                c1, c2, c3 = st.columns([10, 10, 10])
+                with c1:
+                    st.number_input(
+                        "Add Frame Index to Subset",
+                        min_value=0,
+                        max_value=st.session_state.max_images - 1,
+                        value=None,
+                        step=1,
+                        key="video_add_frame",
+                        on_change=add_frame_callback,
+                        args=("video_add_frame",)
+                    )
+
+                with c2:
+                    st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="video_view_frames_in_subset")
+
+                with c3:
+                    st.number_input(
+                        "Remove Frame Index from Subset",
+                        min_value=0,
+                        max_value=st.session_state.max_images - 1,
+                        value=None,
+                        step=1,
+                        key="video_remove_frame",
+                        on_change=remove_frame_callback,
+                        args=("video_remove_frame",)
+                    )
     else:
         with st.expander("Object by Object Label Review"):
             
