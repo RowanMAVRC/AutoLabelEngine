@@ -358,7 +358,22 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
             st.error(f"Error reading directory: {e}")
             return current_path
 
-        # Build the selectbox options
+        # Separate entries into directories and files
+        dirs = []
+        files = []
+        for entry in entries:
+            full_path = os.path.join(directory_to_list, entry)
+            full_path = os.path.normpath(full_path)
+            if os.path.isdir(full_path):
+                dirs.append((entry, full_path))
+            else:
+                files.append((entry, full_path))
+
+        # Sort directories and files alphabetically (case-insensitive)
+        dirs.sort(key=lambda x: x[0].lower())
+        files.sort(key=lambda x: x[0].lower())
+
+        # Build the selectbox options:
         options_list = []
         options_mapping = {}
         indent = "└"
@@ -366,12 +381,31 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
         options_list.append(top_label)
         options_mapping[top_label] = None
 
-        for entry in entries:
-            full_path = os.path.join(directory_to_list, entry)
-            full_path = os.path.normpath(full_path)
-            label = f"{indent} {entry}"
+        # Add directories with folder emoji
+        for entry, full_path in dirs:
+            label = f"{indent} 📁 {entry}"
             options_list.append(label)
             options_mapping[label] = full_path
+
+        # Add files with extension-specific emojis
+        for entry, full_path in files:
+            ext = os.path.splitext(entry)[1].lower()
+            if ext in ['.jpg', '.jpeg', '.png', '.gif']:
+                file_emoji = "🖼️"
+            elif ext == '.py':
+                file_emoji = "🐍"
+            elif ext in ['.txt', '.md']:
+                file_emoji = "📄"
+            elif ext == '.csv':
+                file_emoji = "📑"
+            elif ext == '.zip':
+                file_emoji = "🗜️"
+            else:
+                file_emoji = "📄"  # Fallback icon
+            label = f"{indent} {file_emoji} {entry}"
+            options_list.append(label)
+            options_mapping[label] = full_path
+
 
         # Determine which item to highlight
         default_index = 0
