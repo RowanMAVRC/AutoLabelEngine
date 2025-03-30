@@ -2154,7 +2154,13 @@ with tabs[1]:
         path_navigator("auto_label_data_path")
 
         st.subheader("Label Save Path")
-        path_navigator("auto_label_save_path")
+        save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"autolabel_save_radio", label_visibility="collapsed")
+        key = "auto_label_save_path"
+        if save_path_option == "Default":
+            st.session_state.paths[key] = st.session_state.paths["auto_label_save_path"].replace("images", "labels")
+            st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+        else:
+            path_navigator(key)
 
         st.subheader("Venv Path")
         path_navigator("venv_path", radio_button_prefix="auto_label")
