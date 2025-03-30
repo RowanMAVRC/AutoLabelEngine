@@ -1671,6 +1671,7 @@ if "session_running" not in st.session_state:
     st.session_state.video_index = 0
     st.session_state.include_labels = True
     st.session_state.video_image_scale = 1.0
+    st.session_state.unverified_image_scale = 1.0
 
     st.set_page_config(layout="wide")
 

@@ -14,8 +14,7 @@ gpu_list:
 - 'GPU 3: Quadro RTX 8000 (UUID: GPU-06c54b91-735e-c162-dcbb-8e2891de0103)'
 - 'GPU 4: Quadro RTX 8000 (UUID: GPU-c3a3c219-e32d-6131-f1d6-dc84f545257a)'
 - 'GPU 5: Quadro RTX 8000 (UUID: GPU-7ac32abd-d96c-5488-8c44-516e6de1ff50)'
-image_dir: example_data
-image_path_list: []
+images_dir: example_data
 label_list:
 - Airplane
 - Rotary Drone
@@ -36,6 +35,7 @@ paths:
   mp4_save_path: ''
   mp4_script_path: convert_mp4_2_png.py
   prev_unverified_images_path: example_data
+  prev_unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
   rotate_images_path: example_data
   rotate_images_script_path: rotate_images.py
   split_data_path: example_data
@@ -47,6 +47,8 @@ paths:
   train_train_yaml_path: cfgs/yolo/train/default.yaml
   unverified_images_path: example_data
   unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
+  unverified_subset_csv_path: cfgs/gui/manual_labels/subset.csv
   upload_save_path: ''
   venv_path: ../envs/auto-label-engine/
+subset_frames: []
 unverified_image_scale: 1.0
