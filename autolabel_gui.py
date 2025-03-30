@@ -949,7 +949,22 @@ def update_unverified_data_path():
     images_dir = st.session_state.paths["unverified_images_path"]
     # Instead of building a full list, infer the naming pattern.
     pattern_info = infer_image_pattern(images_dir)
-    if pattern_info is None:
+    if st.session_state.automatic_generate_list:
+        st.session_state.naming_pattern_warning = None
+
+        images = []
+        for ext in [".jpg", ".png"]:
+            images.extend(glob.glob(os.path.join(images_dir, f"*{ext}")))
+        images.sort()
+        st.session_state.image_list = images
+        st.session_state.max_images = len(images)
+        st.session_state.start_index = 0
+        st.session_state.image_pattern = None
+        st.session_state.naming_pattern_warning = None
+        # Set the flag so that next runs do not redo this process.
+        st.session_state.image_list_stored = True
+
+    elif pattern_info is None:
         # Set a flag instead of immediately showing a warning.
         st.session_state.naming_pattern_warning = (
             "Could not infer an image naming pattern or sequential numeric sequence found."
@@ -1307,13 +1322,13 @@ def copy_next_labels():
         source_index = 0
         copy_labels_from_slide(source_index)
 
-def checkbox_callback():
+def manual_label_subset_checkbox_callback():
     # Retrieve the checkbox value from session state using its key.
-
     use_subset_val = st.session_state.get("manual_label_subset_btn", False)
     
     # Update session state as required.]
     st.session_state.use_subset = use_subset_val
+    st.session_state.use_subset_changed = True
     st.session_state.automatic_generate_list = True
     st.session_state.frame_index = 0
     st.session_state["skip_label_update"] = True
@@ -1322,7 +1337,22 @@ def checkbox_callback():
     update_unverified_data_path()
     update_unverified_frame()
 
-def handle_image_list_update():
+def video_subset_checkbox_callback():
+    # Retrieve the checkbox value from session state using its key.
+    use_subset_val = st.session_state.get("video_subset_btn", False)
+    
+    # Update session state as required.]
+    st.session_state.use_subset = use_subset_val
+    st.session_state.use_subset_changed = True
+    st.session_state.automatic_generate_list = True
+    st.session_state.frame_index = 0
+    st.session_state["skip_label_update"] = True
+    
+    # Call the functions.
+    update_unverified_data_path()
+    update_unverified_frame()
+
+def handle_image_list_update(prefix=""):
     """
     Checks for image warnings or naming pattern warnings and handles
     image list updates. Returns True if it's okay to proceed,
@@ -1358,10 +1388,10 @@ def handle_image_list_update():
                         "Rename files with a pattern (lose original file names for faster performance)",
                         "Store list of all images (retain original file names but lose performance)"
                     ],
-                    key="naming_pattern_choice"
+                    key=prefix+"naming_pattern_choice"
                 )
                 if option == "Rename files with a pattern (lose original file names for faster performance)":
-                    if st.button("Apply Rename", key="apply_rename"):
+                    if st.button("Apply Rename", key=prefix+"apply_rename"):
                         images_dir = st.session_state.paths["unverified_images_path"]
                         new_pattern, total_images = safe_rename_images(images_dir)
                         if new_pattern is not None:
@@ -1375,7 +1405,7 @@ def handle_image_list_update():
                             st.session_state.image_list_stored = True
                             st.rerun()
                 else:
-                    if st.button("Store Image List", key="store_image_list"):
+                    if st.button("Store Image List", key=prefix+"store_image_list"):
                         images_dir = st.session_state.paths["unverified_images_path"]
                         images = []
                         for ext in [".jpg", ".png"]:
@@ -1700,51 +1730,76 @@ def add_labels(frame, image_path):
     return np.array(pil_img)
 
 def overlay_frame_text(frame, index):
-    # Convert the frame (numpy array) to a PIL Image.
-    img = Image.fromarray(frame)
-    draw = ImageDraw.Draw(img)
+    # Convert the original frame (numpy array) to a PIL Image.
+    original_img = Image.fromarray(frame)
+    orig_width, orig_height = original_img.size
+
+    # Define blank area height (50% of original height) and create a new image.
+    blank_height = orig_height // 2
+    new_height = orig_height + blank_height
+    new_img = Image.new("RGB", (orig_width, new_height), color="black")
     
-    # Attempt to load a large TrueType font.
-    try:
-        font = ImageFont.truetype("DejaVuSans-Bold.ttf", 100)
-    except IOError:
-        font = ImageFont.load_default()
-    
-    # If subset mode is enabled and subset_frames exist, try to fetch the actual frame number.
+    # Paste the original frame at the top.
+    new_img.paste(original_img, (0, 0))
+    draw = ImageDraw.Draw(new_img)
+
+    # Determine the text to display.
     if st.session_state.get("use_subset", False) and st.session_state.get("subset_frames"):
         try:
-            # Here, 'index' is the current video (subset) index;
-            # st.session_state.subset_frames[index] gives the actual frame number.
             actual_frame = st.session_state.subset_frames[index]
-            text = f"Subset Frame: {index} (Actual Frame: {actual_frame})"
+            line1 = f"Frame: {index}"
+            line2 = f"Subs set frame: {actual_frame}"
+            text = line1 + "\n" + line2
         except Exception:
-            text = f"Frame Number: {index}"
+            text = f"Frame: {index}"
     else:
-        text = f"Frame Number: {index}"
-    
-    # Calculate text dimensions using draw.textbbox.
-    bbox = draw.textbbox((0, 0), text, font=font)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    
-    # Calculate the center position of the image.
-    width, height = img.size
-    x = (width - text_width) / 2
-    y = int((0.95 * height) - text_height)
-    
-    # Draw a text outline for better visibility.
+        text = f"Frame: {index}"
+
+    # Define margins (5% horizontal, 10% vertical of blank area).
+    margin_x = int(orig_width * 0.05)
+    margin_y = int(blank_height * 0.1)
+    available_width = orig_width - 2 * margin_x
+    available_height = blank_height - 2 * margin_y
+
+    # Estimate initial font size based on available height and number of text lines.
+    lines = text.split("\n")
+    num_lines = len(lines)
+    font_size = int(available_height / (num_lines + 0.5))
+    try:
+        font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
+    except IOError:
+        font = ImageFont.load_default()
+
+    # Auto-scale the font so the text fits within the available width.
+    text_bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=5)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    while text_width > available_width and font_size > 10:
+        font_size -= 1
+        try:
+            font = ImageFont.truetype("DejaVuSans-Bold.ttf", font_size)
+        except IOError:
+            font = ImageFont.load_default()
+        text_bbox = draw.multiline_textbbox((0, 0), text, font=font, spacing=5)
+        text_width = text_bbox[2] - text_bbox[0]
+        text_height = text_bbox[3] - text_bbox[1]
+
+    # Center the text within the blank area.
+    text_x = (orig_width - text_width) / 2
+    text_y = orig_height + (blank_height - text_height) / 2
+
+    # Draw text outline for better visibility.
     outline_range = 2
     for dx in range(-outline_range, outline_range + 1):
         for dy in range(-outline_range, outline_range + 1):
             if dx != 0 or dy != 0:
-                draw.text((x + dx, y + dy), text, font=font, fill="black")
-                
+                draw.multiline_text((text_x + dx, text_y + dy), text, font=font, fill="black", spacing=5, align="center")
     # Draw the main text in white.
-    draw.text((x, y), text, font=font, fill="white")
-    
-    return np.array(img)
+    draw.multiline_text((text_x, text_y), text, font=font, fill="white", spacing=5, align="center")
 
-def create_video_file(image_paths, fps, scale=1.0, output_path="temp_label_review_video.mp4"):
+    return np.array(new_img)
+
+def create_video_file(image_paths, fps, scale=1.0, output_path="generated_videos/current.mp4"):
     """
     Create a composite video with two side-by-side panels:
       - Left panel: original video frames.
@@ -1791,14 +1846,20 @@ def create_video_file(image_paths, fps, scale=1.0, output_path="temp_label_revie
     final_clip = final_clip.fl(add_overlay, apply_to=['mask', 'video'])
     
     # Write the final composite clip to an MP4 file.
+    os.makedirs(os.path.dirname(output_path), mode=0o777, exist_ok=True)
     final_clip.write_videofile(output_path, codec="libx264", audio=False, verbose=False, logger=None)
     
     return output_path
 
 @st.cache_data(show_spinner=True)
-def generating_mp4(image_paths, fps):
-    return create_video_file(image_paths, fps)
-
+def generating_mp4(image_paths, fps, regenerate=False, output_path = "generated_videos/current.mp4"):
+ 
+    # If the file exists and we're not forcing regeneration, just return the existing file path.
+    if os.path.exists(output_path) and not regenerate:
+        return output_path
+    
+    # Otherwise, generate a new video file.
+    return create_video_file(image_paths, fps, output_path=output_path)
 
 #--------------------------------------------------------------------------------------------------------------------------------#
 ##  Configuration Tracking
@@ -1810,7 +1871,8 @@ if "session_running" not in st.session_state:
 
     st.session_state.object_by_object_jump_valid = False
     st.session_state.object_by_object_jump_warning = None
-
+    
+    st.session_state.video_saved_for_current_run = False
     st.session_state.playback_active = False
     st.session_state.fps = 1
     st.session_state.video_index = 0
@@ -1857,13 +1919,16 @@ if "session_running" not in st.session_state:
         "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
         "train_script_path" : "train_yolo.py",
 
-        "unverified_subset_csv_path" : "cfgs/gui/manual_labels/subset.csv"
+        "unverified_subset_csv_path" : "cfgs/gui/manual_labels/subset.csv",
+
+        "video_file_path": "generated_videos/current.mp4"
 
     }
     
     st.session_state.global_object_index = 0
 
     st.session_state.use_subset = False
+    st.session_state.use_subset_changed = False
     st.session_state.subset_frames = []
     st.session_state.subset_index = 0
     st.session_state.automatic_generate_list = False
@@ -2257,113 +2322,113 @@ with tabs[2]:
         yaml_editor("unverified_names_yaml_path")
 
     with st.expander("Subset Selection"):
-    
-        # --- CSV Path Selection ---
-        st.subheader("Choose CSV Path for Subset")
-        path_navigator("unverified_subset_csv_path")
+        if handle_image_list_update(prefix="subset_"):
+            # --- CSV Path Selection ---
+            st.subheader("Choose CSV Path for Subset")
+            path_navigator("unverified_subset_csv_path")
 
-        csv_file = st.session_state.paths["unverified_subset_csv_path"]
-        if os.path.exists(csv_file):
-            # Reload the subset frames from the CSV file
-            st.session_state.subset_frames = load_subset_frames(csv_file)
+            csv_file = st.session_state.paths["unverified_subset_csv_path"]
+            if os.path.exists(csv_file):
+                # Reload the subset frames from the CSV file
+                st.session_state.subset_frames = load_subset_frames(csv_file)
 
-            # --- Editable CSV Display ---
-            subset_df = pd.DataFrame(st.session_state.subset_frames, columns=["Frame Index"])
-            
-            # Insert the count column as the first column (starting count at 1).
-            subset_df.insert(0, "Subset Index", range(1, len(subset_df) + 1))
+                # --- Editable CSV Display ---
+                subset_df = pd.DataFrame(st.session_state.subset_frames, columns=["Frame Index"])
+                
+                # Insert the count column as the first column (starting count at 1).
+                subset_df.insert(0, "Subset Index", range(1, len(subset_df) + 1))
 
-            st.write("Subset Indices:")
+                st.write("Subset Indices:")
 
-            # Custom CSS to style the table for auto-fit column widths and a fixed container height with scrolling.
-            st.markdown(
-                """
-                <style>
-                /* Container to enforce fixed height and scrolling */
-                .scrollable-table-container {
-                    max-height: 200px;  /* Set the fixed height (adjust as needed) */
-                    overflow-y: auto;
-                    margin: auto;
-                }
-                /* Table styling */
-                .scrollable-table-container table {
-                    table-layout: auto;
-                    width: auto;
-                    border-collapse: collapse;
-                }
-                .scrollable-table-container th, .scrollable-table-container td {
-                    padding: 0.5em;
-                    border: 1px solid #ddd;
-                    white-space: nowrap;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
+                # Custom CSS to style the table for auto-fit column widths and a fixed container height with scrolling.
+                st.markdown(
+                    """
+                    <style>
+                    /* Container to enforce fixed height and scrolling */
+                    .scrollable-table-container {
+                        max-height: 200px;  /* Set the fixed height (adjust as needed) */
+                        overflow-y: auto;
+                        margin: auto;
+                    }
+                    /* Table styling */
+                    .scrollable-table-container table {
+                        table-layout: auto;
+                        width: auto;
+                        border-collapse: collapse;
+                    }
+                    .scrollable-table-container th, .scrollable-table-container td {
+                        padding: 0.5em;
+                        border: 1px solid #ddd;
+                        white-space: nowrap;
+                    }
+                    </style>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-            # Generate the HTML table and wrap it in a div with the custom container class.
-            html_table = f'<div class="scrollable-table-container">{subset_df.to_html(index=False)}</div>'
+                # Generate the HTML table and wrap it in a div with the custom container class.
+                html_table = f'<div class="scrollable-table-container">{subset_df.to_html(index=False)}</div>'
 
-            st.markdown(html_table, unsafe_allow_html=True)
+                st.markdown(html_table, unsafe_allow_html=True)
 
-            # --- Callback Functions for Adding and Removing Frames ---
-            def add_frame_callback(key):
-                add_val = st.session_state[key]
-                if add_val not in st.session_state.subset_frames:
-                    st.session_state.subset_frames.append(add_val)
-                    save_subset_frames(csv_file, st.session_state.subset_frames)
-                    st.session_state["skip_label_update"] = True
+                # --- Callback Functions for Adding and Removing Frames ---
+                def add_frame_callback(key):
+                    add_val = st.session_state[key]
+                    if add_val not in st.session_state.subset_frames:
+                        st.session_state.subset_frames.append(add_val)
+                        save_subset_frames(csv_file, st.session_state.subset_frames)
+                        st.session_state["skip_label_update"] = True
 
-            def remove_frame_callback():
-                remove_val = st.session_state["remove_frame"]
-                if remove_val in st.session_state.subset_frames:
-                    st.session_state.subset_frames.remove(remove_val)
-                    save_subset_frames(csv_file, st.session_state.subset_frames)
-                    st.session_state["skip_label_update"] = True
+                def remove_frame_callback():
+                    remove_val = st.session_state["remove_frame"]
+                    if remove_val in st.session_state.subset_frames:
+                        st.session_state.subset_frames.remove(remove_val)
+                        save_subset_frames(csv_file, st.session_state.subset_frames)
+                        st.session_state["skip_label_update"] = True
 
-            # Add/Remove Frames
-            if st.session_state.max_images > 0:
-                c1, c2 = st.columns([10, 10])
-                with c1:
-                    st.number_input(
-                        "Add Frame Index",
-                        min_value=0,
-                        max_value=st.session_state.max_images - 1,
-                        value=None,
-                        step=1,
-                        key="add_frame_1",
-                        on_change=add_frame_callback,
-                        args=("add_frame_1",)
-                    )
+                # Add/Remove Frames
+                if st.session_state.max_images > 0:
+                    c1, c2 = st.columns([10, 10])
+                    with c1:
+                        st.number_input(
+                            "Add Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="add_frame_1",
+                            on_change=add_frame_callback,
+                            args=("add_frame_1",)
+                        )
 
-                with c2:
-                    st.number_input(
-                        "Remove Frame Index",
-                        min_value=0,
-                        max_value=st.session_state.max_images - 1,
-                        value=None,
-                        step=1,
-                        key="remove_frame",
-                        on_change=remove_frame_callback
-                    )
-            else:
-                st.warning("No images available.")
-
-            # --- Copy CSV to a New File ---
-            base, ext = os.path.splitext(csv_file)
-            default_copy_path = base + "_copy" + ext
-            new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
-            if st.button("Copy CSV to new file"):
-                if new_save_path:
-                    try:
-                        save_subset_frames(new_save_path, st.session_state.subset_frames)
-                        st.success(f"Subset CSV copied to {new_save_path}")
-                    except Exception as e:
-                        st.error(f"Error copying file: {e}")
+                    with c2:
+                        st.number_input(
+                            "Remove Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="remove_frame",
+                            on_change=remove_frame_callback
+                        )
                 else:
-                    st.error("Please enter a valid new file path.")
-        else:
-            st.info("No CSV found. Create or upload a CSV to begin using a subset.")
+                    st.warning("No images available.")
+
+                # --- Copy CSV to a New File ---
+                base, ext = os.path.splitext(csv_file)
+                default_copy_path = base + "_copy" + ext
+                new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
+                if st.button("Copy CSV to new file"):
+                    if new_save_path:
+                        try:
+                            save_subset_frames(new_save_path, st.session_state.subset_frames)
+                            st.success(f"Subset CSV copied to {new_save_path}")
+                        except Exception as e:
+                            st.error(f"Error copying file: {e}")
+                    else:
+                        st.error("Please enter a valid new file path.")
+            else:
+                st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
     # --- Radio Button for Review Mode Selection ---
     review_mode = st.radio(
@@ -2375,7 +2440,7 @@ with tabs[2]:
     if review_mode == "Frame by Frame Review":
         
         with st.expander("Frame by Frame Label Review"):
-            if handle_image_list_update():
+            if handle_image_list_update(prefix="frame_by_frame_"):
                 if st.session_state.max_images > 0:
                     if st.session_state.max_images > 1:
                         # --- Top Navigation (Prev / Next) ---
@@ -2421,9 +2486,13 @@ with tabs[2]:
                             "Use Subset",
                             value=st.session_state.use_subset,
                             key="manual_label_subset_btn",
-                            on_change=checkbox_callback,
+                            on_change=manual_label_subset_checkbox_callback,
                             disabled=not len(st.session_state.subset_frames) > 1
                         )
+                        if st.session_state.use_subset_changed:
+                            st.session_state.use_subset_changed = False
+                            st.rerun()
+
                         if not len(st.session_state.subset_frames) > 1:
                             st.warning("Subset needs to be two or larger.")
                     if st.session_state.max_images > 1:
@@ -2538,100 +2607,126 @@ with tabs[2]:
                             )
  
         with st.expander("Video Review"):
-            c0, c1, c2, c3 = st.columns([30, 10,10,100])
+            if handle_image_list_update(prefix="video_"):
+                c0, c1, c2, c3 = st.columns([30, 15,15,100])
 
-            with c0:
-                st.markdown(
-                    """
-                    <style>
-                    .stCheckbox input[type="checkbox"] {
-                        transform: scale(1.5);
-                    }
-                    .stCheckbox label {
-                        font-size: 24px;
-                        font-weight: bold;
-                    }
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                
-                use_subset_val = st.checkbox("Use Subset", value=st.session_state.use_subset, key="video_subset_btn", on_change=checkbox_callback, disabled=not len(st.session_state.subset_frames) > 1)
-                if not len(st.session_state.subset_frames) > 1:
-                    st.warning("Subset needs to be two or larger.")
+                with c0:
+                    st.markdown(
+                        """
+                        <style>
+                        .stCheckbox input[type="checkbox"] {
+                            transform: scale(1.5);
+                        }
+                        .stCheckbox label {
+                            font-size: 24px;
+                            font-weight: bold;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True,
+                    )
                     
-            with c1:
-                # Slider to adjust the playback speed (seconds per frame).
-                st.session_state.fps = st.number_input(
-                    "FPS",
-                    min_value=1,
-                    max_value=10,
-                    value=int(st.session_state.fps),
-                    step=1
-                )
+                    use_subset_val = st.checkbox(
+                        "Use Subset", 
+                        value=st.session_state.use_subset, 
+                        key="video_subset_btn", 
+                        on_change=video_subset_checkbox_callback, 
+                        disabled=not len(st.session_state.subset_frames) > 1
+                    )
 
-            with c2:
-                # Slider to adjust the image scale.
-                st.session_state.video_image_scale = st.number_input(
-                    "Image Scale",
-                    min_value=0.1,
-                    max_value=2.0,
-                    value=st.session_state.video_image_scale,
-                    step=0.1
-                )
+                    if st.session_state.use_subset_changed:
+                        st.session_state.use_subset_changed = False
+                        st.rerun()
 
-            if st.button("Generate Video on Current Labels"):
-                if st.session_state.max_images > 0:
-                    # If subset usage is enabled, build an image_list from just those frames
-                    if st.session_state.use_subset and st.session_state.subset_frames:
-                        image_list = []
-                        if st.session_state.image_pattern:
-                            # Build paths from subset_frames
-                            for idx in st.session_state.subset_frames:
-                                img_path = os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(idx))
-                                if os.path.exists(img_path):
-                                    image_list.append(img_path)
-                        elif "image_list" in st.session_state and st.session_state.image_list:
-                            # Use subset_frames to index into the existing image_list
-                            for idx in st.session_state.subset_frames:
-                                if idx < len(st.session_state.image_list):
-                                    image_list.append(st.session_state.image_list[idx])
+                    if not len(st.session_state.subset_frames) > 1:
+                        st.warning("Subset needs to be two or larger.")
+                        
+                with c1:
+                    # Slider to adjust the playback speed (seconds per frame).
+                    st.session_state.fps = st.number_input(
+                        "FPS",
+                        min_value=1,
+                        max_value=10,
+                        value=int(st.session_state.fps),
+                        step=1
+                    )
+
+                with c2:
+                    # Slider to adjust the image scale.
+                    st.session_state.video_image_scale = st.number_input(
+                        "Image Scale",
+                        min_value=0.1,
+                        max_value=2.0,
+                        value=st.session_state.video_image_scale,
+                        step=0.1
+                    )
+
+                st.subheader("Choose Save Path for Generated MP4")
+                path_navigator("video_file_path")
+
+                if st.button("Generate Video on Current Labels"):
+
+                    if st.session_state.max_images > 0:
+
+                        # If subset usage is enabled, build an image_list from just those frames
+                        if st.session_state.use_subset and st.session_state.subset_frames:
+                            image_list = []
+                            if st.session_state.image_pattern:
+                                # Build paths from subset_frames
+                                for idx in st.session_state.subset_frames:
+                                    img_path = os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(idx))
+                                    if os.path.exists(img_path):
+                                        image_list.append(img_path)
+                            elif "image_list" in st.session_state and st.session_state.image_list:
+                                # Use subset_frames to index into the existing image_list
+                                for idx in st.session_state.subset_frames:
+                                    if idx < len(st.session_state.image_list):
+                                        image_list.append(st.session_state.image_list[idx])
+                            else:
+                                st.write("No images available to generate a video.")
+                                image_list = []
+                        else:
+                            # Use the full range of frames or entire image list
+                            if st.session_state.image_pattern:
+                                image_list = [
+                                    os.path.join(
+                                        st.session_state.images_dir,
+                                        st.session_state.image_pattern.format(i)
+                                    )
+                                    for i in range(
+                                        st.session_state.start_index,
+                                        st.session_state.start_index + st.session_state.max_images
+                                    )
+                                ]
+                            elif "image_list" in st.session_state and st.session_state.image_list:
+                                image_list = st.session_state.image_list
+                            else:
+                                st.write("No images available to generate a video.")
+                                image_list = []
+
+                        if image_list:
+                            generating_mp4.clear()
+                            generating_mp4(
+                                image_list, 
+                                st.session_state.fps, 
+                                output_path=st.session_state.paths["video_file_path"], 
+                                regenerate=True
+                            )
+                            st.video(st.session_state.paths["video_file_path"] , autoplay=True, loop=True)
+                            st.session_state.video_saved_for_current_run = True
                         else:
                             st.write("No images available to generate a video.")
-                            image_list = []
-                    else:
-                        # Use the full range of frames or entire image list
-                        if st.session_state.image_pattern:
-                            image_list = [
-                                os.path.join(
-                                    st.session_state.images_dir,
-                                    st.session_state.image_pattern.format(i)
-                                )
-                                for i in range(
-                                    st.session_state.start_index,
-                                    st.session_state.start_index + st.session_state.max_images
-                                )
-                            ]
-                        elif "image_list" in st.session_state and st.session_state.image_list:
-                            image_list = st.session_state.image_list
-                        else:
-                            st.write("No images available to generate a video.")
-                            image_list = []
-
-                    if image_list:
-                        generating_mp4.clear()
-                        video_file_path = generating_mp4(image_list, st.session_state.fps)
-                        st.video(video_file_path, autoplay=True, loop=True)
                     else:
                         st.write("No images available to generate a video.")
-                else:
-                    st.write("No images available to generate a video.")
 
+                elif st.session_state.video_saved_for_current_run:
+                    st.video(st.session_state.paths["video_file_path"], autoplay=True, loop=True)
+            
     else:
         with st.expander("Object by Object Label Review"):
             
             # Call the helper function to ensure image list/naming pattern is up-to-date.
-            if handle_image_list_update():
+            if handle_image_list_update(prefix="object_by_object_"):
                 current_obj = get_object_by_global_index(st.session_state.global_object_index)
                 if current_obj is None:
                     st.session_state.global_object_index = 0
