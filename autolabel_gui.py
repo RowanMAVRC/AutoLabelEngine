@@ -695,13 +695,21 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
 ## GPU Tools
 
 def check_gpu_status(button_key):
+    # Add the description for the user
+    st.write("Click the button below to check the current status the gpus on the server. ")
+
+    # Check if the gpustat command is available
     if st.button("Check GPU Status", key=button_key):
         try:
             # Run the gpustat command and capture its output
             output = subprocess.check_output(["gpustat"]).decode("utf-8")
+            st.write("NOTE: This output is not live. Please click again for an updated status.")
             return output
+            
         except Exception as e:
             st.error(f"Failed to run gpustat: {e}")
+    
+
 
 def display_terminal_output(output):
     # Ensure terminal_text exists in session state
@@ -757,7 +765,7 @@ def yaml_editor(yaml_key):
     content_hash = hashlib.md5(file_content.encode('utf-8')).hexdigest()
     ace_key = f"edited_content_{yaml_key}_{content_hash}"
     
-    st.subheader("Edit YAML Content")
+    st.markdown("Below is the YAML content. Edit and press the apply button at the bottom to save the changes.")
 
     lines = file_content.splitlines()
     line_count = len(lines) if len(lines) > 0 else 1
@@ -827,7 +835,7 @@ def python_code_editor(code_key):
     Args:
         code_key (str): Unique key to index this Python file in st.session_state.paths and st.session_state.python_codes.
     """
-
+    
     # Retrieve the file path from session state
     if "paths" not in st.session_state or code_key not in st.session_state.paths:
         st.error(f"Path for key '{code_key}' not found in st.session_state.paths")
@@ -857,7 +865,7 @@ def python_code_editor(code_key):
 
     ace_key = f"edited_content_{code_key}"
     
-    st.markdown("Edit Python Code")
+    st.markdown("Below is the Python script. Edit and press the apply button at the bottom to save the changes.")
 
     lines = file_content.splitlines()
     line_count = len(lines) if len(lines) > 0 else 1
@@ -2016,7 +2024,10 @@ if "session_running" not in st.session_state:
 
 save_session_state()
 
-#--------------------------------------------------------------------------------------------------------------------------------#
+## Define the title bar and brief description
+st.title("Auto Label Engine")
+st.write("This is a GUI for the Auto Label Engine. It allows you to generate datasets, auto label images, manually label images, finetune models, and run Linux commands on the server.")
+
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
 
@@ -2095,7 +2106,8 @@ with tabs[0]:
 
     if action_option == "Upload Data":
         with st.expander("Upload Data"):
-            st.subheader("Save Path")
+            st.write("### Save Path")
+            st.write("The path to upload image data on the server.")
             path_navigator("upload_save_path")
             upload_to_dir(st.session_state.paths["upload_save_path"])
 
@@ -2105,6 +2117,7 @@ with tabs[0]:
             
             with c1:
                 st.subheader("MP4 Path")
+                st.write("The path to the MP4 video file.")
                 path_navigator(
                     "mp4_path", 
                     button_and_selectbox_display_size=[4,30]
@@ -2112,11 +2125,13 @@ with tabs[0]:
             
             with c2:
                 st.subheader("Save Path")
+                st.write("The path to save to on the server.")
                 save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
                 key = "mp4_save_path"
                 if save_path_option == "Default":
                     st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/").replace("mp4_data", "yolo_format_data")
                     st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+                    
                 else:
                     path_navigator(
                         key,
@@ -2124,6 +2139,7 @@ with tabs[0]:
                     )
 
         with st.expander("Virtual Environment Path"):
+            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
             path_navigator("venv_path", radio_button_prefix="convert_mp4")
 
         with st.expander("Script"):
@@ -2131,6 +2147,7 @@ with tabs[0]:
             python_code_editor("mp4_script_path")
 
         with st.expander("Convert MP4 to PNGs"):
+            st.write("Press 'Begin Converting' to start generating a set of PNG files given the MP4's native framerate.")
             output = None
             c1, c2, c3, c4 = st.columns(4, gap="small")
             with c1:
@@ -2162,12 +2179,14 @@ with tabs[0]:
     elif action_option == "Rotate Image Dataset":
         with st.expander("Settings"):
             st.subheader("Image Path")
+            st.write("The path to the image.")
             path_navigator(
                 "rotate_images_path", 
                 button_and_selectbox_display_size=[4,30]
             )
 
         with st.expander("Virtual Environment Path"):
+            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
             path_navigator("venv_path", radio_button_prefix="rotate_images")
 
         with st.expander("Script"):
@@ -2175,6 +2194,7 @@ with tabs[0]:
             python_code_editor("rotate_images_script_path")
 
         with st.expander("Rotate Images"):
+            st.write("Press 'Begin Rotating Images' to preform the desired action on the images.")
             output = None
             c1, c2, c3, c4, c5 = st.columns(5, gap="small")
 
@@ -2221,12 +2241,14 @@ with tabs[0]:
             c1, c2 = st.columns(2)
             with c1:
                 st.subheader("Dataset To Be Split")
+                st.write("The path to the dataset to be split.")
                 path_navigator(
                     "split_data_path", 
                     button_and_selectbox_display_size=[4,30]
                 )
             with c2:
                 st.subheader("Save Path")
+                st.write("The path to save to on the server.")
                 save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
                 key = "split_data_save_path"
                 if save_path_option == "Default":
@@ -2239,6 +2261,7 @@ with tabs[0]:
                     )
 
         with st.expander("Virtual Environment Path"):
+            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
             path_navigator("venv_path", radio_button_prefix="split_data")
 
         with st.expander("Script"):
@@ -2246,6 +2269,7 @@ with tabs[0]:
             python_code_editor("split_data_script_path")
 
         with st.expander("Split Data"):
+            st.write("Press 'Begin Splitting Data' to split the images in the dataset into a group of images with objects and those without.")
             output = None
             c1, c2, c3, c4 = st.columns(4, gap="small")
 
@@ -2280,18 +2304,21 @@ with tabs[0]:
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.subheader("Dataset 1")
+                st.write("The path to the first dataset.")
                 path_navigator(
                     "combine_dataset_1_path", 
                     button_and_selectbox_display_size=[4,30]
                 )
             with c2:
                 st.subheader("Dataset 2")
+                st.write("The path to the second dataset.")
                 path_navigator(
                     "combine_dataset_2_path", 
                     button_and_selectbox_display_size=[4,30]
                 )
             with c3:
                 st.subheader("Save Path")
+                st.write("The path to save to on the server.")
                 path_navigator(
                     "combine_dataset_save_path", 
                     button_and_selectbox_display_size=[4,30]
@@ -2305,6 +2332,7 @@ with tabs[0]:
             python_code_editor("combine_dataset_script_path")
 
         with st.expander("Combine Data"):
+            st.write("Press 'Begin Combining Data' to combine the two datasets into one.")
             output = None
             c1, c2, c3, c4 = st.columns(4, gap="small")
 
@@ -2343,11 +2371,14 @@ with tabs[0]:
 with tabs[1]:
     with st.expander("Auto Label Settings"):
         st.subheader("Model Weights Path")
+        st.write("The path to the model weights.")
         path_navigator("auto_label_model_weight_path")
 
         st.subheader("Images Path")
+        st.write("The path to the images.")
         path_navigator("auto_label_data_path")
 
+        #TODO check this 
         st.subheader("Label Save Path")
         save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"autolabel_save_radio", label_visibility="collapsed")
         key = "auto_label_save_path"
@@ -2358,6 +2389,11 @@ with tabs[1]:
             path_navigator(key)
 
     with st.expander("Virtual Environment Path"):
+        st.write("The path to save the labels.")
+        path_navigator("auto_label_save_path")
+
+        st.subheader("Venv Path")
+        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
         path_navigator("venv_path", radio_button_prefix="auto_label")
 
     with st.expander("Script"):
@@ -2421,7 +2457,8 @@ with tabs[1]:
 with tabs[2]:
 
     with st.expander("Settings"):
-        st.subheader("Image Scale")
+        st.write("###Image Scale")
+        st.write("Scale the image to fit the screen. This is useful for large images.")
         image_scale = st.number_input(
             "Image Scale", 
             value=1.0, 
@@ -2433,10 +2470,12 @@ with tabs[2]:
             st.session_state["skip_label_update"] = True
             st.rerun()
 
-        st.subheader("Images Path")
+        st.write("###Images Path")
+        st.write("The path to the images.")
         path_navigator("unverified_images_path", button_and_selectbox_display_size=[1,25])
 
-        st.subheader("Label Names YAML Path")
+        st.write("###Label Names YAML Path")
+        st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
         path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[2,25])
         
         if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
@@ -2456,6 +2495,10 @@ with tabs[2]:
             # --- CSV Path Selection ---
             st.subheader("Choose CSV Path for Subset")
             path_navigator("unverified_subset_csv_path")
+
+    #TODO check this
+    with st.expander("Manual Label Review"):
+        st.write("Manually edit the labeling for each image in the dataset. Click the arrow to move to the next image.")
 
             csv_file = st.session_state.paths["unverified_subset_csv_path"]
             if os.path.exists(csv_file):
@@ -2959,6 +3002,20 @@ with tabs[2]:
                                 st.session_state.global_object_index = int(new_global_index)
                                 st.rerun()
 
+    #TODO - check this
+    with st.expander("Video Review"):
+        st.write("Convert the current set of labeled images to a video for review with the desired framerate and image scale.")
+        c1, c2, c3 = st.columns([10,10,100])
+        with c1:
+            # Slider to adjust the playback speed (seconds per frame).
+            st.session_state.fps = st.number_input(
+                "FPS",
+                min_value=1,
+                max_value=10,
+                value=int(st.session_state.fps),
+                step=1
+            )
+
                         with col_input2:
                             frame_index = get_frame_index_from_filename(current_obj["image_path"])
                             if frame_index:
@@ -3016,18 +3073,22 @@ with tabs[2]:
 # ----------------------- Train Status Tab -----------------------
 with tabs[3]:
     with st.expander("Data YAML"):
+        st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
         path_navigator("train_data_yaml_path")
         yaml_editor("train_data_yaml_path")
     
     with st.expander("Model YAML"):
+        st.write("The path to the model YAML file. This file contains the model architecture and layers.")
         path_navigator("train_model_yaml_path")
         yaml_editor("train_model_yaml_path")
         
     with st.expander("Train YAML Path"):
+        st.write("The path to the train YAML file. This file contains all model hyperparameters.")
         path_navigator("train_train_yaml_path")
         yaml_editor("train_train_yaml_path")
 
-    with st.expander("Virtual Environment Path"):
+    with st.expander("Venv Path"):
+        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
         path_navigator("venv_path", radio_button_prefix="train")
 
     with st.expander("Script"):
