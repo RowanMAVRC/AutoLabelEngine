@@ -696,7 +696,7 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
 
 def check_gpu_status(button_key):
     # Add the description for the user
-    st.write("Click the button below to check the current status the gpus on the server. ")
+    st.write("Click the 'Check GPU Status' button to check the current status the gpus on the server. ")
 
     # Check if the gpustat command is available
     if st.button("Check GPU Status", key=button_key):
@@ -2378,7 +2378,6 @@ with tabs[1]:
         st.write("The path to the images.")
         path_navigator("auto_label_data_path")
 
-        #TODO check this 
         st.subheader("Label Save Path")
         st.write("The path to save the labels.")
         save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"autolabel_save_radio", label_visibility="collapsed")
@@ -2399,6 +2398,7 @@ with tabs[1]:
         python_code_editor("auto_label_script_path")
 
     with st.expander("Auto Label Data"):
+        st.write("Click the 'Begin Auto Labeling Data' button to start the auto-labeling process.")
         output = None
         c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
 
@@ -2455,7 +2455,7 @@ with tabs[1]:
 with tabs[2]:
 
     with st.expander("Settings"):
-        st.write("###Image Scale")
+        st.write("### Image Scale")
         st.write("Scale the image to fit the screen. This is useful for large images.")
         image_scale = st.number_input(
             "Image Scale", 
@@ -2468,11 +2468,11 @@ with tabs[2]:
             st.session_state["skip_label_update"] = True
             st.rerun()
 
-        st.write("###Images Path")
+        st.write("### Images Path")
         st.write("The path to the images.")
         path_navigator("unverified_images_path", button_and_selectbox_display_size=[1,25])
 
-        st.write("###Label Names YAML Path")
+        st.write("### Label Names YAML Path")
         st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
         path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[2,25])
         
@@ -2489,69 +2489,66 @@ with tabs[2]:
         yaml_editor("unverified_names_yaml_path")
 
     with st.expander("Subset Selection"):
+        st.write("Select only a small subset of images to review or manually label.")
         if handle_image_list_update(prefix="subset_"):
             # --- CSV Path Selection ---
             st.subheader("Choose CSV Path for Subset")
             path_navigator("unverified_subset_csv_path")
 
-    #TODO check this
-    with st.expander("Manual Label Review"):
-        st.write("Manually edit the labeling for each image in the dataset. Click the arrow to move to the next image.")
+            csv_file = st.session_state.paths["unverified_subset_csv_path"]
+            if os.path.exists(csv_file):
+                # Reload the subset frames from the CSV file
+                st.session_state.subset_frames = load_subset_frames(csv_file)
 
-        csv_file = st.session_state.paths["unverified_subset_csv_path"]
-        if os.path.exists(csv_file):
-            # Reload the subset frames from the CSV file
-            st.session_state.subset_frames = load_subset_frames(csv_file)
+                st.subheader("Modify/View Subset")
 
-            st.subheader("Modify/View Subset")
+                # Add/Remove Frames
+                if st.session_state.max_images > 0:
+                    c1, c2, c3 = st.columns([10, 10, 10])
+                    with c1:
+                        st.number_input(
+                            "Add Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="subset_add_frame",
+                            on_change=add_frame_callback,
+                            args=("subset_add_frame",)
+                        )
 
-            # Add/Remove Frames
-            if st.session_state.max_images > 0:
-                c1, c2, c3 = st.columns([10, 10, 10])
-                with c1:
-                    st.number_input(
-                        "Add Frame Index",
-                        min_value=0,
-                        max_value=st.session_state.max_images - 1,
-                        value=None,
-                        step=1,
-                        key="subset_add_frame",
-                        on_change=add_frame_callback,
-                        args=("subset_add_frame",)
-                    )
+                    with c2:
+                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="subset_view_frames_in_subset")
 
-                with c2:
-                    st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="subset_view_frames_in_subset")
-
-                with c3:
-                    st.number_input(
-                        "Remove Frame Index",
-                        min_value=0,
-                        max_value=st.session_state.max_images - 1,
-                        value=None,
-                        step=1,
-                        key="subset_remove_frame",
-                        on_change=remove_frame_callback,
-                        args=("subset_remove_frame",)
-                    )
-            else:
-                st.warning("No images available.")
-
-            # --- Copy CSV to a New File ---
-            base, ext = os.path.splitext(csv_file)
-            default_copy_path = base + "_copy" + ext
-            new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
-            if st.button("Copy CSV to new file"):
-                if new_save_path:
-                    try:
-                        save_subset_frames(new_save_path, st.session_state.subset_frames)
-                        st.success(f"Subset CSV copied to {new_save_path}")
-                    except Exception as e:
-                        st.error(f"Error copying file: {e}")
+                    with c3:
+                        st.number_input(
+                            "Remove Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="subset_remove_frame",
+                            on_change=remove_frame_callback,
+                            args=("subset_remove_frame",)
+                        )
                 else:
-                    st.error("Please enter a valid new file path.")
-        else:
-            st.info("No CSV found. Create or upload a CSV to begin using a subset.")
+                    st.warning("No images available.")
+
+                # --- Copy CSV to a New File ---
+                base, ext = os.path.splitext(csv_file)
+                default_copy_path = base + "_copy" + ext
+                new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
+                if st.button("Copy CSV to new file"):
+                    if new_save_path:
+                        try:
+                            save_subset_frames(new_save_path, st.session_state.subset_frames)
+                            st.success(f"Subset CSV copied to {new_save_path}")
+                        except Exception as e:
+                            st.error(f"Error copying file: {e}")
+                    else:
+                        st.error("Please enter a valid new file path.")
+            else:
+                st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
     # --- Radio Button for Review Mode Selection ---
     review_mode = st.radio(
@@ -2563,6 +2560,7 @@ with tabs[2]:
     if review_mode == "Frame by Frame Review":
         
         with st.expander("Frame by Frame Label Review"):
+            st.write( "Review the labels in a frame by frame sequence.")
             if handle_image_list_update(prefix="frame_by_frame_"):
                 if st.session_state.max_images > 0:
                     if st.session_state.max_images > 1:
@@ -2616,6 +2614,8 @@ with tabs[2]:
                             st.session_state.use_subset_changed = False
                             st.rerun()
 
+                        
+                    
                     with c2:
                         c12, c22, c32 = st.columns([10, 10, 10])
                         with c12:
@@ -2761,6 +2761,7 @@ with tabs[2]:
                             )
  
         with st.expander("Video Review"):
+            st.write( "Review the labels within the full video.")
             if handle_image_list_update(prefix="video_"):
                 c0, c1, c2, c3 = st.columns([30, 15,15,100])
 
@@ -2905,6 +2906,7 @@ with tabs[2]:
                     )
     else:
         with st.expander("Object by Object Label Review"):
+            st.write( "Review the labels in an object by object sequence.")
             
             # Call the helper function to ensure image list/naming pattern is up-to-date.
             if handle_image_list_update(prefix="object_by_object_"):
@@ -2998,73 +3000,59 @@ with tabs[2]:
                                 st.session_state.global_object_index = int(new_global_index)
                                 st.rerun()
 
-    #TODO - check this
-    with st.expander("Video Review"):
-        st.write("Convert the current set of labeled images to a video for review with the desired framerate and image scale.")
-        c1, c2, c3 = st.columns([10,10,100])
-        with c1:
-            # Slider to adjust the playback speed (seconds per frame).
-            st.session_state.fps = st.number_input(
-                "FPS",
-                min_value=1,
-                max_value=10,
-                value=int(st.session_state.fps),
-                step=1
-            )
+                        with col_input2:
+                            frame_index = get_frame_index_from_filename(current_obj["image_path"])
+                            if frame_index:
+                                st.session_state.frame_index = frame_index
+                            jump_frame = st.number_input(
+                                "Jump to Frame Number",
+                                min_value=0,
+                                value=st.session_state.frame_index,  # or a separate default value if desired
+                                max_value= st.session_state.max_images - 1,
+                                key="jump_to_frame_input",
+                                on_change=jump_frame_object_by_object_callback
+                                
+                            )
 
-            with col_input2:
-                frame_index = get_frame_index_from_filename(current_obj["image_path"])
-                if frame_index:
-                    st.session_state.frame_index = frame_index
-                jump_frame = st.number_input(
-                    "Jump to Frame Number",
-                    min_value=0,
-                    value=st.session_state.frame_index,  # or a separate default value if desired
-                    max_value= st.session_state.max_images - 1,
-                    key="jump_to_frame_input",
-                    on_change=jump_frame_object_by_object_callback
-                    
-                )
+                            if st.session_state.object_by_object_jump_warning is None:     
+                                if st.session_state.object_by_object_jump_valid:
+                                    st.session_state.object_by_object_jump_valid = False                         
+                                    st.rerun()
+                            else: 
+                                st.warning(st.session_state.object_by_object_jump_warning)
+                                st.session_state.object_by_object_jump_warning = None  # Reset flag.
 
-                if st.session_state.object_by_object_jump_warning is None:     
-                    if st.session_state.object_by_object_jump_valid:
-                        st.session_state.object_by_object_jump_valid = False                         
-                        st.rerun()
-                else: 
-                    st.warning(st.session_state.object_by_object_jump_warning)
-                    st.session_state.object_by_object_jump_warning = None  # Reset flag.
-
-            col_nav1, col_nav2, col_nav3 = st.columns(3)
-            with col_nav1:
-                if st.button("Previous Object", key="prev_global_obj"):
-                    if st.session_state.global_object_index - 1 < 0:
-                        st.session_state.global_object_index = current_obj["num_labels"] - 1
-                    else:
-                        st.session_state.global_object_index -= 1
-                    st.rerun()
-            with col_nav2:
-                if st.button("Next Object", key="next_global_obj"):
-                    if st.session_state.global_object_index >= current_obj["num_labels"]:
-                        st.session_state.global_object_index = 0
-                    else:
-                        st.session_state.global_object_index += 1
-                    st.rerun()
-            with col_nav3:
-                if st.button("Delete Object", key="delete_global_obj"):
-                    try:
-                        with open(label_path, "r") as f:
-                            lines = f.readlines()
-                        local_idx = current_obj["local_index"]
-                        if local_idx < len(lines):
-                            del lines[local_idx]
-                            with open(label_path, "w") as f:
-                                f.writelines(lines)
-                            st.success("Object deleted.")
-                        else:
-                            st.error("Local object index out of range in label file.")
-                    except Exception as e:
-                        st.error(f"Error deleting object: {e}")
-                    st.rerun()
+                        col_nav1, col_nav2, col_nav3 = st.columns(3)
+                        with col_nav1:
+                            if st.button("Previous Object", key="prev_global_obj"):
+                                if st.session_state.global_object_index - 1 < 0:
+                                    st.session_state.global_object_index = current_obj["num_labels"] - 1
+                                else:
+                                    st.session_state.global_object_index -= 1
+                                st.rerun()
+                        with col_nav2:
+                            if st.button("Next Object", key="next_global_obj"):
+                                if st.session_state.global_object_index >= current_obj["num_labels"]:
+                                    st.session_state.global_object_index = 0
+                                else:
+                                    st.session_state.global_object_index += 1
+                                st.rerun()
+                        with col_nav3:
+                            if st.button("Delete Object", key="delete_global_obj"):
+                                try:
+                                    with open(label_path, "r") as f:
+                                        lines = f.readlines()
+                                    local_idx = current_obj["local_index"]
+                                    if local_idx < len(lines):
+                                        del lines[local_idx]
+                                        with open(label_path, "w") as f:
+                                            f.writelines(lines)
+                                        st.success("Object deleted.")
+                                    else:
+                                        st.error("Local object index out of range in label file.")
+                                except Exception as e:
+                                    st.error(f"Error deleting object: {e}")
+                                st.rerun()
                             
 # ----------------------- Train Status Tab -----------------------
 with tabs[3]:
@@ -3092,6 +3080,7 @@ with tabs[3]:
         python_code_editor("train_script_path")
 
     with st.expander("Finetune Model"):
+        st.write("Click the 'Begin Training' button to start the training process.")
         output = None
         c1, c2, c3, c4, c5 = st.columns(5, gap="small")
 
