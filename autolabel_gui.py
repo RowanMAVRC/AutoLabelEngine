@@ -167,7 +167,7 @@ def upload_to_dir(save_dir):
     # File uploader widget
     uploaded_file = st.file_uploader(
         "Upload a file or a ZIP archive containing a directory",
-        type=["txt", "csv", "jpg", "png", "pdf", "py", "yaml", "zip", "mp4"],
+        type=["txt", "csv", "jpg", "png", "pdf", "py", "yaml", "zip", "mp4", "mov"],
         key=uploader_key
     )
     
@@ -691,7 +691,7 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
     except subprocess.CalledProcessError as e:
         st.error(f"Error running command in tmux: {e}")
         return None
-
+    
 ## GPU Tools
 
 def check_gpu_status(button_key):
@@ -709,8 +709,6 @@ def check_gpu_status(button_key):
         except Exception as e:
             st.error(f"Failed to run gpustat: {e}")
     
-
-
 def display_terminal_output(output):
     # Ensure terminal_text exists in session state
     if "terminal_text" not in st.session_state:
@@ -2095,7 +2093,7 @@ with tabs[0]:
         "Choose save path option:", 
         [
             "Upload Data", 
-            "Convert MP4 to PNGs", 
+            "Convert Video to Frames", 
             "Rotate Image Dataset",
             "Split YOLO Dataset into Objects / No Objects", 
             "Combine YOLO Datasets"
@@ -2111,13 +2109,13 @@ with tabs[0]:
             path_navigator("upload_save_path")
             upload_to_dir(st.session_state.paths["upload_save_path"])
 
-    elif action_option == "Convert MP4 to PNGs":
+    elif action_option == "Convert Video to Frames":
         with st.expander("Settings"):
             c1, c2 = st.columns(2)
             
             with c1:
-                st.subheader("MP4 Path")
-                st.write("The path to the MP4 video file.")
+                st.subheader("Video Path")
+                st.write("The path to the MP4/MOV video file.")
                 path_navigator(
                     "mp4_path", 
                     button_and_selectbox_display_size=[4,30]
@@ -2129,14 +2127,11 @@ with tabs[0]:
                 save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
                 key = "mp4_save_path"
                 if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/").replace("mp4_data", "yolo_format_data")
+                    st.session_state.paths[key] = st.session_state.paths['mp4_path'].replace(" ", "_").replace('.mp4', '/images/').replace('video_data', 'yolo_format_data').replace('.MOV', '/images/')
                     st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
                     
                 else:
-                    path_navigator(
-                        key,
-                        button_and_selectbox_display_size=[4,30]
-                    )
+                    path_navigator(key)
 
         with st.expander("Virtual Environment Path"):
             st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
@@ -2146,8 +2141,8 @@ with tabs[0]:
             path_navigator("mp4_script_path")
             python_code_editor("mp4_script_path")
 
-        with st.expander("Convert MP4 to PNGs"):
-            st.write("Press 'Begin Converting' to start generating a set of PNG files given the MP4's native framerate.")
+        with st.expander("Convert Video to Frames"):
+            st.write("Press 'Begin Converting' to start generating a set of PNG files given the MP4/MOV's native framerate.")
             output = None
             c1, c2, c3, c4 = st.columns(4, gap="small")
             with c1:
@@ -2157,16 +2152,16 @@ with tabs[0]:
                         script_path=st.session_state.paths["mp4_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "video_path" : st.session_state.paths["mp4_path"],
-                            "output_folder" : st.session_state.paths["mp4_save_path"],
+                            "video_path" : st.session_state.paths['mp4_path'],
+                            "output_folder" : st.session_state.paths['mp4_save_path'],
                         }
                     )
                     time.sleep(3)
-                    output = update_tmux_terminal("mp4")
+                    output = update_tmux_terminal("mp4_data")
 
             with c2:
                 if st.button("Update Terminal Output", key="check_mp4_btn"):
-                    output = update_tmux_terminal("mp4")
+                    output = update_tmux_terminal("mp4_data")
 
             with c3:
                 if st.button("Clear Terminal Output", key="mp4_clear_terminal_btn"):
