@@ -2129,7 +2129,7 @@ with tabs[0]:
                 save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
                 key = "mp4_save_path"
                 if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/").replace("mp4_data", "yolo_format_data")
+                    st.session_state.paths[key] = st.session_state.paths["mp4_path"].replace(".mp4", "/images/").replace("mp4_data", "yolo_format_data").replace(".MOV", "/images/").replace(" ", "_")
                     st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
                     
                 else:
@@ -2157,12 +2157,12 @@ with tabs[0]:
                         script_path=st.session_state.paths["mp4_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "video_path" : st.session_state.paths["mp4_path"],
-                            "output_folder" : st.session_state.paths["mp4_save_path"],
+                            "video_path" : st.session_state.paths["mp4_path"].replace(" ", "\ "),
+                            "output_folder" : st.session_state.paths["mp4_save_path"].replace(" ", "\ "),
                         }
                     )
                     time.sleep(3)
-                    output = update_tmux_terminal("mp4")
+                    output = update_tmux_terminal("mp4_data")
 
             with c2:
                 if st.button("Update Terminal Output", key="check_mp4_btn"):
