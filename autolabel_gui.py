@@ -2152,8 +2152,8 @@ with tabs[0]:
                         script_path=st.session_state.paths["mp4_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "video_path" : st.session_state.paths['mp4_path'],
-                            "output_folder" : st.session_state.paths['mp4_save_path'],
+                            "video_path" : st.session_state.paths["mp4_path"].replace(" ", "\ "),
+                            "output_folder" : st.session_state.paths["mp4_save_path"].replace(" ", "\ "),
                         }
                     )
                     time.sleep(3)
