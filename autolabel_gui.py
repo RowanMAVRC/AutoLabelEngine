@@ -692,6 +692,31 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
         st.error(f"Error running command in tmux: {e}")
         return None
     
+def wait_for_conversion(session_key, check_interval=3):
+    """
+    Poll the tmux session output until the terminal prompt is detected,
+    indicating the conversion is complete.
+    
+    We assume that a shell prompt appears in the output that ends with a colon (":")
+    followed by any characters and ends with a "$" symbol, like:
+    "naddeok5@lambda03:~/AutoLabelEngine$"
+    """
+    # Pattern explanation:
+    # ^           : start of the line
+    # .+@.+       : at least one character, an '@', then at least one character (username@hostname)
+    # :.*         : a colon followed by any characters (the current directory)
+    # \$\s*$     : a literal "$" followed by optional whitespace till the end of line
+    prompt_pattern = r"^.+@.+:.*\$\s*$"
+
+    while True:
+        output = update_tmux_terminal(session_key)
+        # Check each line in the output to see if one matches the prompt pattern.
+        for line in output.splitlines():
+            if re.search(prompt_pattern, line.strip()):
+                return output
+        time.sleep(check_interval)
+
+
 ## GPU Tools
 
 def check_gpu_status(button_key):
@@ -1937,6 +1962,20 @@ def generating_mp4(image_paths, fps, regenerate=False, output_path = "generated_
     # Otherwise, generate a new video file.
     return create_video_file(image_paths, fps, output_path=output_path)
 
+def change_video_path_callback():
+    # Construct the new video path by joining the new folder path and the basename of the current video path.
+    new_video_path = os.path.join(
+        st.session_state.paths["convert_video_copy_path"],
+        os.path.basename(st.session_state.paths["convert_video_path"])
+    )
+
+    # Move the video file to the new location.
+    os.makedirs(st.session_state.paths["convert_video_copy_path"], exist_ok=True)
+    shutil.move(st.session_state.paths["convert_video_path"], new_video_path.replace(" ", "_"))
+
+    # Update the session state with the new path.
+    st.session_state.paths["convert_video_path"] = new_video_path
+
 #--------------------------------------------------------------------------------------------------------------------------------#
 ##  Configuration Tracking
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -1973,9 +2012,10 @@ if "session_running" not in st.session_state:
 
         "upload_save_path": "",
 
-        "mp4_path" : "",
-        "mp4_save_path" : "",
-        "mp4_script_path" : "convert_mp4_2_png.py",
+        "convert_video_path" : "",
+        "convert_video_save_path" : "",
+        "convert_video_script_path" : "convert_mp4_2_png.py",
+        "convert_video_copy_path" : "",
 
         "rotate_images_path":  "example_data",
         "rotate_images_script_path" : "rotate_images.py",
@@ -2111,57 +2151,75 @@ with tabs[0]:
 
     elif action_option == "Convert Video to Frames":
         with st.expander("Settings"):
-            c1, c2 = st.columns(2)
             
-            with c1:
-                st.subheader("Video Path")
-                st.write("The path to the MP4/MOV video file.")
-                path_navigator(
-                    "mp4_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
-            
-            with c2:
-                st.subheader("Save Path")
-                st.write("The path to save to on the server.")
-                save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
-                key = "mp4_save_path"
-                if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths['mp4_path'].replace(" ", "_").replace('.mp4', '/images/').replace('video_data', 'yolo_format_data').replace('.MOV', '/images/')
-                    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
-                    
-                else:
-                    path_navigator(key)
+            st.subheader("Video Path")
+            st.write("The path to the MP4/MOV video file.")
+            path_navigator(
+                "convert_video_path", 
+                button_and_selectbox_display_size=[4,30]
+            )
+        
+            st.subheader("Frame Save Path")
+            st.write("The path to save to on the server.")
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"frame_save_path_radio", label_visibility="collapsed")
+            key = "convert_video_save_path"
+            if save_path_option == "Default":
+                st.session_state.paths[key] = st.session_state.paths['convert_video_path'].replace(" ", "_").replace('.mp4', '/images/').replace('video_data', 'yolo_format_data').replace('.MOV', '/images/').replace("to_be_converted", "to_be_reviewed")
+                st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+                
+            else:
+                path_navigator(key)
+
+            st.subheader("New Video Path Save Path")
+            st.write("The path to move the video to after conversion.")
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"convert_video_copy_radio", label_visibility="collapsed")
+            key = "convert_video_copy_path"
+            if save_path_option == "Default":
+                st.session_state.paths[key] = os.path.dirname(st.session_state.paths['convert_video_path'].replace("to_be_converted", "converted").replace(" ", "_"))
+                st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+                
+            else:
+                path_navigator(key, radio_button_prefix="change_after_conversion_")
 
         with st.expander("Virtual Environment Path"):
             st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
             path_navigator("venv_path", radio_button_prefix="convert_mp4")
 
         with st.expander("Script"):
-            path_navigator("mp4_script_path")
-            python_code_editor("mp4_script_path")
+            path_navigator("convert_video_script_path")
+            python_code_editor("convert_video_script_path")
 
         with st.expander("Convert Video to Frames"):
             st.write("Press 'Begin Converting' to start generating a set of PNG files given the MP4/MOV's native framerate.")
             output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-            with c1:
+            c1_conv, c2, c3, c4 = st.columns(4, gap="small")
+            with c1_conv:
+                converted = False
                 if st.button("Begin Converting", key="begin_converting_data_btn"):
                     run_in_tmux(
-                        session_key="mp4_data", 
-                        script_path=st.session_state.paths["mp4_script_path"], 
+                        session_key="convert_video_data", 
+                        script_path=st.session_state.paths["convert_video_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "video_path" : st.session_state.paths["mp4_path"].replace(" ", "\ "),
-                            "output_folder" : st.session_state.paths["mp4_save_path"].replace(" ", "\ "),
+                            "video_path": st.session_state.paths["convert_video_path"].replace(" ", "\ "),
+                            "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\ "),
                         }
                     )
-                    time.sleep(3)
-                    output = update_tmux_terminal("mp4_data")
+                    
+                    st.success("Conversion started. Please wait until it completes...")
+                    
+                    # Wait until the conversion signals completion by checking tmux output
+                    conversion_output = wait_for_conversion("convert_video_data")
+
+                    converted = True
+                    
+                    st.success("Conversion completed successfully!")
+                    
+                    
 
             with c2:
                 if st.button("Update Terminal Output", key="check_mp4_btn"):
-                    output = update_tmux_terminal("mp4_data")
+                    output = update_tmux_terminal("convert_video_data")
 
             with c3:
                 if st.button("Clear Terminal Output", key="mp4_clear_terminal_btn"):
@@ -2169,7 +2227,18 @@ with tabs[0]:
 
             with c4:
                 if st.button("Kill TMUX Session", key="mp4_kill_tmux_session_btn"):
-                    output = kill_tmux_session("mp4")
+                    output = kill_tmux_session("convert_video_data")
+
+            if converted:
+                
+
+                st.write("Tmux output:")
+                st.text(conversion_output)
+                
+                # Prompt the user if they would like to change the video path
+                if st.button("Change Video Path", on_click=change_video_path_callback):
+                    converted = False
+                    
 
     elif action_option == "Rotate Image Dataset":
         with st.expander("Settings"):
@@ -2293,6 +2362,7 @@ with tabs[0]:
             with c4:
                 if st.button("Kill TMUX Session", key="split_data_kill_tmux_session_btn"):
                     output = kill_tmux_session("split_data")
+    
     else:
         # Combine YOLO Datasets
         with st.expander("Dataset Settings"):
