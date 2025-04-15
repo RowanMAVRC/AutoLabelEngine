@@ -22,6 +22,7 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from pathlib import Path
+import tempfile, json, shlex
 
 ## Streamlit-Specific
 
@@ -1977,20 +1978,20 @@ def change_video_path_callback():
     # Update the session state with the new path.
     st.session_state.paths["convert_video_path"] = new_video_path
 
-def get_random_image(image_dir):
-            # Define a list of valid image file extensions.
-            valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
-            # Get a list of files in the directory with valid image extensions.
-            image_files = [
-                os.path.join(image_dir, f)
-                for f in os.listdir(image_dir)
-                if os.path.splitext(f)[1].lower() in valid_extensions
-            ]
-            # Return a random image path if available; otherwise, None.
-            if image_files:
-                return random.choice(image_files)
-            else:
-                return None
+def get_random_image(directory):
+    """
+    Returns a random image filepath from the given directory.
+    """
+    valid_extensions = ('.jpg', '.jpeg', '.png')
+    try:
+        files = os.listdir(directory)
+    except Exception as e:
+        return None
+    images = [os.path.join(directory, f) for f in files if f.lower().endswith(valid_extensions)]
+    if images:
+        import random
+        return random.choice(images)
+    return None
 
 #--------------------------------------------------------------------------------------------------------------------------------#
 ##  Configuration Tracking
@@ -2285,83 +2286,114 @@ with tabs[0]:
     elif action_option == "Rotate Image Dataset":
         with st.expander("Settings"):
             st.subheader("Image Path")
-            st.write("The path to the image.")
+            st.write("The path to the image datasets. If subdirectories are found, each subdirectory will be treated as an individual dataset.")
             image_directory = path_navigator(
                 "rotate_images_path", 
                 button_and_selectbox_display_size=[4,30]
             )
 
+            datasets_list = []  # New list to collect each dataset's info.
             if image_directory and os.path.isdir(image_directory):
-                random_img_path = get_random_image(image_directory)
+                subdirs = [os.path.join(image_directory, d, "images") for d in os.listdir(image_directory)
+                        if os.path.isdir(os.path.join(image_directory, d))]
+                datasets = subdirs if subdirs else [image_directory]
 
-                if random_img_path:
-                    st.image(random_img_path, caption="Randomly Sampled Image")
+                for dataset in datasets:
+                    st.markdown(f"#### Dataset: {dataset}")
+                    random_img_path = get_random_image(dataset)
 
-                    rotation_option = st.radio(
-                        "Choose Rotation:", 
-                        [
-                            "CW", 
-                            "CCW", 
-                            "180",
-                        ],
-                        key=f"rotate_images_radio",
-                        label_visibility="collapsed"
-                    )
+                    if random_img_path:
+                        c1, c2, c3 = st.columns([.37, .16, .37])
+                        
+                        with c1:
+                            st.image(random_img_path, caption="Randomly Sampled Image")
+                        
+                        with c2:
+                            if st.button("Randomize Image Path", key=f"randomize_{dataset}"):
+                                st.rerun()
 
-                    # Open the image.
-                    image = Image.open(random_img_path)
-                    # Apply the rotation based on selection.
-                    if rotation_option == "CW":
-                        rotated_image = image.rotate(-90, expand=True)
-                    elif rotation_option == "CCW":
-                        rotated_image = image.rotate(90, expand=True)
-                    elif rotation_option == "180":
-                        rotated_image = image.rotate(180, expand=True)
+                            rotation_option = st.radio(
+                                "Choose Rotation:", 
+                                ["None", "CW", "CCW", "180"],
+                                key=f"rotate_images_radio_{dataset}",
+                                label_visibility="collapsed"
+                            )
+                        
+                        with c3:
+                            image = Image.open(random_img_path)
+                            if rotation_option == "CW":
+                                rotated_image = image.rotate(-90, expand=True)
+                            elif rotation_option == "CCW":
+                                rotated_image = image.rotate(90, expand=True)
+                            elif rotation_option == "180":
+                                rotated_image = image.rotate(180, expand=True)
+                            else:
+                                rotated_image = image
+                            st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
+                        
+                        datasets_list.append({
+                            "directory": dataset.replace("\ ", " "),
+                            "rotation": rotation_option
+                        })
                     else:
-                        rotated_image = image
-                    
-                    # Display the rotated image.
-                    st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
-
+                        st.warning(f"No valid image found in dataset: {os.path.basename(dataset)}")
+            else:
+                st.error("Please select a valid image dataset directory.")
+                
         with st.expander("Virtual Environment Path"):
             st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
             path_navigator("venv_path", radio_button_prefix="rotate_images")
-
+        
         with st.expander("Script"):
             path_navigator("rotate_images_script_path")
             python_code_editor("rotate_images_script_path")
-
+        
         with st.expander("Rotate Images"):
-            st.write("Press 'Begin Rotating Images' to preform the desired action on the images.")
+            st.write("Press 'Begin Rotating Images' to perform the desired action on the images.")
             output = None
             c1, c2, c3, c4 = st.columns(4, gap="small")
-
+            
             with c1:
                 if st.button("Begin Rotating Images", key="begin_rotating_data_btn"):
-                    run_in_tmux(
-                        session_key="rotate_images", 
-                        script_path=st.session_state.paths["rotate_images_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "directory" : st.session_state.paths["rotate_images_path"].replace(" ", "\ "),
-                            "rotation" : rotation_option,
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("rotate_images")
+                    # Filter the datasets_list to include only entries with a rotation other than "None"
+                    filtered_datasets = [entry for entry in datasets_list if entry["rotation"] != "None"]
 
+                    if filtered_datasets:
+                        # Write the filtered datasets list to a temporary JSON file.
+                        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as tf:
+                            json.dump(filtered_datasets, tf)
+                            temp_json_path = tf.name
+                        
+                        # Build command-line arguments by passing the JSON file path.
+                        # Use shlex.quote to ensure the path is safely escaped.
+                        cmd_args = f'--json_file {shlex.quote(temp_json_path)}'
+                        
+                        # Launch the tmux command with the --json_file argument.
+                        run_in_tmux(
+                            session_key="rotate_images", 
+                            script_path=st.session_state.paths["rotate_images_script_path"], 
+                            venv_path=st.session_state.paths["venv_path"],
+                            args=cmd_args
+                        )
+                        time.sleep(3)
+                        output = update_tmux_terminal("rotate_images")
+                    else:
+                        st.warning("No rotations required as all settings are None.")
+            
             with c2:
                 if st.button("Update Terminal Output", key="check_rotate_images_btn"):
                     output = update_tmux_terminal("rotate_images")
-
+            
             with c3:
                 if st.button("Clear Terminal Output", key="rotate_images_clear_terminal_btn"):
                     output = None
-
+                    st.text("Terminal output cleared.")
+            
             with c4:
                 if st.button("Kill TMUX Session", key="rotate_images_kill_tmux_session_btn"):
                     output = kill_tmux_session("rotate_images")
-
+                    st.text(output)
+        
     elif action_option == "Split YOLO Dataset into Objects / No Objects":
         with st.expander("Dataset Settings"):
             c1, c2 = st.columns(2)
