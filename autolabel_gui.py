@@ -7,6 +7,7 @@ import os
 import re
 import glob
 import time
+import random
 import shutil
 import subprocess
 import zipfile
@@ -23,6 +24,8 @@ from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from pathlib import Path
 import tempfile, json, shlex
+from collections import Counter
+import matplotlib.pyplot as plt
 
 ## Streamlit-Specific
 
@@ -153,6 +156,7 @@ def infer_image_pattern(images_dir, extensions=(".jpg", ".png")):
     st.session_state.naming_pattern_warning = None
 
     return best_pattern, start_index, end_index
+    
 
 def upload_to_dir(save_dir):
     """
@@ -1954,6 +1958,132 @@ def create_video_file(image_paths, fps, scale=1.0, output_path="generated_videos
     
     return output_path
 
+def generate_class_distribution_plot(labels_path):
+
+    # Label (class) counter
+    class_counts = Counter()
+
+    # Check if the labels path exists
+    if not os.path.exists(labels_path):
+        st.error("Labels path does not exist.")
+        return
+
+    # Iterate through all label files in the directory
+    for label_file in os.listdir(labels_path):
+        if label_file.endswith(".txt"):
+            with open(os.path.join(labels_path, label_file), "r") as f:
+                for line in f:
+                    class_id = int(line.split()[0]) # Extract class ID
+                    class_counts[class_id] += 1 # Increment the count for this class
+
+    # If no class labels are found, display a warning (for incorrect results)
+    if not class_counts:
+        st.warning("No class labels found.")
+        return
+
+    # Plot the class distribution and display in interface
+    classes, counts = zip(*class_counts.items())
+    fig, ax = plt.subplots(figsize=(8, 6))
+    ax.bar(classes, counts, color='blue')
+    ax.set_xlabel("Class ID")
+    ax.set_ylabel("Count")
+    ax.set_title("Class Distribution in Auto-labeled Dataset")
+    ax.set_xticks(classes)
+    st.pyplot(fig)
+
+def generate_xy_and_hw_plots(labels_path):
+
+    # Store the x, y, width, and height values from the label files
+    x_vals, y_vals, w_vals, h_vals = [], [], [], []
+
+    # For each label file in the directory
+    for label_file in os.listdir(labels_path):
+        if label_file.endswith(".txt"):
+            with open(os.path.join(labels_path, label_file), "r") as f:
+                # Read each line and extract the x, y, width, and height values
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 5:
+                        _, x, y, w, h = map(float, parts)
+                        # Append all values to their respective lists
+                        x_vals.append(x) 
+                        y_vals.append(y)
+                        w_vals.append(w)
+                        h_vals.append(h)
+
+    # Display a warning if no label data is found (for incorrect results)
+    if not x_vals:
+        st.warning("No label data found for coordinate plots.")
+        return
+
+    # Create hexbin plots for x vs y and width vs height (similar to yolo)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+    ax1.hexbin(x_vals, y_vals, gridsize=30, cmap='Blues')
+    ax1.set_title("X vs Y (Bounding Box Centers)")
+    ax1.set_xlabel("x")
+    ax1.set_ylabel("y")
+
+    # Create another hexbin plot for width vs height
+    ax2.hexbin(w_vals, h_vals, gridsize=30, cmap='Blues')
+    ax2.set_title("Width vs Height (Bounding Box Sizes)")
+    ax2.set_xlabel("width")
+    ax2.set_ylabel("height")
+
+    st.pyplot(fig)
+
+def draw_bboxes_on_image(image_path, label_path):
+
+    # Open the image and create a draw object
+    image = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    w, h = image.size
+
+    # Check if the label file exists
+    if not os.path.exists(label_path):
+        return image
+
+    # Read the label file and draw bounding boxes
+    with open(label_path, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 5:
+                continue
+            cls, x, y, bw, bh = map(float, parts)
+            x1 = (x - bw / 2) * w
+            y1 = (y - bh / 2) * h
+            x2 = (x + bw / 2) * w
+            y2 = (y + bh / 2) * h
+            draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
+            draw.text((x1, y1), str(int(cls)), fill="red")
+
+    return image
+
+def display_images(images_path, labels_path, sample_size=4):
+
+    # Check if the images path exists
+    if not os.path.exists(images_path):
+        st.error("Images path does not exist.")
+        return
+
+    # Find the image files in the directory
+    image_files = [f for f in os.listdir(images_path) if f.endswith(('png', 'jpg', 'jpeg'))]
+
+    # Display warning
+    if not image_files:
+        st.warning("No images found in the images folder.")
+        return
+
+    # Randomly sample images based on user param
+    sample_images = random.sample(image_files, min(sample_size, len(image_files)))
+
+    # Create a 2-column layout for displaying images
+    cols = st.columns(2)
+    for i, image_file in enumerate(sample_images):
+        image_path = os.path.join(images_path, image_file)
+        label_path = os.path.join(labels_path, image_file.rsplit('.', 1)[0] + '.txt')
+        annotated_img = draw_bboxes_on_image(image_path, label_path)
+        cols[i % 2].image(annotated_img, caption=image_file, use_container_width=True)
+
 @st.cache_data(show_spinner=True)
 def generating_mp4(image_paths, fps, regenerate=False, output_path = "generated_videos/current.mp4"):
  
@@ -2141,7 +2271,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
 ## Main Tabs
-tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Finetune Model", "Linux Terminal"])
+tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal"])
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
@@ -3249,9 +3379,32 @@ with tabs[2]:
                                 except Exception as e:
                                     st.error(f"Error deleting object: {e}")
                                 st.rerun()
-                            
-# ----------------------- Train Status Tab -----------------------
+
+# ----------------------- Dataset Statistics Tab -----------------------
+
 with tabs[3]:
+    with st.expander("Dataset Statistics"):
+        st.subheader("Dataset Figures")
+        st.write("The path to the YOLO formated dataset.")
+
+        path_navigator("dataset_path", button_and_selectbox_display_size=[4, 30])
+
+        dataset_path = st.session_state.paths.get("dataset_path", "")
+        if dataset_path:
+            images_path = os.path.join(dataset_path, "images")
+            labels_path = os.path.join(dataset_path, "labels")
+
+            st.markdown("### Sample Annotated Images")
+            display_images(images_path, labels_path)
+
+            st.markdown("### Class Distribution")
+            generate_class_distribution_plot(labels_path)
+
+            st.markdown("### Bounding Box Location and Size Distribution")
+            generate_xy_and_hw_plots(labels_path)
+
+# ----------------------- Train Status Tab -----------------------
+with tabs[4]:
     with st.expander("Data YAML"):
         st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
         path_navigator("train_data_yaml_path")
@@ -3315,7 +3468,7 @@ with tabs[3]:
             terminal_output.text(output)
 
 # ----------------------- Linux Terminal Tab -----------------------
-with tabs[4]:
+with tabs[5]:
     # Initialize accumulated terminal output in session state.
     if "terminal_text" not in st.session_state:
         st.session_state.terminal_text = ""
