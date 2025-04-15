@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import zipfile
 import hashlib
+import random
 
 ## Third-Party Libraries 
 
@@ -1976,6 +1977,21 @@ def change_video_path_callback():
     # Update the session state with the new path.
     st.session_state.paths["convert_video_path"] = new_video_path
 
+def get_random_image(image_dir):
+            # Define a list of valid image file extensions.
+            valid_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.gif']
+            # Get a list of files in the directory with valid image extensions.
+            image_files = [
+                os.path.join(image_dir, f)
+                for f in os.listdir(image_dir)
+                if os.path.splitext(f)[1].lower() in valid_extensions
+            ]
+            # Return a random image path if available; otherwise, None.
+            if image_files:
+                return random.choice(image_files)
+            else:
+                return None
+
 #--------------------------------------------------------------------------------------------------------------------------------#
 ##  Configuration Tracking
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -2151,103 +2167,161 @@ with tabs[0]:
 
     elif action_option == "Convert Video to Frames":
         with st.expander("Settings"):
-            
             st.subheader("Video Path")
-            st.write("The path to the MP4/MOV video file.")
-            path_navigator(
-                "convert_video_path", 
-                button_and_selectbox_display_size=[4,30]
-            )
-        
+            st.write("Enter the path to an MP4/MOV video file **or directory** containing video files (all subdirectories will be scanned).")
+            path_navigator("convert_video_path", button_and_selectbox_display_size=[4, 30])
+            
+            video_path = st.session_state.paths.get('convert_video_path', '')
+            video_files = []
+            if os.path.isdir(video_path):
+                st.write("Found videos...")
+                for root, dirs, files in os.walk(video_path):
+                    for f in files:
+                        if f.lower().endswith(('.mp4', '.mov')):
+                            video_files.append(os.path.join(root, f))
+                if not video_files:
+                    st.warning("No MP4/MOV video files found in the selected directory.")
+                else:
+                    base_dir = os.path.abspath(video_path)
+                    rel_paths = [os.path.relpath(v, base_dir) for v in sorted(video_files)]
+                    st.selectbox("Found Videos", options=rel_paths, key="found_video_select", label_visibility="collapsed")
+            else:
+                st.write("**Single video file selected.**")
+            
             st.subheader("Frame Save Path")
-            st.write("The path to save to on the server.")
-            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"frame_save_path_radio", label_visibility="collapsed")
+            st.write("The global default output directory is determined as follows:")
             key = "convert_video_save_path"
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"],
+                                        key="frame_save_path_radio", label_visibility="collapsed")
             if save_path_option == "Default":
-                st.session_state.paths[key] = st.session_state.paths['convert_video_path'].replace(" ", "_").replace('.mp4', '/images/').replace('video_data', 'yolo_format_data').replace('.MOV', '/images/').replace("to_be_converted", "to_be_reviewed")
-                st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
-                
+                if os.path.isdir(video_path):
+                    if "to_be_converted" in video_path:
+                        default_output_dir = video_path.replace("to_be_converted", "to_be_reviewed").replace("video_data", "yolo_format_data")
+                    else:
+                        default_output_dir = video_path.rstrip(os.sep) + "_images"
+                    st.session_state.paths[key] = default_output_dir
+                else:
+                    st.session_state.paths[key] = (
+                        video_path.replace('.mp4', '/images/')
+                        .replace('video_data', 'yolo_format_data')
+                        .replace('.MOV', '/images/')
+                        .replace("to_be_converted", "to_be_reviewed")
+                    )
+                st.write(f"**Current Frame Save Path:** {st.session_state.paths[key]}")
             else:
                 path_navigator(key)
 
             st.subheader("New Video Path Save Path")
-            st.write("The path to move the video to after conversion.")
-            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"convert_video_copy_radio", label_visibility="collapsed")
+            st.write("The base folder to move the original video after conversion.")
             key = "convert_video_copy_path"
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"],
+                                        key="convert_video_copy_radio", label_visibility="collapsed")
             if save_path_option == "Default":
-                st.session_state.paths[key] = os.path.dirname(st.session_state.paths['convert_video_path'].replace("to_be_converted", "converted").replace(" ", "_"))
-                st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
-                
+                if os.path.isdir(video_path):
+                    if "to_be_converted" in video_path:
+                        default_copy_dir = video_path.replace("to_be_converted", "converted")
+                    else:
+                        default_copy_dir = video_path.rstrip(os.sep) + "/converted_videos"
+                    st.session_state.paths[key] = default_copy_dir
+                else:
+                    st.session_state.paths[key] = os.path.dirname(
+                        video_path.replace("to_be_converted", "converted")
+                    )
+                st.write(f"**Current New Video Path Save Path:** {st.session_state.paths[key]}")
             else:
                 path_navigator(key, radio_button_prefix="change_after_conversion_")
-
+        
         with st.expander("Virtual Environment Path"):
-            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+            st.write("Provide the path to the virtual environment containing the required packages.")
             path_navigator("venv_path", radio_button_prefix="convert_mp4")
-
+        
         with st.expander("Script"):
             path_navigator("convert_video_script_path")
             python_code_editor("convert_video_script_path")
-
+        
         with st.expander("Convert Video to Frames"):
-            st.write("Press 'Begin Converting' to start generating a set of PNG files given the MP4/MOV's native framerate.")
+            st.write(
+                "Click **Begin Converting** to start processing your video file(s) in a background tmux session.\n\n"
+                "• For directories, a single tmux session will be launched that loops over each video internally, so the GUI doesn't wait for each conversion.")
+            st.write(
+                "• Once conversion completes, each video file is automatically moved to the new location."
+            )
+
             output = None
             c1_conv, c2, c3, c4 = st.columns(4, gap="small")
+            session_key = "convert_video_background"
             with c1_conv:
-                converted = False
+
                 if st.button("Begin Converting", key="begin_converting_data_btn"):
+                    video_path = st.session_state.paths.get('convert_video_path', '')
+                    # Launch the conversion script as a single background task,
+                    # passing the "copy_destination" so the script can move each video when done.
+                    
                     run_in_tmux(
-                        session_key="convert_video_data", 
-                        script_path=st.session_state.paths["convert_video_script_path"], 
+                        session_key=session_key,
+                        script_path=st.session_state.paths["convert_video_script_path"],
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "video_path": st.session_state.paths["convert_video_path"].replace(" ", "\ "),
+                            "video_path": video_path.replace(" ", "\ "),
                             "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\ "),
+                            "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\ ")
                         }
                     )
-                    
-                    st.success("Conversion started. Please wait until it completes...")
-                    
-                    # Wait until the conversion signals completion by checking tmux output
-                    conversion_output = wait_for_conversion("convert_video_data")
-
+                    st.success("Conversion started in the background. Check tmux for progress.")
                     converted = True
-                    
-                    st.success("Conversion completed successfully!")
-                    
-                    
 
             with c2:
-                if st.button("Update Terminal Output", key="check_mp4_btn"):
-                    output = update_tmux_terminal("convert_video_data")
+                if st.button("Update Terminal Output", key="check_convert_video_btn"):
+                    output = update_tmux_terminal(session_key)
 
             with c3:
-                if st.button("Clear Terminal Output", key="mp4_clear_terminal_btn"):
+                if st.button("Clear Terminal Output", key="convert_video_terminal_btn"):
                     output = None
 
             with c4:
-                if st.button("Kill TMUX Session", key="mp4_kill_tmux_session_btn"):
-                    output = kill_tmux_session("convert_video_data")
-
-            if converted:
-                
-
-                st.write("Tmux output:")
-                st.text(conversion_output)
-                
-                # Prompt the user if they would like to change the video path
-                if st.button("Change Video Path", on_click=change_video_path_callback):
-                    converted = False
-                    
+                if st.button("Kill TMUX Session", key="convert_video_kill_tmux_session_btn"):
+                    output = kill_tmux_session(session_key)
 
     elif action_option == "Rotate Image Dataset":
         with st.expander("Settings"):
             st.subheader("Image Path")
             st.write("The path to the image.")
-            path_navigator(
+            image_directory = path_navigator(
                 "rotate_images_path", 
                 button_and_selectbox_display_size=[4,30]
             )
+
+            if image_directory and os.path.isdir(image_directory):
+                random_img_path = get_random_image(image_directory)
+
+                if random_img_path:
+                    st.image(random_img_path, caption="Randomly Sampled Image")
+
+                    rotation_option = st.radio(
+                        "Choose Rotation:", 
+                        [
+                            "CW", 
+                            "CCW", 
+                            "180",
+                        ],
+                        key=f"rotate_images_radio",
+                        label_visibility="collapsed"
+                    )
+
+                    # Open the image.
+                    image = Image.open(random_img_path)
+                    # Apply the rotation based on selection.
+                    if rotation_option == "CW":
+                        rotated_image = image.rotate(-90, expand=True)
+                    elif rotation_option == "CCW":
+                        rotated_image = image.rotate(90, expand=True)
+                    elif rotation_option == "180":
+                        rotated_image = image.rotate(180, expand=True)
+                    else:
+                        rotated_image = image
+                    
+                    # Display the rotated image.
+                    st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
 
         with st.expander("Virtual Environment Path"):
             st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
@@ -2260,43 +2334,31 @@ with tabs[0]:
         with st.expander("Rotate Images"):
             st.write("Press 'Begin Rotating Images' to preform the desired action on the images.")
             output = None
-            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+            c1, c2, c3, c4 = st.columns(4, gap="small")
 
-            with c1: 
-                action_option = st.radio(
-                    "Choose Rotation:", 
-                    [
-                        "CW", 
-                        "CCW", 
-                        "180",
-                    ],
-                    key=f"rotate_images_radio",
-                    label_visibility="collapsed"
-                )
-
-            with c2:
+            with c1:
                 if st.button("Begin Rotating Images", key="begin_rotating_data_btn"):
                     run_in_tmux(
                         session_key="rotate_images", 
                         script_path=st.session_state.paths["rotate_images_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "directory" : st.session_state.paths["rotate_images_path"],
-                            "rotation" : action_option,
+                            "directory" : st.session_state.paths["rotate_images_path"].replace(" ", "\ "),
+                            "rotation" : rotation_option,
                         }
                     )
                     time.sleep(3)
                     output = update_tmux_terminal("rotate_images")
 
-            with c3:
+            with c2:
                 if st.button("Update Terminal Output", key="check_rotate_images_btn"):
                     output = update_tmux_terminal("rotate_images")
 
-            with c4:
+            with c3:
                 if st.button("Clear Terminal Output", key="rotate_images_clear_terminal_btn"):
                     output = None
 
-            with c5:
+            with c4:
                 if st.button("Kill TMUX Session", key="rotate_images_kill_tmux_session_btn"):
                     output = kill_tmux_session("rotate_images")
 
@@ -2344,8 +2406,8 @@ with tabs[0]:
                         script_path=st.session_state.paths["split_data_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "data_path" : st.session_state.paths["split_data_path"],
-                            "save_path" : st.session_state.paths["split_data_save_path"],
+                            "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\ "),
+                            "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\ "),
                         }
                     )
                     time.sleep(3)
@@ -2408,9 +2470,9 @@ with tabs[0]:
                         script_path=st.session_state.paths["combine_dataset_script_path"], 
                         venv_path=st.session_state.paths["venv_path"],
                         args={
-                            "dataset1" : st.session_state.paths["combine_dataset_1_path"],
-                            "dataset2" : st.session_state.paths["combine_dataset_2_path"],
-                            "dst_dir" : st.session_state.paths["combine_dataset_save_path"]
+                            "dataset1" : st.session_state.paths["combine_dataset_1_path"].replace(" ", "\ "),
+                            "dataset2" : st.session_state.paths["combine_dataset_2_path"].replace(" ", "\ "),
+                            "dst_dir" : st.session_state.paths["combine_dataset_save_path"].replace(" ", "\ ")
                         }
                     )
                     time.sleep(3)
@@ -2442,16 +2504,42 @@ with tabs[1]:
         st.subheader("Images Path")
         st.write("The path to the images.")
         path_navigator("auto_label_data_path")
+        
+        # Check whether the provided images path is a directory.
+        images_path = st.session_state.paths.get("auto_label_data_path", "")
+        if os.path.isdir(images_path):
+            # Build a dictionary with counts of images per directory.
+            dir_image_counts = {}
+            base_dir = os.path.abspath(images_path)
+            for root, dirs, files in os.walk(images_path):
+                count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')))
+                if count > 0:
+                    rel_dir = os.path.relpath(root, base_dir)
+                    # If the relative directory is just ".", show "Base Directory".
+                    key_name = "Base Directory" if rel_dir == "." else rel_dir
+                    dir_image_counts[key_name] = count
 
-        st.subheader("Label Save Path")
-        st.write("The path to save the labels.")
-        save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"autolabel_save_radio", label_visibility="collapsed")
-        key = "auto_label_save_path"
-        if save_path_option == "Default":
-            st.session_state.paths[key] = st.session_state.paths["auto_label_save_path"].replace("images", "labels")
-            st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
+            if not dir_image_counts:
+                st.warning("No images (PNG/JPG/JPEG) found in the selected directory.")
+            else:
+                # Build a sorted list of options like "FolderName (N images)"
+                options = sorted([f"{k} ({v} images)" for k, v in dir_image_counts.items()])
+                st.selectbox("Found Image Directories", options=options,
+                            key="found_autolabel_images", label_visibility="collapsed")
         else:
-            path_navigator(key)
+            st.write("**Single image file selected** (if this is not intended, please choose a directory).")
+
+        st.subheader("Label Save Path Replacement")
+        st.write("Instead of specifying a full path, enter the folder name that will replace the last folder in the images path. For example, use 'labels' to automatically replace the 'images' folder.")
+        # Provide a radio button to choose between the default replacement and a custom value.
+        key = "auto_label_replacement"
+        replacement_option = st.radio("Choose label replacement option:", ["Default", "Custom"],
+                                    key="autolabel_replacement_radio", label_visibility="collapsed")
+        if replacement_option == "Default":
+            st.session_state.paths[key] = "labels"
+        else:
+            st.session_state.paths[key] = st.text_input("Enter custom label replacement", value="labels")
+        st.write(f"**Label Replacement:** {st.session_state.paths[key]}")
 
     with st.expander("Virtual Environment Path"):
         st.subheader("Venv Path")
@@ -2491,9 +2579,9 @@ with tabs[1]:
                     script_path=st.session_state.paths["auto_label_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "model_weights_path" : st.session_state.paths["auto_label_model_weight_path"],
-                        "images_dir_path" : st.session_state.paths["auto_label_data_path"],
-                        "labels_save_path" : st.session_state.paths["auto_label_save_path"],
+                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\ "),
+                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\ "),
+                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\ "),
                         "gpu_number": st.session_state.auto_label_gpu
                     }
                 )
@@ -3159,9 +3247,9 @@ with tabs[3]:
                     script_path=st.session_state.paths["train_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path": st.session_state.paths["train_data_yaml_path"],
-                        "model_path": st.session_state.paths["train_model_yaml_path"],
-                        "train_path" : st.session_state.paths["train_train_yaml_path"]
+                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\ "),
+                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\ "),
+                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\ ")
                     }
                 )
                 time.sleep(3)
