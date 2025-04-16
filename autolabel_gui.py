@@ -2147,7 +2147,7 @@ tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Finetune 
 with tabs[0]:  
     output = None
     action_option = st.radio(
-        "Choose save path option:", 
+        "Choose:", 
         [
             "Upload Data", 
             "Convert Video to Frames", 
@@ -2155,7 +2155,7 @@ with tabs[0]:
             "Split YOLO Dataset into Objects / No Objects", 
             "Combine YOLO Datasets"
         ],
-        key=f"split_vs_combine_radio",
+        key=f"generate_data_radio",
         label_visibility="collapsed"
     )
 
@@ -2292,53 +2292,64 @@ with tabs[0]:
                 button_and_selectbox_display_size=[4,30]
             )
 
-            datasets_list = []  # New list to collect each dataset's info.
-            if image_directory and os.path.isdir(image_directory):
-                subdirs = [os.path.join(image_directory, d, "images") for d in os.listdir(image_directory)
-                        if os.path.isdir(os.path.join(image_directory, d))]
-                datasets = subdirs if subdirs else [image_directory]
+            enable_option = st.radio(
+                "Choose save path option:", 
+                [
+                    "Disable Preview (Better Performance)",
+                    "Preview Datasets and Set Rotations", 
+                ],
+                key=f"enable_radio",
+                label_visibility="collapsed"
+            )
 
-                for dataset in datasets:
-                    st.markdown(f"#### Dataset: {dataset}")
-                    random_img_path = get_random_image(dataset)
+            if enable_option == "Preview Datasets and Set Rotations":
+                datasets_list = []  # New list to collect each dataset's info.
+                if image_directory and os.path.isdir(image_directory):
+                    subdirs = [os.path.join(image_directory, d, "images") for d in os.listdir(image_directory)
+                            if os.path.isdir(os.path.join(image_directory, d))]
+                    datasets = subdirs if subdirs else [image_directory]
 
-                    if random_img_path:
-                        c1, c2, c3 = st.columns([.37, .16, .37])
-                        
-                        with c1:
-                            st.image(random_img_path, caption="Randomly Sampled Image")
-                        
-                        with c2:
-                            if st.button("Randomize Image Path", key=f"randomize_{dataset}"):
-                                st.rerun()
+                    for dataset in datasets:
+                        st.markdown(f"#### Dataset: {dataset}")
+                        random_img_path = get_random_image(dataset)
 
-                            rotation_option = st.radio(
-                                "Choose Rotation:", 
-                                ["None", "CW", "CCW", "180"],
-                                key=f"rotate_images_radio_{dataset}",
-                                label_visibility="collapsed"
-                            )
-                        
-                        with c3:
-                            image = Image.open(random_img_path)
-                            if rotation_option == "CW":
-                                rotated_image = image.rotate(-90, expand=True)
-                            elif rotation_option == "CCW":
-                                rotated_image = image.rotate(90, expand=True)
-                            elif rotation_option == "180":
-                                rotated_image = image.rotate(180, expand=True)
-                            else:
-                                rotated_image = image
-                            st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
-                        
-                        datasets_list.append({
-                            "directory": dataset.replace("\ ", " "),
-                            "rotation": rotation_option
-                        })
-                    else:
-                        st.warning(f"No valid image found in dataset: {os.path.basename(dataset)}")
-            else:
-                st.error("Please select a valid image dataset directory.")
+                        if random_img_path:
+                            c1, c2, c3 = st.columns([.37, .16, .37])
+                            
+                            with c1:
+                                st.image(random_img_path, caption="Randomly Sampled Image")
+                            
+                            with c2:
+                                if st.button("Randomize Image Path", key=f"randomize_{dataset}"):
+                                    st.rerun()
+
+                                rotation_option = st.radio(
+                                    "Choose Rotation:", 
+                                    ["None", "CW", "CCW", "180"],
+                                    key=f"rotate_images_radio_{dataset}",
+                                    label_visibility="collapsed"
+                                )
+                            
+                            with c3:
+                                image = Image.open(random_img_path)
+                                if rotation_option == "CW":
+                                    rotated_image = image.rotate(-90, expand=True)
+                                elif rotation_option == "CCW":
+                                    rotated_image = image.rotate(90, expand=True)
+                                elif rotation_option == "180":
+                                    rotated_image = image.rotate(180, expand=True)
+                                else:
+                                    rotated_image = image
+                                st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
+                            
+                            datasets_list.append({
+                                "directory": dataset.replace("\ ", " "),
+                                "rotation": rotation_option
+                            })
+                        else:
+                            st.warning(f"No valid image found in dataset: {os.path.basename(dataset)}")
+                else:
+                    st.error("Please select a valid image dataset directory.")
                 
         with st.expander("Virtual Environment Path"):
             st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
