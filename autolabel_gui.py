@@ -46,7 +46,6 @@ SELECTED_KEYS = [
     "python_codes",
     "yamls",
     "unverified_image_scale",
-    "subset_frames",
     "global_object_index",
     "unverified_image_scale",
     "video_image_scale"
@@ -572,7 +571,7 @@ def load_subset_frames(csv_path):
 
     return sorted(set(frames))
 
-def save_subset_frames(csv_path, frames):
+def save_subset_csv(csv_path, frames):
     """
     Writes frame indexes to CSV, one per line, ensuring they are unique and sorted.
     """
@@ -580,6 +579,8 @@ def save_subset_frames(csv_path, frames):
     with open(csv_path, "w") as f:
         for frame in frames_sorted:
             f.write(f"{frame}\n")
+
+    
 
 ## TMUX Terminal Commands
 
@@ -1579,14 +1580,14 @@ def add_frame_callback(key):
     add_val = st.session_state[key]
     if add_val not in st.session_state.subset_frames:
         st.session_state.subset_frames.append(add_val)
-        save_subset_frames(csv_file, st.session_state.subset_frames)
+        save_subset_csv(csv_file, st.session_state.subset_frames)
         st.session_state["skip_label_update"] = True
 
 def remove_frame_callback(key):
     remove_val = st.session_state[key]
     if remove_val in st.session_state.subset_frames:
         st.session_state.subset_frames.remove(remove_val)
-        save_subset_frames(csv_file, st.session_state.subset_frames)
+        save_subset_csv(csv_file, st.session_state.subset_frames)
         st.session_state["skip_label_update"] = True
 
 def _bboxes_changed(prev_out, curr_out):
@@ -2098,6 +2099,7 @@ if "session_running" not in st.session_state:
         "train_script_path" : "train_yolo.py",
 
         "unverified_subset_csv_path" : "cfgs/gui/subset/default.csv",
+        "subset_save_path": "cfgs/gui/subset/new_subset.csv",
 
         "video_file_path": "generated_videos/current.mp4"
 
@@ -2775,12 +2777,115 @@ with tabs[2]:
                 if st.button("Copy CSV to new file"):
                     if new_save_path:
                         try:
-                            save_subset_frames(new_save_path, st.session_state.subset_frames)
+                            st.session_state["skip_label_update"] = True
+                            save_subset_csv(new_save_path, st.session_state.subset_frames)
                             st.success(f"Subset CSV copied to {new_save_path}")
                         except Exception as e:
                             st.error(f"Error copying file: {e}")
                     else:
                         st.error("Please enter a valid new file path.")
+            
+                # --- NEW: Bulk Operations ---
+                st.markdown("---")
+                st.subheader("Bulk Subset Operations")
+
+                def _frame_label_count(idx):
+                    """Return number of non‑empty lines in that frame's label file."""
+                    # build image path
+                    if st.session_state.image_pattern:
+                        img = os.path.join(
+                            st.session_state.images_dir,
+                            st.session_state.image_pattern.format(idx)
+                        )
+                    else:
+                        img = st.session_state.image_list[idx]
+                    lbl = img.replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
+                    if os.path.exists(lbl):
+                        with open(lbl) as f:
+                            return sum(1 for l in f if l.strip())
+                    return 0
+
+                if st.button("Add ALL Labeled Frames"):
+                    st.session_state["skip_label_update"] = True
+                    labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
+                    for i in labeled:
+                        if i not in st.session_state.subset_frames:
+                            st.session_state.subset_frames.append(i)
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Added {len(labeled)} labeled frames.")
+             
+                if st.button("Remove ALL Labeled Frames"):
+                    st.session_state["skip_label_update"] = True
+                    before = set(st.session_state.subset_frames)
+                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    removed = len(before) - len(st.session_state.subset_frames)
+                    st.success(f"Removed {removed} frames.")
+
+                if st.button("Add ALL Unlabeled Frames"):
+                    st.session_state["skip_label_update"] = True
+                    unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
+                    for i in unlabeled:
+                        if i not in st.session_state.subset_frames:
+                            st.session_state.subset_frames.append(i)
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Added {len(unlabeled)} unlabeled frames.")
+                
+                if st.button("Remove ALL Unlabeled Frames"):
+                    st.session_state["skip_label_update"] = True
+                    before = set(st.session_state.subset_frames)
+                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    removed = len(before) - len(st.session_state.subset_frames)
+                    st.success(f"Removed {removed} frames.")
+
+                # --- Delete all labels in subset: ---
+                if st.button("Delete ALL Labels in Subset"):
+                    st.session_state["skip_label_update"] = True
+                    for idx in st.session_state.subset_frames:
+                        # construct label path
+                        if st.session_state.image_pattern:
+                            img = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            img = st.session_state.image_list[idx]
+                        lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                        open(lbl, "w").close()
+                    st.success("Cleared all label files for frames in subset.")
+
+                st.markdown("---")
+                # --- Save subset to directory ---
+                st.subheader("Save Subset to New Directory")
+                save_dir = path_navigator("subset_save_path", radio_button_prefix="save_subset")
+                if st.button("Save images & labels here"):
+                    st.session_state["skip_label_update"] = True
+                    out_imgs = os.path.join(save_dir, "images")
+                    out_lbls = os.path.join(save_dir, "labels")
+                    os.makedirs(out_imgs, exist_ok=True)
+                    os.makedirs(out_lbls, exist_ok=True)
+
+                    for idx in st.session_state.subset_frames:
+                        # resolve source image
+                        if st.session_state.image_pattern:
+                            src = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            src = st.session_state.image_list[idx]
+                        # copy image
+                        shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
+                        # copy or touch label
+                        lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                        dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
+                        if os.path.exists(lbl):
+                            shutil.copy2(lbl, dst_lbl)
+                        else:
+                            open(dst_lbl, "w").close()
+                    st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
+            
             else:
                 st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
@@ -2860,7 +2965,6 @@ with tabs[2]:
                             st.rerun()
 
                         
-                    
                     with c2:
                         c12, c22, c32 = st.columns([10, 10, 10])
                         with c12:
