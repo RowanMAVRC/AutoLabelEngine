@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import zipfile
 import hashlib
-import random
+import uuid
 
 ## Third-Party Libraries 
 
@@ -26,7 +26,7 @@ import tempfile, json, shlex
 
 ## Streamlit-Specific
 
-from streamlit_label_kit import detection
+from streamlit_label_kit import detection as _orig_detection
 from streamlit_ace import st_ace
 
 #-------------------------------------------------------------------------------------------------------------------------#
@@ -47,7 +47,10 @@ SELECTED_KEYS = [
     "yamls",
     "unverified_image_scale",
     "subset_frames",
-    "global_object_index"
+    "global_object_index",
+    "unverified_image_scale",
+    "video_image_scale"
+
 ]
 
 def load_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
@@ -1233,7 +1236,7 @@ def update_unverified_frame():
         "item_selector_position": "right",
         "bbox_format": "XYWH",
         "bbox_show_info": True,
-        "key": "detector",
+        "key": st.session_state.detector_key,
     }
 
 def update_labels_from_detection():
@@ -1279,12 +1282,14 @@ def update_labels_from_detection():
                 st.session_state["skip_label_update"] = False
 
 def next_callback():
-
+    st.session_state.prev_out = None
+    st.session_state.detection_modified = False
     st.session_state.frame_index += 1
     st.session_state["skip_label_update"] = True
 
 def prev_callback():
-    
+    st.session_state.prev_out = None
+    st.session_state.detection_modified = False
     st.session_state.frame_index -= 1
     st.session_state["skip_label_update"] = True
 
@@ -1584,18 +1589,56 @@ def remove_frame_callback(key):
         save_subset_frames(csv_file, st.session_state.subset_frames)
         st.session_state["skip_label_update"] = True
 
+def _bboxes_changed(prev_out, curr_out):
+    """Return True if bboxes were added, removed, or moved."""
+    # Count changed?
+    if len(prev_out["bbox"]) != len(curr_out["bbox"]):
+        return True
+    prev_ids = {item["bbox_ids"] for item in prev_out["bbox"]}
+    curr_ids = {item["bbox_ids"] for item in curr_out["bbox"]}
+    if prev_ids != curr_ids:
+        return True
+    # Coordinates changed?
+    for curr in curr_out["bbox"]:
+        for prev in prev_out["bbox"]:
+            if prev["bbox_ids"] == curr["bbox_ids"] and prev["bboxes"] != curr["bboxes"]:
+                return True
+    return False
+
+def detection(*args, **kwargs):
+    # initialize flags
+    st.session_state.setdefault("detection_running", False)
+    st.session_state.setdefault("detection_modified", False)
+
+    # mark start
+    st.session_state.detection_running = True
+    curr = _orig_detection(*args, **kwargs)
+    # mark end
+    st.session_state.detection_running = False
+
+    prev = st.session_state.get("prev_out")
+    if prev is not None:
+        st.session_state.detection_modified = _bboxes_changed(prev, curr)
+    else:
+        st.session_state.detection_modified = False
+
+    st.session_state.prev_out = curr
+    return curr
+
+def set_scale():
+    st.session_state.unverified_image_scale = st.session_state.unverified_image_scale_input
+    st.session_state.skip_label_update = True
+
+    st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
 
 ## Zoom & Object Edit Callbacks
 
 def zoom_edit_callback(i):
-    # Skip update if object view is active
-    if st.session_state.get("active_edit_view") == "object":
+    # If the box at index i has been deleted, just return.
+    if i < 0 or i >= len(st.session_state.bboxes_xyxy):
         return
-    try:
-        old_bbox = st.session_state.bboxes_xyxy[i]
-    except IndexError:
-        st.warning(f"Bounding box index {i} is out of range. Skipping update.")
-        return
+
+    old_bbox = st.session_state.bboxes_xyxy[i]
 
     new_center_x = st.session_state[f"bbox_{i}_center_x_input"]
     flipped_center_y = st.session_state[f"bbox_{i}_center_y_input"]
@@ -2009,8 +2052,6 @@ if "session_running" not in st.session_state:
     st.session_state.fps = 1
     st.session_state.video_index = 0
     st.session_state.include_labels = True
-    st.session_state.video_image_scale = 1.0
-    st.session_state.unverified_image_scale = 1.0
 
     st.set_page_config(
         page_title="Autolabel Engine",
@@ -2061,7 +2102,7 @@ if "session_running" not in st.session_state:
         "video_file_path": "generated_videos/current.mp4"
 
     }
-    
+    st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
     st.session_state.global_object_index = 0
 
     st.session_state.use_subset = False
@@ -2653,16 +2694,13 @@ with tabs[2]:
     with st.expander("Settings"):
         st.write("### Image Scale")
         st.write("Scale the image to fit the screen. This is useful for large images.")
-        image_scale = st.number_input(
+        st.number_input(
             "Image Scale", 
-            value=1.0, 
-            step=0.25, 
-            label_visibility="collapsed"
+            value=st.session_state.unverified_image_scale,
+            step=0.25,
+            key="unverified_image_scale_input",
+            on_change=set_scale
         )
-        if float(image_scale) != st.session_state.unverified_image_scale:
-            st.session_state.unverified_image_scale = image_scale
-            st.session_state["skip_label_update"] = True
-            st.rerun()
 
         st.write("### Images Path")
         st.write("The path to the images.")
@@ -2758,27 +2796,38 @@ with tabs[2]:
         with st.expander("Frame by Frame Label Review"):
             st.write( "Review the labels in a frame by frame sequence.")
             if handle_image_list_update(prefix="frame_by_frame_"):
+                loading = st.session_state.get("detection_running", False)
+
                 if st.session_state.max_images > 0:
                     if st.session_state.max_images > 1:
                         # --- Top Navigation (Prev / Next) ---
                         col_prev, _, col_next = st.columns([4, 5, 4])
                         with col_prev:
-                            st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback)
+                            st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
                         with col_next:
-                            st.button("Next Frame", key="top_next_btn", on_click=next_callback)
+                            st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
 
                         col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
                         with col_copy_prev:
-                            st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels)
+                            st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
                         with col_copy_next:
-                            st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels)
+                            st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
 
                     # --- Read and Display Current Frame ---
                     update_unverified_frame()
+
                     st.write(f"Current File Path: {st.session_state.image_path}")
 
                     # Annotate with detection()
-                    st.session_state.out = detection(**st.session_state.detection_config)
+                    det_container = st.container()
+                    with det_container:
+                        if not loading:
+                            with st.spinner("Processing..."):
+                                out = detection(**st.session_state.detection_config)
+                        else:
+                            out = detection(**st.session_state.detection_config)
+
+                    st.session_state.out = out
 
                     # Update labels if changed
                     update_labels_from_detection()
@@ -2874,88 +2923,102 @@ with tabs[2]:
                             st.button("Next Frame", key="next_btn", on_click=next_callback)
                 else:
                     st.warning("Data Path is empty...")
+        
+        with st.expander("Zoomed‑in Bounding Box Regions"):
+            # Safely pull values (defaults to empty or None)
+            image    = st.session_state.get("image", None)
+            bboxes   = st.session_state.get("bboxes_xyxy", [])
+            labels   = st.session_state.get("labels", [])
+            bbox_ids = st.session_state.get("bbox_ids", [])
 
-        with st.expander("Zoomed-in Bounding Box Regions"):
-            if 'image' in st.session_state and 'bboxes_xyxy' in st.session_state:
+            # If there's no image or no boxes, show a message
+            if image is None or not bboxes:
+                st.warning("No bounding boxes in current frame.")
+            else:
+                # Update frame if needed
                 update_unverified_frame()
 
-                bboxes = st.session_state.bboxes_xyxy
-                labels = st.session_state.labels
-                bbox_ids = st.session_state.bbox_ids
-                if bboxes:
-                    for i, bbox in enumerate(bboxes):
-                        # bbox is stored as [x, y, width, height] (XYWH)
-                        x, y, w, h = bbox
-                        x, y = max(x, 0.0) , max(y, 0.0)
-                        x1, y1, x2, y2 = x, y, x + w, y + h
+                # Render each crop + controls
+                for i, (x, y, w, h) in enumerate(bboxes):
+                    # Compute coordinates
+                    x1, y1 = max(x, 0.0), max(y, 0.0)
+                    x2, y2 = x1 + w,      y1 + h
 
-                        # Check for invalid bounding box coordinates before cropping
-                        if x2 <= x1 or y2 <= y1:
-                            st.session_state.labels.pop(i)
-                            st.session_state.bboxes_xyxy.pop(i)
-                            st.session_state.bbox_ids.pop(i)
-                            st.rerun()
+                    # Sanity check
+                    if x2 <= x1 or y2 <= y1:
+                        st.session_state.labels.pop(i)
+                        st.session_state.bboxes_xyxy.pop(i)
+                        st.session_state.bbox_ids.pop(i)
+                        st.rerun()
 
-                        # Crop the image and prepare the caption
-                        cropped = st.session_state.image.crop((x1, y1, x2, y2))
-                        if "label_list" in st.session_state and i < len(labels):
-                            try:
-                                label_name = st.session_state.label_list[labels[i]]
-                            except Exception:
-                                label_name = f"Label {labels[i]}"
-                        else:
-                            label_name = f"Label {labels[i]}" if i < len(labels) else "Unknown"
-                        caption = f"ID: {bbox_ids[i]}, Label: {label_name}, BBox: ({x1}, {y1}, {x2}, {y2})"
+                    # Crop & caption
+                    cropped = image.crop((x1, y1, x2, y2))
+                    if i < len(labels):
+                        idx = labels[i]
+                        try:
+                            label_name = st.session_state.label_list[idx]
+                        except Exception:
+                            label_name = f"Label {idx}"
+                    else:
+                        label_name = "Unknown"
+                    caption = (
+                        f"ID: {bbox_ids[i]}, "
+                        f"Label: {label_name}, "
+                        f"BBox: ({x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f})"
+                    )
 
-                        st.markdown(f"#### Edit Bounding Box {i} Parameters")
+                    key_x = f"bbox_{bbox_ids[i]}_cx"
+                    key_y = f"bbox_{bbox_ids[i]}_cy"
+                    key_w = f"bbox_{bbox_ids[i]}_w"
+                    key_h = f"bbox_{bbox_ids[i]}_h"
 
-                        # Create two columns: left for the image, right for the number inputs.
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.image(cropped, caption=caption)
+                    st.markdown(f"#### Edit Bounding Box {i} Parameters")
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.image(cropped, caption=caption)
 
-                        # Read the center values from session state if they exist; otherwise use default (x + w/2, y + h/2)
-                        center_x = x + w / 2
-                        center_y = y + h / 2
+                    # Default center coords
+                    center_x = x + w / 2
+                    center_y = y + h / 2
 
-                        with col2:
-                            new_center_x = st.number_input(
-                                f"Center X for bbox {i}",
-                                min_value=0.0,
-                                max_value=float(st.session_state.image_width),
-                                value=center_x,
-                                key=f"bbox_{i}_center_x_input",
-                                step=1.0,
-                                on_change=lambda i=i: zoom_edit_callback(i)
-                            )
-                            new_center_y = st.number_input(
-                                f"Center Y for bbox {i}",
-                                min_value=0.0,
-                                max_value=float(st.session_state.image_height),
-                                value=st.session_state.image_height - center_y,
-                                key=f"bbox_{i}_center_y_input",
-                                step=1.0,
-                                on_change=lambda i=i: zoom_edit_callback(i)
-                            )
-                            new_w = st.number_input(
-                                f"Width for bbox {i}",
-                                min_value=1.0,
-                                max_value=float(st.session_state.image_width),
-                                value=float(w),
-                                key=f"bbox_{i}_w_input",
-                                step=1.0,
-                                on_change=lambda i=i: zoom_edit_callback(i)
-                            )
-                            new_h = st.number_input(
-                                f"Height for bbox {i}",
-                                min_value=1.0,
-                                max_value=float(st.session_state.image_height),
-                                value=float(h),
-                                key=f"bbox_{i}_h_input",
-                                step=1.0,
-                                on_change=lambda i=i: zoom_edit_callback(i)
-                            )
- 
+                    with col2:
+                        st.number_input(
+                            f"Center X for bbox {i}",
+                            min_value=0.0,
+                            max_value=float(st.session_state.image_width),
+                            value=center_x,
+                            key=key_x,
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i),
+                        )
+                        st.number_input(
+                            f"Center Y for bbox {i}",
+                            min_value=0.0,
+                            max_value=float(st.session_state.image_height),
+                            value=center_y,
+                            key=key_y,
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i),
+                        )
+                        st.number_input(
+                            f"Width for bbox {i}",
+                            min_value=1.0,
+                            max_value=float(st.session_state.image_width),
+                            value=w,
+                            key=key_w,
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i),
+                        )
+                        st.number_input(
+                            f"Height for bbox {i}",
+                            min_value=1.0,
+                            max_value=float(st.session_state.image_height),
+                            value=h,
+                            key=key_h,
+                            step=1.0,
+                            on_change=lambda i=i: zoom_edit_callback(i),
+                    )
+                        
         with st.expander("Video Review"):
             st.write( "Review the labels within the full video.")
             if handle_image_list_update(prefix="video_"):
