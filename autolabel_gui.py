@@ -1562,7 +1562,7 @@ def add_frame_callback(key):
     if add_val not in st.session_state.subset_frames:
         st.session_state.subset_frames.append(add_val)
         save_subset_csv(csv_file, st.session_state.subset_frames)
-        st.session_state["skip_label_update"] = True
+    st.session_state["skip_label_update"] = True
 
 def remove_frame_callback(key):
     remove_val = st.session_state[key]
