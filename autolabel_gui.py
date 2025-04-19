@@ -207,7 +207,7 @@ def upload_to_dir(save_dir):
     
         st.rerun()  # Refresh the UI
 
-def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[4, 25]):
+def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[0.05, 0.95]):
     """
     A file/directory navigator that can operate in two modes:
     1) Default: Navigate through directories with a selectbox and a ".." button.
@@ -2308,15 +2308,15 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
                     output = update_tmux_terminal("generate_venv")
 
             with c2:
-                if st.button("Update Terminal Output", key="check_generate_venv_btn"):
+                if st.button("🔄 Refresh Terminal", key="check_generate_venv_btn"):
                     output = update_tmux_terminal("generate_venv")
 
             with c3:
-                if st.button("Clear Terminal Output", key="generate_venv_clear_terminal_btn"):
+                if st.button("🧹 Clear Output", key="generate_venv_clear_terminal_btn"):
                     output = None
 
             with c4:
-                if st.button("Kill TMUX Session", key="generate_venv_kill_tmux_session_btn"):
+                if st.button("❌ Kill Session", key="generate_venv_kill_tmux_session_btn"):
                     output = kill_tmux_session("generate_venv")
 
 
@@ -2331,7 +2331,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
 ## Main Tabs
-tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal"])
+tabs = st.tabs(["Generate Data", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal"])
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
@@ -2342,6 +2342,7 @@ with tabs[0]:
             "Upload Data", 
             "Convert Video to Frames", 
             "Rotate Image Dataset",
+            "Generate Labeled Video",
             "Split YOLO Dataset into Objects / No Objects", 
             "Combine YOLO Datasets"
         ],
@@ -2360,7 +2361,7 @@ with tabs[0]:
         with st.expander("Settings"):
             st.subheader("Video Path")
             st.write("Enter the path to an MP4/MOV video file **or directory** containing video files (all subdirectories will be scanned).")
-            path_navigator("convert_video_path", button_and_selectbox_display_size=[4, 30])
+            path_navigator("convert_video_path")
             
             video_path = st.session_state.paths.get('convert_video_path', '')
             video_files = []
@@ -2443,7 +2444,7 @@ with tabs[0]:
             session_key = "convert_video_background"
             with c1_conv:
 
-                if st.button("Begin Converting", key="begin_converting_data_btn"):
+                if st.button("▶ Begin Converting", key="begin_converting_data_btn"):
                     video_path = st.session_state.paths.get('convert_video_path', '')
                     # Launch the conversion script as a single background task,
                     # passing the "copy_destination" so the script can move each video when done.
@@ -2462,25 +2463,22 @@ with tabs[0]:
                     converted = True
 
             with c2:
-                if st.button("Update Terminal Output", key="check_convert_video_btn"):
+                if st.button("🔄 Refresh Terminal", key="check_convert_video_btn"):
                     output = update_tmux_terminal(session_key)
 
             with c3:
-                if st.button("Clear Terminal Output", key="convert_video_terminal_btn"):
+                if st.button("🧹 Clear Output", key="convert_video_terminal_btn"):
                     output = None
 
             with c4:
-                if st.button("Kill TMUX Session", key="convert_video_kill_tmux_session_btn"):
+                if st.button("❌ Kill Session", key="convert_video_kill_tmux_session_btn"):
                     output = kill_tmux_session(session_key)
 
     elif action_option == "Rotate Image Dataset":
         with st.expander("Settings"):
             st.subheader("Image Path")
             st.write("The path to the image datasets. If subdirectories are found, each subdirectory will be treated as an individual dataset.")
-            image_directory = path_navigator(
-                "rotate_images_path", 
-                button_and_selectbox_display_size=[4,30]
-            )
+            image_directory = path_navigator("rotate_images_path")
 
             enable_option = st.radio(
                 "Choose save path option:", 
@@ -2555,7 +2553,7 @@ with tabs[0]:
             c1, c2, c3, c4 = st.columns(4, gap="small")
             
             with c1:
-                if st.button("Begin Rotating Images", key="begin_rotating_data_btn"):
+                if st.button("▶ Begin Rotating Images", key="begin_rotating_data_btn"):
                     # Filter the datasets_list to include only entries with a rotation other than "None"
                     filtered_datasets = [entry for entry in datasets_list if entry["rotation"] != "None"]
 
@@ -2582,29 +2580,101 @@ with tabs[0]:
                         st.warning("No rotations required as all settings are None.")
             
             with c2:
-                if st.button("Update Terminal Output", key="check_rotate_images_btn"):
+                if st.button("🔄 Refresh Terminal", key="check_rotate_images_btn"):
                     output = update_tmux_terminal("rotate_images")
             
             with c3:
-                if st.button("Clear Terminal Output", key="rotate_images_clear_terminal_btn"):
+                if st.button("🧹 Clear Output", key="rotate_images_clear_terminal_btn"):
                     output = None
                     st.text("Terminal output cleared.")
             
             with c4:
-                if st.button("Kill TMUX Session", key="rotate_images_kill_tmux_session_btn"):
+                if st.button("❌ Kill Session", key="rotate_images_kill_tmux_session_btn"):
                     output = kill_tmux_session("rotate_images")
                     st.text(output)
+
+    elif action_option == "Generate Labeled Video":
+        # — defaults
+        st.session_state.paths.setdefault(
+            "gen_vid_input_path", 
+            st.session_state.paths["unverified_images_path"]
+        )
+        default_out = os.path.join(
+            st.session_state.paths["gen_vid_input_path"],
+            "videos_with_labels"
+        )
+        st.session_state.paths.setdefault("gen_vid_output_path", default_out)
+        st.session_state.paths.setdefault("gen_vid_script_path", "generate_videos.py")
+
+        # — SETTINGS —
+        with st.expander("Settings"):
+            st.subheader("Input Path")
+            st.write("Parent folder containing one or more subdirs with `images/` + `labels/`.")
+            path_navigator("gen_vid_input_path", radio_button_prefix="gen_vid")
+
+            st.subheader("FPS")
+            st.session_state.paths["gen_vid_fps"] = st.number_input(
+                "Frames per second", 
+                min_value=1.0, 
+                value=float(st.session_state.paths.get("gen_vid_fps", 5.0)),
+                step=1.0,
+                key="gen_vid_fps_input"    
+            )
+
+            st.subheader("Mode")
+            st.session_state.paths["gen_vid_mode"] = st.radio(
+                "Which video(s) to generate?",
+                options=["Frame by Frame", "Object by Object", "Both"],
+                index=["Frame by Frame","Object by Object","Both"]
+                    .index(st.session_state.paths.get("gen_vid_mode","Both")),
+                key="gen_vid_mode_radio"
+            )
+
+        # — VIRTUAL ENV —
+        with st.expander("Virtual Environment"):
+            st.write("Path to the venv containing Python + dependencies.")
+            path_navigator("venv_path", radio_button_prefix="gen_vid")
+
+        # — SCRIPT —
+        with st.expander("Script"):
+            st.write("Your `generate_videos.py` (must accept --input_path, --output_path, --fps, --mode).")
+            path_navigator("gen_vid_script_path", radio_button_prefix="gen_vid")
+            python_code_editor("gen_vid_script_path")
+
+        # — ACTIONS —
+        with st.expander("Generate Videos"):
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+            with c1:
+                if st.button("▶ Start Generating", key="begin_gen_vid_btn"):
+                    output = run_in_tmux(
+                        session_key="gen_vid",
+                        script_path=st.session_state.paths["gen_vid_script_path"],
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\ "),
+                            "fps":           st.session_state.paths["gen_vid_fps"],
+                            "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\ ")
+                        },
+                        script_type="python"
+                    )
+            with c2:
+                if st.button("🔄 Refresh Terminal", key="update_gen_vid_btn"):
+                    output = update_tmux_terminal("gen_vid")
+            with c3:
+                if st.button("🧹 Clear Output", key="clear_gen_vid_btn"):
+                    output = None
+            with c4:
+                if st.button("❌ Kill Session", key="kill_gen_vid_btn"):
+                    output = kill_tmux_session("gen_vid")
         
+    
     elif action_option == "Split YOLO Dataset into Objects / No Objects":
         with st.expander("Dataset Settings"):
             c1, c2 = st.columns(2)
             with c1:
                 st.subheader("Dataset To Be Split")
                 st.write("The path to the dataset to be split.")
-                path_navigator(
-                    "split_data_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
+                path_navigator("split_data_path")
             with c2:
                 st.subheader("Save Path")
                 st.write("The path to save to on the server.")
@@ -2614,10 +2684,7 @@ with tabs[0]:
                     st.session_state.paths[key] = st.session_state.paths["split_data_path"]
                     st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
                 else:
-                    path_navigator(
-                        key,
-                        button_and_selectbox_display_size=[4,30]
-                    )
+                    path_navigator(key)
 
         with st.expander("Virtual Environment Path"):
             st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
@@ -2633,7 +2700,7 @@ with tabs[0]:
             c1, c2, c3, c4 = st.columns(4, gap="small")
 
             with c1:
-                if st.button("Begin Splitting Data", key="begin_split_data_btn"):
+                if st.button("▶ Begin Splitting Data", key="begin_split_data_btn"):
                     run_in_tmux(
                         session_key="split_data", 
                         script_path=st.session_state.paths["split_data_script_path"], 
@@ -2647,15 +2714,15 @@ with tabs[0]:
                     output = update_tmux_terminal("split_data")
 
             with c2:
-                if st.button("Update Terminal Output", key="check_split_data_btn"):
+                if st.button("🔄 Refresh Terminal", key="check_split_data_btn"):
                     output = update_tmux_terminal("split_data")
 
             with c3:
-                if st.button("Clear Terminal Output", key="split_data_clear_terminal_btn"):
+                if st.button("🧹 Clear Output", key="split_data_clear_terminal_btn"):
                     output = None
 
             with c4:
-                if st.button("Kill TMUX Session", key="split_data_kill_tmux_session_btn"):
+                if st.button("❌ Kill Session", key="split_data_kill_tmux_session_btn"):
                     output = kill_tmux_session("split_data")
     
     else:
@@ -2665,24 +2732,15 @@ with tabs[0]:
             with c1:
                 st.subheader("Dataset 1")
                 st.write("The path to the first dataset.")
-                path_navigator(
-                    "combine_dataset_1_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
+                path_navigator("combine_dataset_1_path")
             with c2:
                 st.subheader("Dataset 2")
                 st.write("The path to the second dataset.")
-                path_navigator(
-                    "combine_dataset_2_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
+                path_navigator("combine_dataset_2_path")
             with c3:
                 st.subheader("Save Path")
                 st.write("The path to save to on the server.")
-                path_navigator(
-                    "combine_dataset_save_path", 
-                    button_and_selectbox_display_size=[4,30]
-                )
+                path_navigator("combine_dataset_save_path")
 
         with st.expander("Virtual Environment Path"):
             path_navigator("venv_path", radio_button_prefix="combine_data")
@@ -2697,7 +2755,7 @@ with tabs[0]:
             c1, c2, c3, c4 = st.columns(4, gap="small")
 
             with c1:
-                if st.button("Begin Combining Data", key="begin_combine_dataset_btn"):
+                if st.button("▶ Begin Combining Data", key="begin_combine_dataset_btn"):
                     run_in_tmux(
                         session_key="combine_dataset", 
                         script_path=st.session_state.paths["combine_dataset_script_path"], 
@@ -2712,15 +2770,15 @@ with tabs[0]:
                     output = update_tmux_terminal("combine_dataset")
 
             with c2:
-                if st.button("Update Terminal Output", key="check_combine_dataset_btn"):
+                if st.button("🔄 Refresh Terminal", key="check_combine_dataset_btn"):
                     output = update_tmux_terminal("combine_dataset")
 
             with c3:
-                if st.button("Clear Terminal Output", key="combine_dataset_clear_terminal_btn"):
+                if st.button("🧹 Clear Output", key="combine_dataset_clear_terminal_btn"):
                     output = None
 
             with c4:
-                if st.button("Kill TMUX Session", key="combine_dataset_kill_tmux_session_btn"):
+                if st.button("❌ Kill Session", key="combine_dataset_kill_tmux_session_btn"):
                     output = kill_tmux_session("combine_dataset")
     
     terminal_output = st.empty()
@@ -2806,7 +2864,7 @@ with tabs[1]:
                 st.session_state.auto_label_gpu = -1
 
         with c3:
-            if st.button("Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
+            if st.button("▶ Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
                 run_in_tmux(
                     session_key="auto_label_data", 
                     script_path=st.session_state.paths["auto_label_script_path"], 
@@ -2822,15 +2880,15 @@ with tabs[1]:
                 output = update_tmux_terminal("auto_label_data")
 
         with c4:
-            if st.button("Update Terminal Output", key="check_auto_labeling_data_btn"):
+            if st.button("🔄 Refresh Terminal", key="check_auto_labeling_data_btn"):
                 output = update_tmux_terminal("auto_label_data")
 
         with c5:
-            if st.button("Clear Terminal Output", key="auto_labeling_clear_terminal_btn"):
+            if st.button("🧹 Clear Output", key="auto_labeling_clear_terminal_btn"):
                 output = None
 
         with c6:
-            if st.button("Kill TMUX Session", key="auto_labeling_kill_tmux_session_btn"):
+            if st.button("❌ Kill Session", key="auto_labeling_kill_tmux_session_btn"):
                 output = kill_tmux_session("auto_label_data")
 
         terminal_output = st.empty()
@@ -2853,11 +2911,11 @@ with tabs[2]:
 
         st.write("### Images Path")
         st.write("The path to the images.")
-        path_navigator("unverified_images_path", button_and_selectbox_display_size=[1,25])
+        path_navigator("unverified_images_path")
 
         st.write("### Label Names YAML Path")
         st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
-        path_navigator("unverified_names_yaml_path", button_and_selectbox_display_size=[2,25])
+        path_navigator("unverified_names_yaml_path")
         
         if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
             st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
@@ -2876,7 +2934,12 @@ with tabs[2]:
         if handle_image_list_update(prefix="subset_"):
             # --- CSV Path Selection ---
             st.subheader("Choose CSV Path for Subset")
-            path_navigator("unverified_subset_csv_path")
+            
+            path_option = st.radio("PLease Choose:", ["Default", "Custom"], key="default_subset", label_visibility="collapsed")
+            if path_option == "Default":
+                st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
+            else:
+                path_navigator("unverified_subset_csv_path")
 
             csv_file = st.session_state.paths["unverified_subset_csv_path"]
             if os.path.exists(csv_file):
@@ -3039,7 +3102,7 @@ with tabs[2]:
     # --- Radio Button for Review Mode Selection ---
     review_mode = st.radio(
         "Select Review Mode",
-        options=["Frame by Frame Review", "Object by Object Review"],
+        options=["Frame by Frame Review", "Object by Object Review", "Video Review"],
         index=0
     )
 
@@ -3270,151 +3333,7 @@ with tabs[2]:
                             on_change=lambda i=i: zoom_edit_callback(i),
                     )
                         
-        with st.expander("Video Review"):
-            st.write( "Review the labels within the full video.")
-            if handle_image_list_update(prefix="video_"):
-                c0, c1, c2, c3 = st.columns([30, 15,15,100])
-
-                with c0:
-                    st.markdown(
-                        """
-                        <style>
-                        .stCheckbox input[type="checkbox"] {
-                            transform: scale(1.5);
-                        }
-                        .stCheckbox label {
-                            font-size: 24px;
-                            font-weight: bold;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    
-                    use_subset_val = st.checkbox(
-                        "Use Subset", 
-                        value=st.session_state.use_subset, 
-                        key="video_subset_btn", 
-                        on_change=video_subset_checkbox_callback, 
-                        disabled=not len(st.session_state.subset_frames) > 1
-                    )
-
-                    if st.session_state.use_subset_changed:
-                        st.session_state.use_subset_changed = False
-                        st.rerun()
-
-                    if not len(st.session_state.subset_frames) > 1:
-                        st.warning("Subset needs to be two or larger.")
-                        
-                with c1:
-                    # Slider to adjust the playback speed (seconds per frame).
-                    st.session_state.fps = st.number_input(
-                        "FPS",
-                        min_value=1,
-                        max_value=10,
-                        value=int(st.session_state.fps),
-                        step=1
-                    )
-
-                with c2:
-                    # Slider to adjust the image scale.
-                    st.session_state.video_image_scale = st.number_input(
-                        "Image Scale",
-                        min_value=0.1,
-                        max_value=2.0,
-                        value=st.session_state.video_image_scale,
-                        step=0.1
-                    )
-
-                st.subheader("Choose Save Path for Generated MP4")
-                path_navigator("video_file_path")
-
-                if st.button("Generate Video on Current Labels"):
-
-                    if st.session_state.max_images > 0:
-
-                        # If subset usage is enabled, build an image_list from just those frames
-                        if st.session_state.use_subset and st.session_state.subset_frames:
-                            image_list = []
-                            if st.session_state.image_pattern:
-                                # Build paths from subset_frames
-                                for idx in st.session_state.subset_frames:
-                                    img_path = os.path.join(st.session_state.images_dir, st.session_state.image_pattern.format(idx))
-                                    if os.path.exists(img_path):
-                                        image_list.append(img_path)
-                            elif "image_list" in st.session_state and st.session_state.image_list:
-                                # Use subset_frames to index into the existing image_list
-                                for idx in st.session_state.subset_frames:
-                                    if idx < len(st.session_state.image_list):
-                                        image_list.append(st.session_state.image_list[idx])
-                            else:
-                                st.write("No images available to generate a video.")
-                                image_list = []
-                        else:
-                            # Use the full range of frames or entire image list
-                            if st.session_state.image_pattern:
-                                image_list = [
-                                    os.path.join(
-                                        st.session_state.images_dir,
-                                        st.session_state.image_pattern.format(i)
-                                    )
-                                    for i in range(
-                                        st.session_state.start_index,
-                                        st.session_state.start_index + st.session_state.max_images
-                                    )
-                                ]
-                            elif "image_list" in st.session_state and st.session_state.image_list:
-                                image_list = st.session_state.image_list
-                            else:
-                                st.write("No images available to generate a video.")
-                                image_list = []
-
-                        if image_list:
-                            generating_mp4.clear()
-                            generating_mp4(
-                                image_list, 
-                                st.session_state.fps, 
-                                output_path=st.session_state.paths["video_file_path"], 
-                                regenerate=True
-                            )
-                            st.video(st.session_state.paths["video_file_path"] , autoplay=True, loop=True)
-                            st.session_state.video_saved_for_current_run = True
-                        else:
-                            st.write("No images available to generate a video.")
-                    else:
-                        st.write("No images available to generate a video.")
-
-                elif st.session_state.video_saved_for_current_run:
-                    st.video(st.session_state.paths["video_file_path"], autoplay=True, loop=True)
-
-                c1, c2, c3 = st.columns([10, 10, 10])
-                with c1:
-                    st.number_input(
-                        "Add Frame Index to Subset",
-                        min_value=0,
-                        max_value=st.session_state.max_images - 1,
-                        value=None,
-                        step=1,
-                        key="video_add_frame",
-                        on_change=add_frame_callback,
-                        args=("video_add_frame",)
-                    )
-
-                with c2:
-                    st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="video_view_frames_in_subset")
-
-                with c3:
-                    st.number_input(
-                        "Remove Frame Index from Subset",
-                        min_value=0,
-                        max_value=st.session_state.max_images - 1,
-                        value=None,
-                        step=1,
-                        key="video_remove_frame",
-                        on_change=remove_frame_callback,
-                        args=("video_remove_frame",)
-                    )
-    else:
+    elif review_mode == "Object by Object Review":
         with st.expander("Object by Object Label Review"):
             st.write( "Review the labels in an object by object sequence.")
             
@@ -3564,14 +3483,103 @@ with tabs[2]:
                                     st.error(f"Error deleting object: {e}")
                                 st.rerun()
 
-# ----------------------- Dataset Statistics Tab -----------------------
+    else:
+        video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
+        video_paths = os.listdir(video_base_path)
 
+        for i in range(len(video_paths) + 1):
+            video_path = video_paths[i-1]
+
+            if i > 0:
+                if "frame_by_frame" in video_path or "object_by_object" in video_path:
+                    st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
+
+            # allow adding frames to the subset CSV:
+            if handle_image_list_update(prefix="video_"):
+                update_unverified_data_path()
+
+                # Add/Remove Frames (single)
+                if st.session_state.max_images > 0:
+                    c1, c2, c3 = st.columns([10, 10, 10])
+                    with c1:
+                        st.number_input(
+                            "Add Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key=f"{i}_video_subset_add_frame",
+                            on_change=add_frame_callback,
+                            args=(f"{i}_video_subset_add_frame",),
+                            label_visibility="visible"     
+                        )
+                    with c2:
+                        st.selectbox(
+                            "View Frames in Subset (selection does nothing)",
+                            options=sorted(st.session_state.subset_frames),
+                            key=f"{i}_video_subset_view_frames_in_subset",
+                            label_visibility="visible"     
+                        )
+                    with c3:
+                        st.number_input(
+                            "Remove Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key=f"{i}_subset_remove_frame",
+                            on_change=remove_frame_callback,
+                            args=(f"{i}_video_subset_remove_frame",),
+                            label_visibility="visible"     
+                        )
+
+                    # Add/Remove Frames (range)
+                    max_idx = st.session_state.max_images - 1
+                    r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
+                    with r1:
+                        range_start = st.number_input(
+                            "Range Start",
+                            min_value=0,
+                            max_value=max_idx,
+                            value=0,
+                            key=f"{i}_video_subset_range_start",
+                            label_visibility="visible"     
+                        )
+                    with r2:
+                        range_end = st.number_input(
+                            "Range End",
+                            min_value=0,
+                            max_value=max_idx,
+                            value=max_idx,
+                            key=f"{i}_video_subset_range_end",
+                            label_visibility="visible"     
+                        )
+                    with r3:
+                        if st.button("Add Range", key=f"{i}_add_range_btn"):
+                            lo, hi = sorted((range_start, range_end))
+                            for i in range(lo, hi + 1):
+                                if i not in st.session_state.subset_frames:
+                                    st.session_state.subset_frames.append(i)
+                            save_subset_csv(csv_file, st.session_state.subset_frames)
+                            st.success(f"Added frames {lo}–{hi}")
+                    with r4:
+                        if st.button("Remove Range", key=f"{i}_remove_range_btn"):
+                            lo, hi = sorted((range_start, range_end))
+                            before = set(st.session_state.subset_frames)
+                            st.session_state.subset_frames = [
+                                i for i in st.session_state.subset_frames if not (lo <= i <= hi)
+                            ]
+                            save_subset_csv(csv_file, st.session_state.subset_frames)
+                            removed = len(before) - len(st.session_state.subset_frames)
+                            st.success(f"Removed {removed} frames")
+
+# ----------------------- Dataset Statistics Tab -----------------------
 with tabs[3]:
     with st.expander("Dataset Statistics"):
         st.subheader("Dataset Figures")
         st.write("The path to the formated dataset (with images and labels folders).")
 
-        path_navigator("dataset_path", button_and_selectbox_display_size=[4, 30])
+        path_navigator("dataset_path")
 
         dataset_path = st.session_state.paths.get("dataset_path", "")
         if dataset_path:
@@ -3637,7 +3645,7 @@ with tabs[4]:
             output = check_gpu_status("train_check_gpu_status_button")
 
         with c2:
-            if st.button("Begin Training", key="begin_train_btn"):
+            if st.button("▶ Begin Training", key="begin_train_btn"):
                 output = run_in_tmux(
                     session_key="auto_label_trainer", 
                     script_path=st.session_state.paths["train_script_path"], 
@@ -3656,11 +3664,11 @@ with tabs[4]:
                 output = update_tmux_terminal("auto_label_trainer")
 
         with c4:
-            if st.button("Clear Terminal Output", key="clear_terminal_btn"):
+            if st.button("🧹 Clear Output", key="clear_terminal_btn"):
                 output = None
 
         with c5:
-            if st.button("Kill TMUX Session", key="kill_tmux_session_btn"):
+            if st.button("❌ Kill Session", key="kill_tmux_session_btn"):
                 output = kill_tmux_session("auto_label_trainer")
 
         terminal_output = st.empty()
