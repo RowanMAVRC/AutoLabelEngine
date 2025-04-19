@@ -4,6 +4,7 @@
 ## Standard Library
 
 import os
+os.umask(0) # remove any default umask restrictions so that os.makedirs(…, mode=0o777) really gets 777
 import re
 import glob
 import time
@@ -83,7 +84,7 @@ def save_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
     # Ensure the directory exists; if not, create it
     directory = os.path.dirname(default_yaml_path)
     if directory and not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True)
+        os.makedirs(directory, exist_ok=True, mode=0o777)
 
     try:
         # Extract the state for the selected keys that exist in session state
@@ -178,13 +179,14 @@ def upload_to_dir(save_dir):
     
     if uploaded_file is not None:
         # Ensure the save directory exists.
-        os.makedirs(save_dir, exist_ok=True)
+        os.makedirs(save_dir, exist_ok=True, mode=0o777)
         
         # If the file is a ZIP archive, extract it.
         if uploaded_file.name.endswith(".zip"):
             temp_zip_path = os.path.join(save_dir, uploaded_file.name)
             with open(temp_zip_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
+            os.chmod(temp_zip_path, 0o777)
             
             # Extract all contents of the ZIP file to the save directory.
             with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
@@ -197,6 +199,7 @@ def upload_to_dir(save_dir):
             file_path = os.path.join(save_dir, uploaded_file.name)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
+            os.chmod(file_path, 0o777)
 
         # Reset the file uploader state
         if uploader_key in st.session_state:
@@ -268,10 +271,10 @@ def path_navigator(
                             root, ext = os.path.splitext(new_name)
                             if ext:
                                 parent = os.path.dirname(new_name)
-                                os.makedirs(parent, exist_ok=True)
+                                os.makedirs(parent, exist_ok=True, mode=0o777)
                                 open(new_name, "a").close()
                             else:
-                                os.makedirs(new_name, exist_ok=True)
+                                os.makedirs(new_name, exist_ok=True, mode=0o777)
                             st.session_state.paths[key] = new_name
                             st.rerun()
                         except Exception as e:
@@ -383,7 +386,7 @@ def safe_rename_images(images_dir):
 
     # Determine the labels directory (assumes "images" is part of the path).
     labels_dir = images_dir.replace("images", "labels")
-    os.makedirs(labels_dir, exist_ok=True)
+    os.makedirs(labels_dir, exist_ok=True, mode=0o777)
     
     # Calculate total steps (phase 1 and phase 2)
     total_steps = len(image_paths) * 2
@@ -483,7 +486,7 @@ def save_subset_csv(csv_path, frames):
     with open(csv_path, "w") as f:
         for frame in frames_sorted:
             f.write(f"{frame}\n")
-
+    os.chmod(csv_path, 0o777)
     
 
 ## TMUX Terminal Commands
@@ -566,8 +569,11 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
         return None
 
     # Build the complete tmux command using bash -c to handle quoting correctly.
-    tmux_cmd = f'tmux new-session -d -s {session_key} "bash -c \'{cmd}\'"'
-    
+    tmux_cmd = (
+        f'tmux new-session -d -s {session_key} '
+        f'"bash -c \'umask 000 && {cmd}; exec bash\'"'
+    )
+
     try:
         # Create the tmux session and run the command
         subprocess.check_call(tmux_cmd, shell=True)
@@ -1040,7 +1046,7 @@ def update_unverified_frame():
     )
 
     if not os.path.exists(labels_dir):
-        os.makedirs(labels_dir)
+        os.makedirs(labels_dir, mode=0o777)
 
     bboxes_xyxy = []
     labels = []
@@ -1067,6 +1073,7 @@ def update_unverified_frame():
     else:
         with open(label_path, "w") as f:
             f.write("")
+        os.chmod(label_path, 0o777)
 
     bbox_ids = ["bbox-" + str(i) for i in range(len(bboxes_xyxy))]
 
@@ -2045,7 +2052,7 @@ def change_video_path_callback():
     )
 
     # Move the video file to the new location.
-    os.makedirs(st.session_state.paths["convert_video_copy_path"], exist_ok=True)
+    os.makedirs(st.session_state.paths["convert_video_copy_path"], exist_ok=True, mode=0o777)
     shutil.move(st.session_state.paths["convert_video_path"], new_video_path.replace(" ", "_"))
 
     # Update the session state with the new path.
@@ -2135,6 +2142,8 @@ if "session_running" not in st.session_state:
         "move_dest_path": "",
         "move_dir_script_path": "move_dir.py",
 
+        "open_workspace": "."
+
     }
     st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
     st.session_state.global_object_index = 0
@@ -2219,7 +2228,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
 ## Main Tabs
-tabs = st.tabs(["Generate Data", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal"])
+tabs = st.tabs(["Generate Data", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal", "Unrestrict Workspace"])
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
@@ -3044,8 +3053,8 @@ with tabs[2]:
                     st.session_state["skip_label_update"] = True
                     out_imgs = os.path.join(save_dir, "images")
                     out_lbls = os.path.join(save_dir, "labels")
-                    os.makedirs(out_imgs, exist_ok=True)
-                    os.makedirs(out_lbls, exist_ok=True)
+                    os.makedirs(out_imgs, exist_ok=True, mode=0o777)
+                    os.makedirs(out_lbls, exist_ok=True, mode=0o777)
 
                     for idx in st.session_state.subset_frames:
                         # resolve source image
@@ -3698,3 +3707,24 @@ with tabs[5]:
 
     # Display the accumulated terminal output
     output_placeholder.code(st.session_state.terminal_text, language="bash")
+
+# ----------------------- Unrestrict Tab -----------------------
+with tabs[6]:
+    st.subheader("Open Workspace")
+    st.write("Pick a folder to keep with fully unrestricted (777) permissions on every rerun.")
+    path_navigator("open_workspace", must_exist=False)
+    ow = st.session_state.paths["open_workspace"]
+    if ow:
+        st.success(f"📂 Will keep `{ow}` at 777 perms on each rerun")
+    else:
+        st.info("No open workspace set yet.")
+
+    ow = st.session_state.paths.get("open_workspace")
+    if ow and os.path.exists(ow):
+        # kill any previous session to avoid duplicates
+        subprocess.call("tmux kill-session -t chmod_free_workspace 2>/dev/null", shell=True)
+        # spawn a new background tmux session that does the chmod
+        subprocess.call(
+            f"tmux new-session -d -s chmod_free_workspace \"chmod -R 777 '{ow}'\"",
+            shell=True
+        )
