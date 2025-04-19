@@ -2974,7 +2974,7 @@ with tabs[2]:
                     else:
                         st.error("Please enter a valid new file path.")
             
-                # --- NEW: Bulk Operations ---
+                # ---  Bulk Operations ---
                 st.markdown("---")
                 st.subheader("Bulk Subset Operations")
 
@@ -3028,7 +3028,18 @@ with tabs[2]:
                     removed = len(before) - len(st.session_state.subset_frames)
                     st.success(f"Removed {removed} frames.")
 
-                # --- Delete all labels in subset: ---
+                if st.button("Invert Subset Selection"):
+                    st.session_state["skip_label_update"] = True
+                    # all frame indices 0 … max_images-1
+                    all_frames = list(range(st.session_state.max_images))
+                    # keep only those not already in subset
+                    new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
+                    st.session_state.subset_frames = new_subset
+                    # persist to CSV
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Inverted subset: {len(new_subset)} frames selected.")
+                    st.rerun()
+
                 if st.button("Delete ALL Labels in Subset"):
                     st.session_state["skip_label_update"] = True
                     for idx in st.session_state.subset_frames:
