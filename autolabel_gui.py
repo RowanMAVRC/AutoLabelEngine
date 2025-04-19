@@ -2590,6 +2590,21 @@ with tabs[0]:
             st.write("Parent folder containing one or more subdirs with `images/` + `labels/`.")
             path_navigator("gen_vid_input_path", radio_button_prefix="gen_vid")
 
+            input_root = st.session_state.paths.get("gen_vid_input_path", "")
+            valid_dirs = []
+            if os.path.isdir(input_root):
+                for entry in sorted(os.listdir(input_root)):
+                    imgs = os.path.join(input_root, entry, "images")
+                    lbls = os.path.join(input_root, entry, "labels")
+                    if os.path.isdir(imgs) and os.path.isdir(lbls):
+                        valid_dirs.append(entry)
+
+            st.selectbox(
+                "Found subfolders with both `images/` and `labels/` (selection does nothing)",
+                options=valid_dirs,
+                index=0 if valid_dirs else None,
+            )
+
             st.subheader("FPS")
             st.session_state.paths["gen_vid_fps"] = st.number_input(
                 "Frames per second", 
