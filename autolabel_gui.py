@@ -18,13 +18,11 @@ import uuid
 
 import yaml
 import streamlit as st
-import pandas as pd
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from pathlib import Path
 import tempfile, json, shlex
-from collections import Counter
 import matplotlib.pyplot as plt
 
 ## Streamlit-Specific
@@ -50,7 +48,6 @@ SELECTED_KEYS = [
     "yamls",
     "unverified_image_scale",
     "global_object_index",
-    "unverified_image_scale",
     "video_image_scale"
 
 ]
@@ -455,9 +452,6 @@ def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_siz
 
         return current_path
 
-def list_files(directory, extension):
-    return [f for f in os.listdir(directory) if f.endswith(extension)]
-
 def safe_rename_images(images_dir):
     """
     Safely renames all image files in images_dir to a common pattern (image_0000, image_0001, …)
@@ -587,23 +581,6 @@ def save_subset_csv(csv_path, frames):
     
 
 ## TMUX Terminal Commands
-
-def run_command(command):
-    output = []
-    terminal_output = st.empty()
-
-    with subprocess.Popen(
-        command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1
-    ) as process:
-        for line in process.stdout:
-            output.append(line)
-            # Replace carriage returns with newlines in the joined output.
-            terminal_output.code("".join(output).replace('\r', '\n'), language="bash")
-        for line in process.stderr:
-            output.append(line)
-            terminal_output.code("".join(output).replace('\r', '\n'), language="bash")
-    
-    return "".join(output).replace('\r', '\n')
 
 def update_tmux_terminal(session_key):
     try:
@@ -2179,7 +2156,6 @@ def get_random_image(directory):
         return None
     images = [os.path.join(directory, f) for f in files if f.lower().endswith(valid_extensions)]
     if images:
-        import random
         return random.choice(images)
     return None
 
