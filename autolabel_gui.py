@@ -204,253 +204,159 @@ def upload_to_dir(save_dir):
     
         st.rerun()  # Refresh the UI
 
-def path_navigator(key, radio_button_prefix="", button_and_selectbox_display_size=[0.05, 0.95]):
+def path_navigator(
+    key,
+    radio_button_prefix="",
+    button_and_selectbox_display_size=[0.05, 0.95],
+    must_exist: bool = True,
+):
     """
     A file/directory navigator that can operate in two modes:
-    1) Default: Navigate through directories with a selectbox and a ".." button.
-    2) Custom: Manually enter a path in a text input field.
+    1) Enter Path as Text: you can type any path. If must_exist is True,
+       non‑existent paths trigger Create/Go Up prompts; if False, they
+       are accepted immediately.
+    2) File Explorer: Browse with a '..' button and selectbox.
 
-    If a chosen path doesn't exist, you'll be prompted to either create it
-    or go up directories until you find one that exists.
+    Args:
+        key (str): session_state.paths key to read/write.
+        radio_button_prefix (str): prefix for widget keys.
+        button_and_selectbox_display_size (list): column widths for explorer.
+        must_exist (bool): whether the chosen path must already exist.
     """
 
     # Retrieve or set initial path in session state
     current_path = st.session_state.paths.get(key, "/")
     current_path = os.path.normpath(current_path)
 
-    # Allow user to choose "Default" navigation or "Enter Path as Text" path
+    # Mode switch
     save_path_option = st.radio(
-        "Choose save path option:", ["Enter Path as Text", "File Explorer"], 
-        key=f"{radio_button_prefix}_{key}_radio", 
-        label_visibility="collapsed"
+        "Choose save path option:",
+        ["Enter Path as Text", "File Explorer"],
+        key=f"{radio_button_prefix}_{key}_radio",
+        label_visibility="collapsed",
     )
 
     if save_path_option == "Enter Path as Text":
         # -- CUSTOM PATH MODE --
-        # Now default to the current path in the text input
         custom_path = st.text_input(
             "Enter custom save path:",
-            value=current_path,  # <--- Prefills with current path
+            value=current_path,
             key=f"{radio_button_prefix}_{key}_custom_path_input",
-            label_visibility="collapsed"
-        )
-
-        # Remove any extra spaces at the beginning or end of the input string
-        custom_path = custom_path.strip()
-
-        st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
+            label_visibility="collapsed",
+        ).strip()
+        st.write(f"**Current {' '.join(w.capitalize() for w in key.split('_'))}:** {current_path}")
 
         if custom_path:
             custom_path = os.path.normpath(custom_path)
-            if not os.path.exists(custom_path):
-                # Path doesn't exist; ask user how to proceed
-                st.warning(f"Path '{custom_path}' does not exist. Choose an option below:")
-                create_col, up_col = st.columns(2)
-
-                with create_col:
-                    if st.button("Create this path", key=f"{radio_button_prefix}_{key}_create_custom"):
-                        # Prompt user for a final directory or filename to create
-                        new_name = st.text_input(
-                            "Optionally enter a different name for the new path:",
-                            value=custom_path,
-                            key=f"{radio_button_prefix}_{key}_new_path_name"
-                        )
-                        if new_name:
-                            try:
-                                # Check if new_name has an extension
-                                root, ext = os.path.splitext(new_name)
-                                if ext:
-                                    # If an extension exists, treat new_name as a file.
-                                    # Ensure the parent directory exists.
-                                    parent_dir = os.path.dirname(new_name)
-                                    if parent_dir and not os.path.exists(parent_dir):
-                                        os.makedirs(parent_dir, mode=0o777, exist_ok=True)
-                                        os.chmod(parent_dir, 0o777)
-                                    # Create the file if it doesn't already exist.
-                                    if not os.path.exists(new_name):
-                                        with open(new_name, "w") as f:
-                                            pass
-                                    # Set the file's permissions to 777.
-                                    os.chmod(new_name, 0o777)
-                                else:
-                                    # Otherwise, treat new_name as a directory.
-                                    os.makedirs(new_name, mode=0o777, exist_ok=True)
-                                    os.chmod(new_name, 0o777)
-
-                                st.session_state.paths[key] = new_name
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"Failed to create directory or file: {e}")
-                                # Optionally handle the fallback path if necessary
-                                custom_path
-
-                with up_col:
-                    if st.button("Go up until path exists", key=f"{radio_button_prefix}_{key}_go_up_custom"):
-                        temp_path = custom_path
-                        while not os.path.exists(temp_path) and temp_path not in ("/", ""):
-                            temp_path = os.path.dirname(temp_path)
-
-                        if not os.path.exists(temp_path):
-                            st.error("No valid parent directory found.")
-                            return custom_path
-                        else:
-                            st.session_state.paths[key] = temp_path
-                            st.rerun()
-
-                return custom_path
-            else:
-                # Path exists, store in session and proceed
+            # If must_exist is False, accept immediately
+            if not must_exist or os.path.exists(custom_path):
                 st.session_state.paths[key] = custom_path
                 return custom_path
-        else:
-            # If user hasn't typed a path yet, just return whatever was stored
-            return st.session_state.paths.get(key, "/")
 
-    else:
-        # -- DEFAULT NAVIGATION MODE --
-
-        if os.path.isfile(current_path):
-            directory_to_list = os.path.dirname(current_path)
-        else:
-            directory_to_list = current_path
-
-        col1, col2 = st.columns(button_and_selectbox_display_size, gap="small")
-
-        # ".." Button to go up
-        with col1:
-            go_up_button_key = f"go_up_button_{radio_button_prefix}_{key}"
-            if st.button("..", key=go_up_button_key):
-                if os.path.isdir(current_path):
-                    parent = os.path.dirname(current_path)
-                else:
-                    parent = os.path.dirname(os.path.dirname(current_path))
-                parent = os.path.normpath(parent)
-                st.session_state.paths[key] = parent
-                st.rerun()
-
-        # Attempt to list directory
-        if not os.path.exists(directory_to_list):
-            st.warning(f"Path '{directory_to_list}' does not exist. Choose an option below:")
+            # Otherwise, fall back to original create / go‑up logic
+            st.warning(f"Path '{custom_path}' does not exist. Choose an option below:")
             create_col, up_col = st.columns(2)
-
             with create_col:
-                if st.button("Create this path", key=f"{radio_button_prefix}_{key}_create_default"):
-                    # Ask for a final directory name to create
+                if st.button("Create this path", key=f"{radio_button_prefix}_{key}_create_custom"):
                     new_name = st.text_input(
                         "Optionally enter a different name for the new path:",
-                        value=directory_to_list,
-                        key=f"{radio_button_prefix}_{key}_new_default_path_name"
-                    )
+                        value=custom_path,
+                        key=f"{radio_button_prefix}_{key}_new_path_name"
+                    ).strip()
                     if new_name:
                         try:
-                            os.makedirs(new_name, exist_ok=True)
+                            root, ext = os.path.splitext(new_name)
+                            if ext:
+                                parent = os.path.dirname(new_name)
+                                os.makedirs(parent, exist_ok=True)
+                                open(new_name, "a").close()
+                            else:
+                                os.makedirs(new_name, exist_ok=True)
                             st.session_state.paths[key] = new_name
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Failed to create directory: {e}")
-                            return current_path
-
+                            st.error(f"Failed to create: {e}")
             with up_col:
-                if st.button("Go up until path exists", key=f"{radio_button_prefix}_{key}_go_up_default"):
-                    temp_path = directory_to_list
-                    while not os.path.exists(temp_path) and temp_path not in ("/", ""):
-                        temp_path = os.path.dirname(temp_path)
-
-                    if not os.path.exists(temp_path):
-                        st.error("No valid parent directory found.")
-                        return current_path
-                    else:
-                        st.session_state.paths[key] = temp_path
+                if st.button("Go up until path exists", key=f"{radio_button_prefix}_{key}_go_up_custom"):
+                    temp = custom_path
+                    while not os.path.exists(temp) and temp not in ("/", ""):
+                        temp = os.path.dirname(temp)
+                    if os.path.exists(temp):
+                        st.session_state.paths[key] = temp
                         st.rerun()
-
-            return current_path
-
-        try:
-            entries = os.listdir(directory_to_list)
-        except Exception as e:
-            st.error(f"Error reading directory: {e}")
-            return current_path
-
-        # Separate entries into directories and files
-        dirs = []
-        files = []
-        for entry in entries:
-            full_path = os.path.join(directory_to_list, entry)
-            full_path = os.path.normpath(full_path)
-            if os.path.isdir(full_path):
-                dirs.append((entry, full_path))
-            else:
-                files.append((entry, full_path))
-
-        # Sort directories and files alphabetically (case-insensitive)
-        dirs.sort(key=lambda x: x[0].lower())
-        files.sort(key=lambda x: x[0].lower())
-
-        # Build the selectbox options:
-        options_list = []
-        options_mapping = {}
-        indent = "└"
-        top_label = directory_to_list
-        options_list.append(top_label)
-        options_mapping[top_label] = None
-
-        # Add directories with folder emoji
-        for entry, full_path in dirs:
-            label = f"{indent} 📁 {entry}"
-            options_list.append(label)
-            options_mapping[label] = full_path
-
-        # Add files with extension-specific emojis
-        for entry, full_path in files:
-            ext = os.path.splitext(entry)[1].lower()
-            if ext in ['.jpg', '.jpeg', '.png', '.gif']:
-                file_emoji = "🖼️"
-            elif ext == '.py':
-                file_emoji = "🐍"
-            elif ext in ['.txt', '.md']:
-                file_emoji = "📄"
-            elif ext == '.csv':
-                file_emoji = "📑"
-            elif ext == '.zip':
-                file_emoji = "🗜️"
-            else:
-                file_emoji = "📄"  # Fallback icon
-            label = f"{indent} {file_emoji} {entry}"
-            options_list.append(label)
-            options_mapping[label] = full_path
-
-
-        # Determine which item to highlight
-        default_index = 0
-        for i, lbl in enumerate(options_list):
-            if lbl == top_label:
-                continue
-            mapped_path = options_mapping[lbl]
-            if mapped_path and os.path.normpath(mapped_path) == os.path.normpath(current_path):
-                default_index = i
-                break
-
-        widget_key = f"navigator_select_{radio_button_prefix}_{key}"
-
-        def on_selectbox_change():
-            selected_label = st.session_state[widget_key]
-            new_path = options_mapping[selected_label]
-            if new_path is not None:
-                st.session_state.paths[key] = new_path
-
-        with col2:
-            st.selectbox(
-                "Select a subdirectory or file:",
-                options_list,
-                index=default_index,
-                key=widget_key,
-                on_change=on_selectbox_change,
-                label_visibility="collapsed"
-            )
-
-        st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {current_path}")
+                    else:
+                        st.error("No valid parent directory found.")
+            return current_path  # keep the old path until created
 
         return current_path
+
+    # -- DEFAULT NAVIGATION MODE --
+    if os.path.isfile(current_path):
+        directory_to_list = os.path.dirname(current_path)
+    else:
+        directory_to_list = current_path
+
+    col1, col2 = st.columns(button_and_selectbox_display_size, gap="small")
+    with col1:
+        if st.button("..", key=f"go_up_button_{radio_button_prefix}_{key}"):
+            parent = os.path.dirname(current_path) if os.path.isdir(current_path) else os.path.dirname(os.path.dirname(current_path))
+            st.session_state.paths[key] = os.path.normpath(parent)
+            st.rerun()
+
+    if not os.path.exists(directory_to_list):
+        st.warning(f"Path '{directory_to_list}' does not exist.")
+        return current_path
+
+    try:
+        entries = os.listdir(directory_to_list)
+    except Exception as e:
+        st.error(f"Error reading directory: {e}")
+        return current_path
+
+    dirs = [(e, os.path.join(directory_to_list, e)) for e in entries if os.path.isdir(os.path.join(directory_to_list, e))]
+    files = [(e, os.path.join(directory_to_list, e)) for e in entries if os.path.isfile(os.path.join(directory_to_list, e))]
+
+    dirs.sort(key=lambda x: x[0].lower())
+    files.sort(key=lambda x: x[0].lower())
+
+    options_list = [directory_to_list]
+    options_mapping = {directory_to_list: None}
+    indent = "└"
+
+    for name, full in dirs:
+        label = f"{indent} 📁 {name}"
+        options_list.append(label)
+        options_mapping[label] = full
+
+    for name, full in files:
+        ext = os.path.splitext(name)[1].lower()
+        emoji = "🖼️" if ext in ['.jpg','.png','.gif'] else "🐍" if ext=='.py' else "📄"
+        label = f"{indent} {emoji} {name}"
+        options_list.append(label)
+        options_mapping[label] = full
+
+    default_index = next((i for i,l in enumerate(options_list)
+                          if options_mapping.get(l)==os.path.normpath(current_path)), 0)
+
+    widget_key = f"navigator_select_{radio_button_prefix}_{key}"
+    def on_change():
+        sel = st.session_state[widget_key]
+        path = options_mapping.get(sel)
+        if path is not None:
+            st.session_state.paths[key] = path
+
+    with col2:
+        st.selectbox(
+            "Select a subdirectory or file:",
+            options_list,
+            index=default_index,
+            key=widget_key,
+            on_change=on_change,
+            label_visibility="collapsed",
+        )
+
+    st.write(f"**Current {' '.join(w.capitalize() for w in key.split('_'))}:** {st.session_state.paths[key]}")
+    return st.session_state.paths[key]
 
 def safe_rename_images(images_dir):
     """
@@ -2223,7 +2129,11 @@ if "session_running" not in st.session_state:
         "unverified_subset_csv_path" : "cfgs/gui/subset/default.csv",
         "subset_save_path": "cfgs/gui/subset/new_subset.csv",
 
-        "video_file_path": "generated_videos/current.mp4"
+        "video_file_path": "generated_videos/current.mp4",
+
+        "move_src_path": "",
+        "move_dest_path": "",
+        "move_dir_script_path": "move_dir.py",
 
     }
     st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
@@ -2321,6 +2231,7 @@ with tabs[0]:
             "Convert Video to Frames", 
             "Rotate Image Dataset",
             "Generate Labeled Video",
+            "Move Directory",
             "Split YOLO Dataset into Objects / No Objects", 
             "Combine YOLO Datasets"
         ],
@@ -2661,7 +2572,62 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="kill_gen_vid_btn"):
                     output = kill_tmux_session("gen_vid")
         
-    
+    if action_option == "Move Directory":
+        # SETTINGS
+        with st.expander("Move Directory Settings"):
+            st.subheader("Source Directory")
+            path_navigator("move_src_path")
+            st.subheader("Destination Directory")
+            path_navigator("move_dest_path", must_exist=False)
+
+            # Swap paths button
+            if st.button("🔄 Swap Source and Destination", key="swap_move_paths_btn"):
+                src = st.session_state.paths.get("move_src_path", "")
+                dst = st.session_state.paths.get("move_dest_path", "")
+                st.session_state.paths["move_src_path"], st.session_state.paths["move_dest_path"] = dst, src
+                st.rerun()
+
+
+        # VENV
+        with st.expander("Virtual Environment Path"):
+            st.write("Path to the virtual environment for the move script.")
+            path_navigator("venv_path", radio_button_prefix="move_dir")
+
+        # SCRIPT
+        with st.expander("Move Script"):
+            st.write("Your `move_dir.py` (must accept `--src_dir` and `--dst_dir`).")
+            path_navigator("move_dir_script_path")
+            python_code_editor("move_dir_script_path")
+
+        # ACTIONS
+        with st.expander("Execute Move"):
+            c1, c2, c3, c4 = st.columns(4, gap="small")
+            with c1:
+                if st.button("▶ Begin Move", key="begin_move_dir_btn"):
+                    run_in_tmux(
+                        session_key="move_dir",
+                        script_path=st.session_state.paths["move_dir_script_path"],
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ "),
+                            "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ "),
+                        },
+                        script_type="python"
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("move_dir")
+
+            with c2:
+                if st.button("🔄 Refresh Terminal", key="refresh_move_dir_btn"):
+                    output = update_tmux_terminal("move_dir")
+            with c3:
+                if st.button("🧹 Clear Output", key="clear_move_dir_btn"):
+                    output = None
+            with c4:
+                if st.button("❌ Kill Session", key="kill_move_dir_btn"):
+                    output = kill_tmux_session("move_dir")
+          
+
     elif action_option == "Split YOLO Dataset into Objects / No Objects":
         with st.expander("Dataset Settings"):
             c1, c2 = st.columns(2)
