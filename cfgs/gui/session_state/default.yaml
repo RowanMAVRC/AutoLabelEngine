@@ -30,8 +30,8 @@ paths:
   auto_label_replacement: labels
   auto_label_save_path: example_data/labels/
   auto_label_script_path: inference.py
-  combine_dataset_1_path: example_data/
-  combine_dataset_2_path: example_data/
+  combine_dataset_1_path: example_data
+  combine_dataset_2_path: example_data
   combine_dataset_save_path: example_data_combined/
   combine_dataset_script_path: combine_yolo_dirs.py
   convert_video_copy_path: ''
@@ -39,12 +39,11 @@ paths:
   convert_video_save_path: ''
   convert_video_script_path: convert_mp4_2_png.py
   dataset_path: /
-  gen_vid_fps: 5.0
-  gen_vid_input_path: example_data
-  gen_vid_mode: Both
-  gen_vid_output_path: example_data/images/videos_with_labels
-  gen_vid_script_path: generate_video.py
   generate_venv_script_path: setup_venv.sh
+  move_dest_path: ''
+  move_dir_script_path: move_dir.py
+  move_src_path: ''
+  open_workspace: /data/TGSSE/AutoLabelEngine
   prev_unverified_images_path: example_data/images
   prev_unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
   rotate_images_path: example_data
@@ -142,114 +141,44 @@ python_codes:
     --gpu_number\", type=int, default=0, help=\"GPU number to use. Set to -1 to use\
     \ CPU.\")\n    args = parser.parse_args()\n\n    process_images_dirs(args.model_weights_path,\
     \ args.images_dir_path, args.label_replacement, args.gpu_number)\n"
-  gen_vid_script_path: "\n#!/usr/bin/env python3\nimport os\nimport argparse\nimport\
-    \ random\nimport numpy as np\nfrom tqdm import tqdm\nfrom PIL import Image, ImageDraw,\
-    \ ImageFont\nimport matplotlib.pyplot as plt\nfrom matplotlib.backends.backend_agg\
-    \ import FigureCanvasAgg as FigureCanvas\nfrom moviepy.editor import ImageSequenceClip\n\
-    \n# Unique color map\nCLASS_COLORS = {}\ndef get_color(class_id: int):\n    if\
-    \ class_id not in CLASS_COLORS:\n        CLASS_COLORS[class_id] = tuple(random.randint(0,\
-    \ 255) for _ in range(3))\n    return CLASS_COLORS[class_id]\n\ndef make_frame_by_frame_video(images_dir,\
-    \ labels_dir, out_path, fps):\n    \"\"\"Side-by-side original vs. labeled frames,\
-    \ with centered text below.\"\"\"\n    imgs = sorted(\n        os.path.join(images_dir,\
-    \ f)\n        for f in os.listdir(images_dir)\n        if f.lower().endswith(('.jpg','jpeg','.png'))\n\
-    \    )\n    if not imgs:\n        print(f\"\u26A0\uFE0F No images found in {images_dir}\"\
-    )\n        return\n\n    frames = []\n    for idx, img_path in enumerate(tqdm(imgs,\
-    \ desc=\"Frame\u2011by\u2011frame\", unit=\"frame\")):\n        img = Image.open(img_path).convert(\"\
-    RGB\")\n        W, H = img.size\n\n        labeled = img.copy()\n        draw\
-    \ = ImageDraw.Draw(labeled)\n        try:\n            font = ImageFont.truetype(\"\
-    DejaVuSans-Bold.ttf\", max(12, H//40))\n        except IOError:\n            font\
-    \ = ImageFont.load_default()\n\n        txt_fname = os.path.splitext(os.path.basename(img_path))[0]\
-    \ + '.txt'\n        txt_path = os.path.join(labels_dir, txt_fname)\n        if\
-    \ os.path.exists(txt_path):\n            for line in open(txt_path).read().splitlines():\n\
-    \                parts = line.split()\n                if len(parts) < 5: continue\n\
-    \                cid, xc, yc, wn, hn = parts[:5]\n                c = int(cid)\n\
-    \                xc, yc, wn, hn = map(float, (xc, yc, wn, hn))\n             \
-    \   bw, bh = wn * W, hn * H\n                x1 = xc*W - bw/2; y1 = yc*H - bh/2\n\
-    \                x2, y2 = x1 + bw, y1 + bh\n\n                color = get_color(c)\n\
-    \                thickness = max(1, int(H/200))\n                draw.rectangle([x1,\
-    \ y1, x2, y2], outline=color, width=thickness)\n                txt = str(c)\n\
-    \                tb = draw.textbbox((0,0), txt, font=font)\n                tw,\
-    \ th = tb[2]-tb[0], tb[3]-tb[1]\n                draw.rectangle([x1, y1, x1+tw+4,\
-    \ y1+th+4], fill=color)\n                draw.text((x1+2, y1+2), txt, fill=(255,255,255),\
-    \ font=font)\n\n        fig = plt.figure(figsize=(12,8))\n        gs = fig.add_gridspec(2,2,\
-    \ height_ratios=[8,1])\n        ax1 = fig.add_subplot(gs[0,0])\n        ax2 =\
-    \ fig.add_subplot(gs[0,1])\n        ax3 = fig.add_subplot(gs[1,:])\n\n       \
-    \ ax1.imshow(img); ax1.axis('off'); ax1.set_title(\"Original\", pad=10)\n    \
-    \    ax2.imshow(labeled); ax2.axis('off'); ax2.set_title(\"Labeled\", pad=10)\n\
-    \n        ax3.axis('off')\n        ax3.text(0.5, 0.6, img_path, ha='center', va='center',\
-    \ wrap=True)\n        ax3.text(0.5, 0.3, f\"Frame {idx}\", ha='center', va='center')\n\
-    \n        fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05,\n\
-    \                            wspace=0.05, hspace=0.05)\n\n        canvas = FigureCanvas(fig)\n\
-    \        canvas.draw()\n        w, h = fig.canvas.get_width_height()\n       \
-    \ buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)\n\
-    \        frame = buf[..., :3]\n        frames.append(frame)\n        plt.close(fig)\n\
-    \n    clip = ImageSequenceClip(frames, fps=fps)\n    clip.write_videofile(out_path,\
-    \ codec=\"libx264\", audio=False, logger=\"bar\", threads=8)\n    print(f\"\u2192\
-    \ frame_by_frame video saved to {out_path}\")\n\ndef make_object_by_object_video(images_dir,\
-    \ labels_dir, out_path, fps):\n    \"\"\"\n    Zoom each object to fit within\
-    \ a 1920\xD71080 letterbox (min padding),\n    with a larger bottom panel for\
-    \ text and increased font size.\n    \"\"\"\n    TARGET_W, TARGET_H = 1920, 1080\n\
-    \    TEXT_H = 300  # more padding for text\n\n    imgs = sorted(\n        os.path.join(images_dir,\
-    \ f)\n        for f in os.listdir(images_dir)\n        if f.lower().endswith(('.jpg','jpeg','.png'))\n\
-    \    )\n    if not imgs:\n        print(f\"\u26A0\uFE0F No images found in {images_dir}\"\
-    )\n        return\n\n    frames = []\n    for idx, img_path in enumerate(tqdm(imgs,\
-    \ desc=\"Object\u2011by\u2011object\", unit=\"frame\")):\n        img = Image.open(img_path).convert(\"\
-    RGB\")\n        W, H = img.size\n        txt_fname = os.path.splitext(os.path.basename(img_path))[0]\
-    \ + '.txt'\n        txt_path = os.path.join(labels_dir, txt_fname)\n        lines\
-    \ = open(txt_path).read().splitlines() if os.path.exists(txt_path) else []\n \
-    \       if not lines:\n            continue\n\n        for obj_i, line in enumerate(tqdm(lines,\
-    \ desc=f\"Frame {idx} objects\", leave=False)):\n            parts = line.split()\n\
-    \            if len(parts) < 5:\n                continue\n            _, xc,\
-    \ yc, wn, hn = map(float, parts[:5])\n            bw, bh = wn*W, hn*H\n      \
-    \      x1 = xc*W - bw/2; y1 = yc*H - bh/2\n            x2, y2 = x1 + bw, y1 +\
-    \ bh\n\n            crop = img.crop((x1,y1,x2,y2))\n            scale = min(TARGET_W\
-    \ / crop.width, TARGET_H / crop.height)\n            new_w, new_h = int(crop.width\
-    \ * scale), int(crop.height * scale)\n            resized = crop.resize((new_w,\
-    \ new_h), Image.LANCZOS)\n\n            letterbox = Image.new(\"RGB\", (TARGET_W,\
-    \ TARGET_H), (0, 0, 0))\n            x_off = (TARGET_W - new_w) // 2\n       \
-    \     y_off = (TARGET_H - new_h) // 2\n            letterbox.paste(resized, (x_off,\
-    \ y_off))\n\n            fig = plt.figure(figsize=(TARGET_W/100, (TARGET_H+TEXT_H)/100),\
-    \ dpi=100)\n            gs = fig.add_gridspec(2, 1, height_ratios=[TARGET_H, TEXT_H])\n\
-    \            ax_img = fig.add_subplot(gs[0])\n            ax_txt = fig.add_subplot(gs[1])\n\
-    \n            ax_img.imshow(letterbox)\n            ax_img.axis('off')\n\n   \
-    \         ax_txt.axis('off')\n            # larger font and extra padding\n  \
-    \          ax_txt.text(0.5, 0.8, img_path, ha='center', va='center', wrap=True,\
-    \ fontsize=24)\n            ax_txt.text(0.5, 0.55, f\"Frame {idx}\", ha='center',\
-    \ va='center', fontsize=24)\n            ax_txt.text(0.5, 0.3, f\"Object {obj_i+1}\"\
-    , ha='center', va='center', fontsize=24)\n\n            fig.subplots_adjust(left=0,\
-    \ right=1, top=1, bottom=0.1)\n\n            canvas = FigureCanvas(fig)\n    \
-    \        canvas.draw()\n            w, h = fig.canvas.get_width_height()\n   \
-    \         buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape(h,\
-    \ w, 4)\n            frame = buf[..., :3]\n            frames.append(frame)\n\
-    \            plt.close(fig)\n\n    if not frames:\n        print(\"\u26A0\uFE0F\
-    \ No objects found \u2013 skipping object_by_object video.\")\n        return\n\
-    \n    clip = ImageSequenceClip(frames, fps=fps)\n    clip.write_videofile(out_path,\
-    \ codec=\"libx264\", audio=False, logger=\"bar\", threads=8)\n    print(f\"\u2192\
-    \ object_by_object video saved to {out_path}\")\n\nif __name__ == '__main__':\n\
-    \    parser = argparse.ArgumentParser(description=\"Generate review videos from\
-    \ a YOLO dataset\")\n    parser.add_argument(\"--input_path\", required=True,\n\
-    \                        help=\"Folder containing `images/`+`labels/` or parent\
-    \ dir of many subfolders\")\n    parser.add_argument(\"--fps\", type=float, default=5.0,\
-    \ help=\"Frames per second\")\n    parser.add_argument(\"--mode\", choices=[\"\
-    Frame by Frame\",\"Object by Object\",\"Both\"],\n                        default=\"\
-    Both\", help=\"Which videos to generate\")\n    args = parser.parse_args()\n\n\
-    \    root = args.input_path\n    pairs = []\n    # single-folder case\n    imgs\
-    \ = os.path.join(root, 'images'); lbls = os.path.join(root, 'labels')\n    if\
-    \ os.path.isdir(imgs) and os.path.isdir(lbls):\n        name = os.path.basename(os.path.normpath(root))\n\
-    \        pairs.append((name, imgs, lbls))\n    # subfolders\n    for entry in\
-    \ sorted(os.listdir(root)):\n        sub = os.path.join(root, entry)\n       \
-    \ imgs = os.path.join(sub, 'images'); lbls = os.path.join(sub, 'labels')\n   \
-    \     if os.path.isdir(imgs) and os.path.isdir(lbls):\n            pairs.append((entry,\
-    \ imgs, lbls))\n\n    if not pairs:\n        print(f\"\u26A0\uFE0F No image/label\
-    \ folder pairs found in {root}\") \n        exit(1)\n\n    for name, imgs, lbls\
-    \ in tqdm(pairs, desc=f\"Generating {args.mode}\", unit=\"set\"):\n        out_dir\
-    \ = os.path.join(os.path.dirname(imgs), 'videos_with_labels')\n        os.makedirs(out_dir,\
-    \ exist_ok=True)\n        if args.mode in (\"Frame by Frame\",\"Both\"):\n   \
-    \         ff = os.path.join(out_dir, f\"{name}_frame_by_frame.mp4\")\n       \
-    \     make_frame_by_frame_video(imgs, lbls, ff, args.fps)\n        if args.mode\
-    \ in (\"Object by Object\",\"Both\"):\n            obo = os.path.join(out_dir,\
-    \ f\"{name}_object_by_object.mp4\")\n            make_object_by_object_video(imgs,\
-    \ lbls, obo, args.fps)\n"
+  combine_dataset_script_path: "import os\nimport shutil\nfrom pathlib import Path\n\
+    from tqdm import tqdm\nimport argparse\n\ndef combine_yolo_dirs(yolo_dirs, dst_dir):\n\
+    \    \"\"\"\n    Combine two YOLO directories into a single destination directory\
+    \ with prefixed filenames.\n    Resolves duplicate prefixes by appending a higher-level\
+    \ directory name to make them unique.\n\n    Args:\n        yolo_dirs (list of\
+    \ str): List of two YOLO directories to combine. Each directory must contain 'images'\
+    \ and 'labels' subdirectories.\n        dst_dir (str): Destination directory where\
+    \ combined files will be saved.\n    \"\"\"\n    dst_images_dir = Path(dst_dir)\
+    \ / \"images\"\n    dst_labels_dir = Path(dst_dir) / \"labels\"\n\n    # Create\
+    \ destination subdirectories if they don't exist\n    dst_images_dir.mkdir(parents=True,\
+    \ exist_ok=True)\n    dst_labels_dir.mkdir(parents=True, exist_ok=True)\n\n  \
+    \  # Determine unique prefixes for each dataset\n    prefixes = {}\n    for yolo_dir\
+    \ in yolo_dirs:\n        yolo_path = Path(yolo_dir)\n        prefix = f\"{yolo_path.parent.name}_{yolo_path.name}\"\
+    \n        # Ensure the prefix is unique\n        while prefix in prefixes.values():\n\
+    \            prefix = f\"{Path(yolo_path.parent.parent).name}_{prefix}\"\n   \
+    \     if prefix.startswith(\"_\"):\n            prefix = prefix[1:]\n        prefixes[yolo_dir]\
+    \ = prefix\n\n    # Process each YOLO directory\n    for yolo_dir, prefix in prefixes.items():\n\
+    \        yolo_path = Path(yolo_dir)\n        images_dir = yolo_path / \"images\"\
+    \n        labels_dir = yolo_path / \"labels\"\n\n        # Check if subdirectories\
+    \ exist\n        if not images_dir.exists() or not labels_dir.exists():\n    \
+    \        print(f\"Skipping {yolo_dir}: Missing 'images' or 'labels' directory.\"\
+    )\n            continue\n\n        # Copy images with new prefixed filenames\n\
+    \        image_files = list(images_dir.glob(\"*.*\"))  # Match all files\n   \
+    \     for image_file in tqdm(image_files, desc=f\"Copying images from {yolo_dir}\"\
+    , unit=\"file\"):\n            new_name = f\"{prefix}_{image_file.name}\"\n  \
+    \          shutil.copy(image_file, dst_images_dir / new_name)\n\n        # Copy\
+    \ labels with new prefixed filenames\n        label_files = list(labels_dir.glob(\"\
+    *.*\"))  # Match all files\n        for label_file in tqdm(label_files, desc=f\"\
+    Copying labels from {yolo_dir}\", unit=\"file\"):\n            new_name = f\"\
+    {prefix}_{label_file.name}\"\n            shutil.copy(label_file, dst_labels_dir\
+    \ / new_name)\n\n    print(f\"All files have been combined and saved to {dst_dir}.\"\
+    )\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(description=\"\
+    Combine two YOLO dataset directories into one.\")\n    parser.add_argument(\"\
+    --dataset1\", help=\"Path to the first YOLO dataset directory\")\n    parser.add_argument(\"\
+    --dataset2\", help=\"Path to the second YOLO dataset directory\")\n    parser.add_argument(\"\
+    --dst_dir\", help=\"Destination directory where combined files will be saved\"\
+    )\n    args = parser.parse_args()\n\n    combine_yolo_dirs([args.dataset1, args.dataset2],\
+    \ args.dst_dir)\n"
   train_script_path: "import argparse\nfrom ultralytics import YOLO\n\ndef main(model_path,\
     \ data_path, train_path):\n    # Load a model from the given model configuration\
     \ file\n    model = YOLO(model_path)\n    # Train the model using the specified\
