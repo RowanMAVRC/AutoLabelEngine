@@ -1,0 +1,58 @@
+data_cfg:
+  names:
+    0: Airplane
+    1: Rotary Drone
+    2: Fixed Wing Drone
+    3: Fighter Jet
+    4: Birds
+    5: Helicopter
+frame_index: 0
+global_object_index: 0
+gpu_list:
+- 'GPU 0: Quadro RTX 8000 (UUID: GPU-0627d9ee-1acc-381e-6717-759d6ddbfaaa)'
+- 'GPU 1: Quadro RTX 8000 (UUID: GPU-fca126cb-c645-592b-b37d-8738191e296f)'
+- 'GPU 2: Quadro RTX 8000 (UUID: GPU-a2dd79b3-314d-a865-35ab-d3772342e1b9)'
+- 'GPU 3: Quadro RTX 8000 (UUID: GPU-06c54b91-735e-c162-dcbb-8e2891de0103)'
+- 'GPU 4: Quadro RTX 8000 (UUID: GPU-c3a3c219-e32d-6131-f1d6-dc84f545257a)'
+- 'GPU 5: Quadro RTX 8000 (UUID: GPU-7ac32abd-d96c-5488-8c44-516e6de1ff50)'
+images_dir: example_data/images
+label_list:
+- Airplane
+- Rotary Drone
+- Fixed Wing Drone
+- Fighter Jet
+- Birds
+- Helicopter
+paths:
+  auto_label_data_path: example_data/images/
+  auto_label_model_weight_path: weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt
+  auto_label_save_path: example_data/labels/
+  auto_label_script_path: inference.py
+  combine_dataset_1_path: example_data/
+  combine_dataset_2_path: example_data/
+  combine_dataset_save_path: example_data_combined/
+  combine_dataset_script_path: combine_yolo_dirs.py
+  convert_video_copy_path: ''
+  convert_video_path: ''
+  convert_video_save_path: ''
+  convert_video_script_path: convert_mp4_2_png.py
+  generate_venv_script_path: setup_venv.sh
+  prev_unverified_images_path: example_data/images
+  prev_unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
+  rotate_images_path: example_data
+  rotate_images_script_path: rotate_images.py
+  split_data_path: example_data
+  split_data_save_path: ''
+  split_data_script_path: split_yolo_data_by_object.py
+  subset_save_path: cfgs/gui/subset/new_subset.csv
+  train_data_yaml_path: cfgs/yolo/data/default.yaml
+  train_model_yaml_path: cfgs/yolo/model/default.yaml
+  train_script_path: train_yolo.py
+  train_train_yaml_path: cfgs/yolo/train/default.yaml
+  unverified_images_path: example_data/images
+  unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
+  unverified_subset_csv_path: cfgs/gui/subset/default.csv
+  upload_save_path: ''
+  venv_path: ../envs/auto-label-engine/
+  video_file_path: generated_videos/current.mp4
+unverified_image_scale: 1.0
