@@ -7,6 +7,7 @@ import os
 import re
 import glob
 import time
+import random
 import shutil
 import subprocess
 import zipfile
@@ -23,6 +24,8 @@ from PIL import Image, ImageDraw, ImageFont
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from pathlib import Path
 import tempfile, json, shlex
+from collections import Counter
+import matplotlib.pyplot as plt
 
 ## Streamlit-Specific
 
@@ -153,6 +156,7 @@ def infer_image_pattern(images_dir, extensions=(".jpg", ".png")):
     st.session_state.naming_pattern_warning = None
 
     return best_pattern, start_index, end_index
+
 
 def upload_to_dir(save_dir):
     """
@@ -1954,6 +1958,148 @@ def create_video_file(image_paths, fps, scale=1.0, output_path="generated_videos
     
     return output_path
 
+def parse_label_data(labels_path):
+
+    # Define a map for class IDs and arrays for bounding box coordinates
+    class_counts = {}
+    x_vals, y_vals, w_vals, h_vals = [], [], [], []
+
+    # For each label file in the labels directory
+    for label_file in os.listdir(labels_path):
+        if label_file.endswith(".txt"):
+            file_has_data = False  # Flag to track if the file has valid data
+
+            # Read the label file
+            with open(os.path.join(labels_path, label_file), "r") as f:
+                for line in f:
+                    # Skip empty lines
+                    line = line.strip()
+                    if not line:  # If the line is empty
+                        continue
+                    
+                    # Split the line into parts and check if it has enough data
+                    parts = line.split()
+                    if len(parts) >= 5:  # Check if the line has enough data
+                        cls, x, y, bw, bh = map(float, parts)
+
+                        # Check if the class ID is new and define
+                        if str(cls) not in class_counts:
+                            class_counts[str(cls)] = 0
+
+                        # Append the class counts and bounding box coordinates
+                        class_counts[str(cls)] += 1
+                        x_vals.append(x)
+                        y_vals.append(y)
+                        w_vals.append(bw)
+                        h_vals.append(bh)
+                        file_has_data = True  # Set the flag to True if there's valid data
+                    else:
+                        continue  # This case is handled in other function
+
+            # If the file has no valid data at all, consider it an unlabeled file
+            if not file_has_data:
+                if "unlabeled" not in class_counts:
+                    class_counts["unlabeled"] = 0
+                class_counts["unlabeled"] += 1
+
+    return class_counts, x_vals, y_vals, w_vals, h_vals
+
+def generate_label_plots(class_counts, x_vals, y_vals, w_vals, h_vals):
+
+    # Check if class_counts is empty
+    if not class_counts:
+        st.warning("No class labels found. The label files may be empty.")
+        return
+
+    # Check if x_vals, y_vals, w_vals, h_vals are empty
+    if not x_vals or not y_vals or not w_vals or not h_vals:
+        st.warning("No label data found for coordinate plots.")
+        return
+
+    # Pull the class keys and values for plotting and make them unique colors
+    classes = list(class_counts.keys())
+    counts = list(class_counts.values())
+    colors = plt.cm.tab20(np.linspace(0, 1, len(classes)))
+    
+    # Define 3 col subplot (1 row)
+    fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+    # X vs Y (Centers)
+    axs[0].hexbin(x_vals, y_vals, gridsize=30, cmap="Blues")
+    axs[0].set_xlabel("x")
+    axs[0].set_ylabel("y")
+    axs[0].set_title("X vs Y (Bounding Box Centers)")
+    axs[0].invert_yaxis()
+
+    # Width vs Height (Sizes)
+    axs[1].hexbin(w_vals, h_vals, gridsize=30, cmap="Blues")
+    axs[1].set_xlabel("width")
+    axs[1].set_ylabel("height")
+    axs[1].set_title("Width vs Height (Bounding Box Sizes)")
+
+    # Class Distribution
+    axs[2].bar(classes, counts, color=colors)
+    axs[2].set_xlabel("Class ID")
+    axs[2].set_ylabel("Count")
+    axs[2].set_title("Class Distribution")
+    axs[2].tick_params(axis='x', rotation=45)
+
+    st.pyplot(fig)
+
+def draw_bboxes_on_image(image_path, label_path):
+
+    # Open image and initialize
+    image = Image.open(image_path).convert("RGB")
+    draw = ImageDraw.Draw(image)
+    w, h = image.size
+
+    # Read the label file and draw bounding boxes in red
+    with open(label_path, "r") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) < 5:
+                continue
+            cls, x, y, bw, bh = map(float, parts)
+            x1 = (x - bw / 2) * w
+            y1 = (y - bh / 2) * h
+            x2 = (x + bw / 2) * w
+            y2 = (y + bh / 2) * h
+            draw.rectangle([x1, y1, x2, y2], outline="red", width=2)
+            draw.text((x1, y1), str(int(cls)), fill="red")
+
+    return image
+
+def display_images(images_path, labels_path):
+
+    # Check if the images path exists
+    if not os.path.exists(images_path):
+        st.error("Images path does not exist.")
+        return
+
+    # Check if the labels path exists
+    if not os.path.exists(labels_path):
+        st.error("Labels path does not exist.")
+        return
+
+    # Find all the image files in the path
+    image_files = [f for f in os.listdir(images_path) if f.endswith(('png', 'jpg', 'jpeg'))]
+
+    # Check if there are any image files
+    if not image_files:
+        st.warning("No images found in the images folder.")
+        return
+
+    # Randomly select 3 images
+    sample_images = random.sample(image_files, min(3, len(image_files)))
+
+    # Display the images in a 3-column layout
+    cols = st.columns(3)
+    for i, image_file in enumerate(sample_images):
+        image_path = os.path.join(images_path, image_file)
+        label_path = os.path.join(labels_path, image_file.rsplit('.', 1)[0] + '.txt')
+        annotated_img = draw_bboxes_on_image(image_path, label_path)
+        cols[i % 3].image(annotated_img, caption=image_file, use_container_width=True)
+
 @st.cache_data(show_spinner=True)
 def generating_mp4(image_paths, fps, regenerate=False, output_path = "generated_videos/current.mp4"):
  
@@ -2081,7 +2227,8 @@ save_session_state()
 
 ## Define the title bar and brief description
 st.title("Auto Label Engine")
-st.write("This is a GUI for the Auto Label Engine. It allows you to generate datasets, auto label images, manually label images, finetune models, and run Linux commands on the server.")
+st.write("This is a GUI for the Auto Label Engine. It allows you to generate datasets, auto label images,"
+" manually label images, see dataset statistics/figures, finetune models, and run Linux commands on the server.")
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -2141,7 +2288,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
 ## Main Tabs
-tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Finetune Model", "Linux Terminal"])
+tabs = st.tabs(["Generate Datasets", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal"])
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
@@ -3249,9 +3396,48 @@ with tabs[2]:
                                 except Exception as e:
                                     st.error(f"Error deleting object: {e}")
                                 st.rerun()
-                            
-# ----------------------- Train Status Tab -----------------------
+
+# ----------------------- Dataset Statistics Tab -----------------------
+
 with tabs[3]:
+    with st.expander("Dataset Statistics"):
+        st.subheader("Dataset Figures")
+        st.write("The path to the formated dataset (with images and labels folders).")
+
+        path_navigator("dataset_path", button_and_selectbox_display_size=[4, 30])
+
+        dataset_path = st.session_state.paths.get("dataset_path", "")
+        if dataset_path:
+            images_path = os.path.join(dataset_path, "images")
+            labels_path = os.path.join(dataset_path, "labels")
+
+            # Two columns for generating figures and clearing buttons
+            c1, c2 = st.columns([1,1])
+            with c1:
+                if st.button("Generate Figures", key="generate_figs_btn"):
+                    st.session_state["show_figs"] = True
+            with c2:
+                if st.button("Clear Figures", key="clear_figs_btn"):
+                    st.session_state["show_figs"] = False
+
+            # Show figs only if toggled on
+            if st.session_state.get("show_figs", False):
+                class_counts, x_vals, y_vals, w_vals, h_vals = parse_label_data(labels_path)
+
+                st.markdown("### Sample Labeled Images")
+                display_images(images_path, labels_path)
+
+                st.markdown("### Bounding Box Location, Size, and Class Distribution")
+                st.write("These figures will help see where the bounding boxes are commonly located"
+                " on the images (0.0 y-axis is the top of the image), the size, and the distribution"
+                " of the classes (unlabeled are the number of images that do not have any labels).")
+                generate_label_plots(class_counts, x_vals, y_vals, w_vals, h_vals)
+
+            else:
+                st.info("Figures are cleared. Click 'Generate Figures' to display them.")
+
+# ----------------------- Train Status Tab -----------------------
+with tabs[4]:
     with st.expander("Data YAML"):
         st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
         path_navigator("train_data_yaml_path")
@@ -3315,7 +3501,7 @@ with tabs[3]:
             terminal_output.text(output)
 
 # ----------------------- Linux Terminal Tab -----------------------
-with tabs[4]:
+with tabs[5]:
     # Initialize accumulated terminal output in session state.
     if "terminal_text" not in st.session_state:
         st.session_state.terminal_text = ""
