@@ -2259,6 +2259,8 @@ if "session_running" not in st.session_state:
     st.session_state.subset_index = 0
     st.session_state.automatic_generate_list = False
 
+    st.session_state.unverified_image_scale = 1.0
+
     load_session_state()
     
     update_unverified_data_path()
@@ -2604,7 +2606,7 @@ with tabs[0]:
             "videos_with_labels"
         )
         st.session_state.paths.setdefault("gen_vid_output_path", default_out)
-        st.session_state.paths.setdefault("gen_vid_script_path", "generate_videos.py")
+        st.session_state.paths.setdefault("gen_vid_script_path", "generate_video.py")
 
         # — SETTINGS —
         with st.expander("Settings"):
@@ -2637,7 +2639,7 @@ with tabs[0]:
 
         # — SCRIPT —
         with st.expander("Script"):
-            st.write("Your `generate_videos.py` (must accept --input_path, --output_path, --fps, --mode).")
+            st.write("Your `generate_video.py` (must accept --input_path, --output_path, --fps, --mode).")
             path_navigator("gen_vid_script_path", radio_button_prefix="gen_vid")
             python_code_editor("gen_vid_script_path")
 
@@ -2645,6 +2647,7 @@ with tabs[0]:
         with st.expander("Generate Videos"):
             c1, c2, c3, c4 = st.columns(4, gap="small")
             with c1:
+                
                 if st.button("▶ Start Generating", key="begin_gen_vid_btn"):
                     output = run_in_tmux(
                         session_key="gen_vid",
@@ -3484,94 +3487,98 @@ with tabs[2]:
                                 st.rerun()
 
     else:
-        video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
-        video_paths = os.listdir(video_base_path)
-
-        for i in range(len(video_paths) + 1):
-            video_path = video_paths[i-1]
-
-            if i > 0:
-                if "frame_by_frame" in video_path or "object_by_object" in video_path:
-                    st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
-
-            # allow adding frames to the subset CSV:
+        with st.expander("Video Label Review"):
+            update_unverified_data_path()
             if handle_image_list_update(prefix="video_"):
-                update_unverified_data_path()
+                video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
+                if os.path.exists(video_base_path):
+                        
+                    video_paths = os.listdir(video_base_path)
 
-                # Add/Remove Frames (single)
-                if st.session_state.max_images > 0:
-                    c1, c2, c3 = st.columns([10, 10, 10])
-                    with c1:
-                        st.number_input(
-                            "Add Frame Index",
-                            min_value=0,
-                            max_value=st.session_state.max_images - 1,
-                            value=None,
-                            step=1,
-                            key=f"{i}_video_subset_add_frame",
-                            on_change=add_frame_callback,
-                            args=(f"{i}_video_subset_add_frame",),
-                            label_visibility="visible"     
-                        )
-                    with c2:
-                        st.selectbox(
-                            "View Frames in Subset (selection does nothing)",
-                            options=sorted(st.session_state.subset_frames),
-                            key=f"{i}_video_subset_view_frames_in_subset",
-                            label_visibility="visible"     
-                        )
-                    with c3:
-                        st.number_input(
-                            "Remove Frame Index",
-                            min_value=0,
-                            max_value=st.session_state.max_images - 1,
-                            value=None,
-                            step=1,
-                            key=f"{i}_subset_remove_frame",
-                            on_change=remove_frame_callback,
-                            args=(f"{i}_video_subset_remove_frame",),
-                            label_visibility="visible"     
-                        )
+                    for i in range(len(video_paths) + 1):
+                        video_path = video_paths[i-1]
 
-                    # Add/Remove Frames (range)
-                    max_idx = st.session_state.max_images - 1
-                    r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
-                    with r1:
-                        range_start = st.number_input(
-                            "Range Start",
-                            min_value=0,
-                            max_value=max_idx,
-                            value=0,
-                            key=f"{i}_video_subset_range_start",
-                            label_visibility="visible"     
-                        )
-                    with r2:
-                        range_end = st.number_input(
-                            "Range End",
-                            min_value=0,
-                            max_value=max_idx,
-                            value=max_idx,
-                            key=f"{i}_video_subset_range_end",
-                            label_visibility="visible"     
-                        )
-                    with r3:
-                        if st.button("Add Range", key=f"{i}_add_range_btn"):
-                            lo, hi = sorted((range_start, range_end))
-                            for i in range(lo, hi + 1):
-                                if i not in st.session_state.subset_frames:
-                                    st.session_state.subset_frames.append(i)
-                            save_subset_csv(csv_file, st.session_state.subset_frames)
-                            st.success(f"Added frames {lo}–{hi}")
-                    with r4:
-                        if st.button("Remove Range", key=f"{i}_remove_range_btn"):
-                            lo, hi = sorted((range_start, range_end))
-                            before = set(st.session_state.subset_frames)
-                            st.session_state.subset_frames = [
-                                i for i in st.session_state.subset_frames if not (lo <= i <= hi)
-                            ]
-                            save_subset_csv(csv_file, st.session_state.subset_frames)
-                            removed = len(before) - len(st.session_state.subset_frames)
-                            st.success(f"Removed {removed} frames")
+                        if i > 0:
+                            if "frame_by_frame" in video_path or "object_by_object" in video_path:
+                                st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
+
+                        # Add/Remove Frames (single)
+                        if st.session_state.max_images > 0:
+                                c1, c2, c3 = st.columns([10, 10, 10])
+                                with c1:
+                                    st.number_input(
+                                        "Add Frame Index",
+                                        min_value=0,
+                                        max_value=st.session_state.max_images - 1,
+                                        value=None,
+                                        step=1,
+                                        key=f"{i}_video_subset_add_frame",
+                                        on_change=add_frame_callback,
+                                        args=(f"{i}_video_subset_add_frame",),
+                                        label_visibility="visible"     
+                                    )
+                                with c2:
+                                    st.selectbox(
+                                        "View Frames in Subset (selection does nothing)",
+                                        options=sorted(st.session_state.subset_frames),
+                                        key=f"{i}_video_subset_view_frames_in_subset",
+                                        label_visibility="visible"     
+                                    )
+                                with c3:
+                                    st.number_input(
+                                        "Remove Frame Index",
+                                        min_value=0,
+                                        max_value=st.session_state.max_images - 1,
+                                        value=None,
+                                        step=1,
+                                        key=f"{i}_subset_remove_frame",
+                                        on_change=remove_frame_callback,
+                                        args=(f"{i}_video_subset_remove_frame",),
+                                        label_visibility="visible"     
+                                    )
+
+                                # Add/Remove Frames (range)
+                                max_idx = st.session_state.max_images - 1
+                                r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
+                                with r1:
+                                    range_start = st.number_input(
+                                        "Range Start",
+                                        min_value=0,
+                                        max_value=max_idx,
+                                        value=0,
+                                        key=f"{i}_video_subset_range_start",
+                                        label_visibility="visible"     
+                                    )
+                                with r2:
+                                    range_end = st.number_input(
+                                        "Range End",
+                                        min_value=0,
+                                        max_value=max_idx,
+                                        value=max_idx,
+                                        key=f"{i}_video_subset_range_end",
+                                        label_visibility="visible"     
+                                    )
+                                with r3:
+                                    if st.button("Add Range", key=f"{i}_add_range_btn"):
+                                        lo, hi = sorted((range_start, range_end))
+                                        for i in range(lo, hi + 1):
+                                            if i not in st.session_state.subset_frames:
+                                                st.session_state.subset_frames.append(i)
+                                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                                        st.success(f"Added frames {lo}–{hi}")
+                                with r4:
+                                    if st.button("Remove Range", key=f"{i}_remove_range_btn"):
+                                        lo, hi = sorted((range_start, range_end))
+                                        before = set(st.session_state.subset_frames)
+                                        st.session_state.subset_frames = [
+                                            i for i in st.session_state.subset_frames if not (lo <= i <= hi)
+                                        ]
+                                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                                        removed = len(before) - len(st.session_state.subset_frames)
+                                        st.success(f"Removed {removed} frames")
+                
+                else:
+                    st.warning("No videos generated please go to Generate Data Tab.")
 
 # ----------------------- Dataset Statistics Tab -----------------------
 with tabs[3]:

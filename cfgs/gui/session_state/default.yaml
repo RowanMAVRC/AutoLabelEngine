@@ -1,3 +1,4 @@
+auto_label_gpu: 0
 data_cfg:
   names:
     0: Airplane
@@ -24,8 +25,9 @@ label_list:
 - Birds
 - Helicopter
 paths:
-  auto_label_data_path: example_data/images/
+  auto_label_data_path: example_data/images
   auto_label_model_weight_path: weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt
+  auto_label_replacement: labels
   auto_label_save_path: example_data/labels/
   auto_label_script_path: inference.py
   combine_dataset_1_path: example_data/
@@ -36,6 +38,12 @@ paths:
   convert_video_path: ''
   convert_video_save_path: ''
   convert_video_script_path: convert_mp4_2_png.py
+  dataset_path: /
+  gen_vid_fps: 5.0
+  gen_vid_input_path: example_data
+  gen_vid_mode: Both
+  gen_vid_output_path: example_data/images/videos_with_labels
+  gen_vid_script_path: generate_video.py
   generate_venv_script_path: setup_venv.sh
   prev_unverified_images_path: example_data/images
   prev_unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
@@ -52,7 +60,341 @@ paths:
   unverified_images_path: example_data/images
   unverified_names_yaml_path: cfgs/gui/manual_labels/default.yaml
   unverified_subset_csv_path: cfgs/gui/subset/default.csv
-  upload_save_path: ''
-  venv_path: ../envs/auto-label-engine/
+  upload_save_path: .
+  venv_path: ../envs/auto-label-engine
   video_file_path: generated_videos/current.mp4
+python_codes:
+  auto_label_script_path: "import argparse\nimport cv2\nfrom pathlib import Path\n\
+    from ultralytics import YOLO  # Ensure you have installed ultralytics (pip install\
+    \ ultralytics)\nfrom tqdm import tqdm\nimport os\n\ndef convert_to_yolo_format(box,\
+    \ img_width, img_height):\n    \"\"\"\n    Convert box coordinates from (x1, y1,\
+    \ x2, y2) to YOLO format:\n    (class, center_x, center_y, width, height) with\
+    \ normalized values.\n    \"\"\"\n    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()\n\
+    \    center_x = (x1 + x2) / 2.0 / img_width\n    center_y = (y1 + y2) / 2.0 /\
+    \ img_height\n    box_width = (x2 - x1) / img_width\n    box_height = (y2 - y1)\
+    \ / img_height\n    cls = int(box.cls[0].item())\n    return cls, center_x, center_y,\
+    \ box_width, box_height\n\nfrom pathlib import Path\nimport cv2\nimport os\nfrom\
+    \ tqdm import tqdm\nfrom ultralytics import YOLO  # Ensure YOLO (ultralytics)\
+    \ is installed\n\ndef convert_to_yolo_format(box, img_width, img_height):\n  \
+    \  \"\"\"\n    Convert box coordinates from (x1, y1, x2, y2) to YOLO format:\n\
+    \    (class, center_x, center_y, width, height) with normalized values.\n    \"\
+    \"\"\n    # Extract coordinates from the box (assumes single box per result)\n\
+    \    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()\n    center_x = (x1 + x2) / 2.0\
+    \ / img_width\n    center_y = (y1 + y2) / 2.0 / img_height\n    box_width = (x2\
+    \ - x1) / img_width\n    box_height = (y2 - y1) / img_height\n    cls = int(box.cls[0].item())\n\
+    \    return cls, center_x, center_y, box_width, box_height\n\ndef process_images_dirs(model_weights,\
+    \ base_dir, label_replacement, gpu_number):\n    \"\"\"\n    Searches recursively\
+    \ within the provided base directory for subdirectories \n    named exactly \"\
+    images\" (case-insensitive). For each such images directory found,\n    it computes\
+    \ a new save path by replacing the \"images\" folder with the provided \n    label_replacement\
+    \ (e.g. \"labels\") in that directory's parent, then auto-labels\n    all image\
+    \ files within the images directory using the YOLO model. Each image \n    file's\
+    \ label file is stored in the corresponding labels directory so that the \n  \
+    \  original folder structure is preserved.\n    \n    Args:\n        model_weights\
+    \ (str): Path to the YOLO model weights file.\n        base_dir (str): Base directory\
+    \ under which to search for subdirectories named \"images\".\n        label_replacement\
+    \ (str): Folder name to use in place of \"images\" (e.g. \"labels\").\n      \
+    \  gpu_number (int): GPU device number to use (or -1 to use the CPU).\n    \"\"\
+    \"\n    # Load the YOLO model on the specified device.\n    device = f\"cuda:{gpu_number}\"\
+    \ if gpu_number >= 0 else \"cpu\"\n    print(f\"Loading model weights from {model_weights}\
+    \ on device {device}...\")\n    model = YOLO(model_weights).to(device)\n    print(\"\
+    Model loaded successfully.\\n\")\n    \n    base_dir = Path(base_dir)\n    # Find\
+    \ all subdirectories whose name is exactly \"images\" (case-insensitive)\n   \
+    \ images_dirs = [d for d in base_dir.rglob(\"*\") if d.is_dir() and d.name.lower()\
+    \ == \"images\"]\n    \n    if not images_dirs:\n        print(\"No images directories\
+    \ found in the base directory.\")\n        return\n\n    print(f\"Found {len(images_dirs)}\
+    \ images directories. Starting processing...\")\n    \n    for images_folder in\
+    \ images_dirs:\n        print(f\"\\n--- Processing folder: {images_folder} ---\"\
+    )\n        # Compute the corresponding labels folder by replacing the images folder\
+    \ with the replacement.\n        # For example, if images_folder is /.../Copy\
+    \ of area_denial_001/images,\n        # then label_folder will be /.../Copy of\
+    \ area_denial_001/labels.\n        label_folder = images_folder.parent / label_replacement\n\
+    \        os.makedirs(label_folder, exist_ok=True)\n        \n        # Process\
+    \ all image files (non-recursively) within this images folder.\n        image_files\
+    \ = [p for p in images_folder.iterdir() if p.is_file() and p.suffix.lower() in\
+    \ [\".jpg\", \".jpeg\", \".png\"]]\n        print(f\"Found {len(image_files)}\
+    \ images in {images_folder}\")\n        \n        for img_path in tqdm(image_files,\
+    \ desc=f\"Processing {images_folder}\", leave=False):\n            # Read image\
+    \ for dimensions.\n            image = cv2.imread(str(img_path))\n           \
+    \ if image is None:\n                print(f\"Warning: Unable to read {img_path}\"\
+    )\n                continue\n            img_height, img_width = image.shape[:2]\n\
+    \            \n            # Run YOLO inference on the image.\n            results\
+    \ = model.predict(str(img_path), verbose=False)\n            \n            # Build\
+    \ the label file path inside the computed label_folder using the image's base\
+    \ name.\n            label_file = label_folder / (img_path.stem + \".txt\")\n\
+    \            os.makedirs(label_file.parent, exist_ok=True)\n            \n   \
+    \         with open(label_file, \"w\") as f:\n                # Loop over each\
+    \ detected box in the first result (assumes results[0] corresponds to the image)\n\
+    \                boxes = results[0].boxes\n                for box in boxes:\n\
+    \                    cls, center_x, center_y, box_width, box_height = convert_to_yolo_format(box,\
+    \ img_width, img_height)\n                    f.write(f\"{cls} {center_x:.6f}\
+    \ {center_y:.6f} {box_width:.6f} {box_height:.6f}\\n\")\n        print(f\"Finished\
+    \ processing folder: {images_folder}\")\n    print(\"All images directories processed\
+    \ successfully.\")\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(\n\
+    \        description=\"Auto-label images using a YOLO model. \" +\n          \
+    \          \"The labels directory is automatically computed by replacing the last\
+    \ folder in the images path ('images') with the provided label replacement.\"\n\
+    \    )\n    parser.add_argument(\"--model_weights_path\", required=True, help=\"\
+    Path to the YOLO model weights file\")\n    parser.add_argument(\"--images_dir_path\"\
+    , required=True, help=\"Path to the directory containing images (should be the\
+    \ 'images' folder)\")\n    parser.add_argument(\"--label_replacement\", required=True,\
+    \ help=\"Replacement for the 'images' folder (e.g., 'labels')\")\n    parser.add_argument(\"\
+    --gpu_number\", type=int, default=0, help=\"GPU number to use. Set to -1 to use\
+    \ CPU.\")\n    args = parser.parse_args()\n\n    process_images_dirs(args.model_weights_path,\
+    \ args.images_dir_path, args.label_replacement, args.gpu_number)\n"
+  gen_vid_script_path: "\n#!/usr/bin/env python3\nimport os\nimport argparse\nimport\
+    \ random\nimport numpy as np\nfrom tqdm import tqdm\nfrom PIL import Image, ImageDraw,\
+    \ ImageFont\nimport matplotlib.pyplot as plt\nfrom matplotlib.backends.backend_agg\
+    \ import FigureCanvasAgg as FigureCanvas\nfrom moviepy.editor import ImageSequenceClip\n\
+    \n# Unique color map\nCLASS_COLORS = {}\ndef get_color(class_id: int):\n    if\
+    \ class_id not in CLASS_COLORS:\n        CLASS_COLORS[class_id] = tuple(random.randint(0,\
+    \ 255) for _ in range(3))\n    return CLASS_COLORS[class_id]\n\ndef make_frame_by_frame_video(images_dir,\
+    \ labels_dir, out_path, fps):\n    \"\"\"Side-by-side original vs. labeled frames,\
+    \ with centered text below.\"\"\"\n    imgs = sorted(\n        os.path.join(images_dir,\
+    \ f)\n        for f in os.listdir(images_dir)\n        if f.lower().endswith(('.jpg','jpeg','.png'))\n\
+    \    )\n    if not imgs:\n        print(f\"\u26A0\uFE0F No images found in {images_dir}\"\
+    )\n        return\n\n    frames = []\n    for idx, img_path in enumerate(tqdm(imgs,\
+    \ desc=\"Frame\u2011by\u2011frame\", unit=\"frame\")):\n        img = Image.open(img_path).convert(\"\
+    RGB\")\n        W, H = img.size\n\n        labeled = img.copy()\n        draw\
+    \ = ImageDraw.Draw(labeled)\n        try:\n            font = ImageFont.truetype(\"\
+    DejaVuSans-Bold.ttf\", max(12, H//40))\n        except IOError:\n            font\
+    \ = ImageFont.load_default()\n\n        txt_fname = os.path.splitext(os.path.basename(img_path))[0]\
+    \ + '.txt'\n        txt_path = os.path.join(labels_dir, txt_fname)\n        if\
+    \ os.path.exists(txt_path):\n            for line in open(txt_path).read().splitlines():\n\
+    \                parts = line.split()\n                if len(parts) < 5: continue\n\
+    \                cid, xc, yc, wn, hn = parts[:5]\n                c = int(cid)\n\
+    \                xc, yc, wn, hn = map(float, (xc, yc, wn, hn))\n             \
+    \   bw, bh = wn * W, hn * H\n                x1 = xc*W - bw/2; y1 = yc*H - bh/2\n\
+    \                x2, y2 = x1 + bw, y1 + bh\n\n                color = get_color(c)\n\
+    \                thickness = max(1, int(H/200))\n                draw.rectangle([x1,\
+    \ y1, x2, y2], outline=color, width=thickness)\n                txt = str(c)\n\
+    \                tb = draw.textbbox((0,0), txt, font=font)\n                tw,\
+    \ th = tb[2]-tb[0], tb[3]-tb[1]\n                draw.rectangle([x1, y1, x1+tw+4,\
+    \ y1+th+4], fill=color)\n                draw.text((x1+2, y1+2), txt, fill=(255,255,255),\
+    \ font=font)\n\n        fig = plt.figure(figsize=(12,8))\n        gs = fig.add_gridspec(2,2,\
+    \ height_ratios=[8,1])\n        ax1 = fig.add_subplot(gs[0,0])\n        ax2 =\
+    \ fig.add_subplot(gs[0,1])\n        ax3 = fig.add_subplot(gs[1,:])\n\n       \
+    \ ax1.imshow(img); ax1.axis('off'); ax1.set_title(\"Original\", pad=10)\n    \
+    \    ax2.imshow(labeled); ax2.axis('off'); ax2.set_title(\"Labeled\", pad=10)\n\
+    \n        ax3.axis('off')\n        ax3.text(0.5, 0.6, img_path, ha='center', va='center',\
+    \ wrap=True)\n        ax3.text(0.5, 0.3, f\"Frame {idx}\", ha='center', va='center')\n\
+    \n        fig.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05,\n\
+    \                            wspace=0.05, hspace=0.05)\n\n        canvas = FigureCanvas(fig)\n\
+    \        canvas.draw()\n        w, h = fig.canvas.get_width_height()\n       \
+    \ buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape(h, w, 4)\n\
+    \        frame = buf[..., :3]\n        frames.append(frame)\n        plt.close(fig)\n\
+    \n    clip = ImageSequenceClip(frames, fps=fps)\n    clip.write_videofile(out_path,\
+    \ codec=\"libx264\", audio=False, logger=\"bar\", threads=8)\n    print(f\"\u2192\
+    \ frame_by_frame video saved to {out_path}\")\n\ndef make_object_by_object_video(images_dir,\
+    \ labels_dir, out_path, fps):\n    \"\"\"\n    Zoom each object to fit within\
+    \ a 1920\xD71080 letterbox (min padding),\n    with a larger bottom panel for\
+    \ text and increased font size.\n    \"\"\"\n    TARGET_W, TARGET_H = 1920, 1080\n\
+    \    TEXT_H = 300  # more padding for text\n\n    imgs = sorted(\n        os.path.join(images_dir,\
+    \ f)\n        for f in os.listdir(images_dir)\n        if f.lower().endswith(('.jpg','jpeg','.png'))\n\
+    \    )\n    if not imgs:\n        print(f\"\u26A0\uFE0F No images found in {images_dir}\"\
+    )\n        return\n\n    frames = []\n    for idx, img_path in enumerate(tqdm(imgs,\
+    \ desc=\"Object\u2011by\u2011object\", unit=\"frame\")):\n        img = Image.open(img_path).convert(\"\
+    RGB\")\n        W, H = img.size\n        txt_fname = os.path.splitext(os.path.basename(img_path))[0]\
+    \ + '.txt'\n        txt_path = os.path.join(labels_dir, txt_fname)\n        lines\
+    \ = open(txt_path).read().splitlines() if os.path.exists(txt_path) else []\n \
+    \       if not lines:\n            continue\n\n        for obj_i, line in enumerate(tqdm(lines,\
+    \ desc=f\"Frame {idx} objects\", leave=False)):\n            parts = line.split()\n\
+    \            if len(parts) < 5:\n                continue\n            _, xc,\
+    \ yc, wn, hn = map(float, parts[:5])\n            bw, bh = wn*W, hn*H\n      \
+    \      x1 = xc*W - bw/2; y1 = yc*H - bh/2\n            x2, y2 = x1 + bw, y1 +\
+    \ bh\n\n            crop = img.crop((x1,y1,x2,y2))\n            scale = min(TARGET_W\
+    \ / crop.width, TARGET_H / crop.height)\n            new_w, new_h = int(crop.width\
+    \ * scale), int(crop.height * scale)\n            resized = crop.resize((new_w,\
+    \ new_h), Image.LANCZOS)\n\n            letterbox = Image.new(\"RGB\", (TARGET_W,\
+    \ TARGET_H), (0, 0, 0))\n            x_off = (TARGET_W - new_w) // 2\n       \
+    \     y_off = (TARGET_H - new_h) // 2\n            letterbox.paste(resized, (x_off,\
+    \ y_off))\n\n            fig = plt.figure(figsize=(TARGET_W/100, (TARGET_H+TEXT_H)/100),\
+    \ dpi=100)\n            gs = fig.add_gridspec(2, 1, height_ratios=[TARGET_H, TEXT_H])\n\
+    \            ax_img = fig.add_subplot(gs[0])\n            ax_txt = fig.add_subplot(gs[1])\n\
+    \n            ax_img.imshow(letterbox)\n            ax_img.axis('off')\n\n   \
+    \         ax_txt.axis('off')\n            # larger font and extra padding\n  \
+    \          ax_txt.text(0.5, 0.8, img_path, ha='center', va='center', wrap=True,\
+    \ fontsize=24)\n            ax_txt.text(0.5, 0.55, f\"Frame {idx}\", ha='center',\
+    \ va='center', fontsize=24)\n            ax_txt.text(0.5, 0.3, f\"Object {obj_i+1}\"\
+    , ha='center', va='center', fontsize=24)\n\n            fig.subplots_adjust(left=0,\
+    \ right=1, top=1, bottom=0.1)\n\n            canvas = FigureCanvas(fig)\n    \
+    \        canvas.draw()\n            w, h = fig.canvas.get_width_height()\n   \
+    \         buf = np.frombuffer(canvas.buffer_rgba(), dtype=np.uint8).reshape(h,\
+    \ w, 4)\n            frame = buf[..., :3]\n            frames.append(frame)\n\
+    \            plt.close(fig)\n\n    if not frames:\n        print(\"\u26A0\uFE0F\
+    \ No objects found \u2013 skipping object_by_object video.\")\n        return\n\
+    \n    clip = ImageSequenceClip(frames, fps=fps)\n    clip.write_videofile(out_path,\
+    \ codec=\"libx264\", audio=False, logger=\"bar\", threads=8)\n    print(f\"\u2192\
+    \ object_by_object video saved to {out_path}\")\n\nif __name__ == '__main__':\n\
+    \    parser = argparse.ArgumentParser(description=\"Generate review videos from\
+    \ a YOLO dataset\")\n    parser.add_argument(\"--input_path\", required=True,\n\
+    \                        help=\"Folder containing `images/`+`labels/` or parent\
+    \ dir of many subfolders\")\n    parser.add_argument(\"--fps\", type=float, default=5.0,\
+    \ help=\"Frames per second\")\n    parser.add_argument(\"--mode\", choices=[\"\
+    Frame by Frame\",\"Object by Object\",\"Both\"],\n                        default=\"\
+    Both\", help=\"Which videos to generate\")\n    args = parser.parse_args()\n\n\
+    \    root = args.input_path\n    pairs = []\n    # single-folder case\n    imgs\
+    \ = os.path.join(root, 'images'); lbls = os.path.join(root, 'labels')\n    if\
+    \ os.path.isdir(imgs) and os.path.isdir(lbls):\n        name = os.path.basename(os.path.normpath(root))\n\
+    \        pairs.append((name, imgs, lbls))\n    # subfolders\n    for entry in\
+    \ sorted(os.listdir(root)):\n        sub = os.path.join(root, entry)\n       \
+    \ imgs = os.path.join(sub, 'images'); lbls = os.path.join(sub, 'labels')\n   \
+    \     if os.path.isdir(imgs) and os.path.isdir(lbls):\n            pairs.append((entry,\
+    \ imgs, lbls))\n\n    if not pairs:\n        print(f\"\u26A0\uFE0F No image/label\
+    \ folder pairs found in {root}\") \n        exit(1)\n\n    for name, imgs, lbls\
+    \ in tqdm(pairs, desc=f\"Generating {args.mode}\", unit=\"set\"):\n        out_dir\
+    \ = os.path.join(os.path.dirname(imgs), 'videos_with_labels')\n        os.makedirs(out_dir,\
+    \ exist_ok=True)\n        if args.mode in (\"Frame by Frame\",\"Both\"):\n   \
+    \         ff = os.path.join(out_dir, f\"{name}_frame_by_frame.mp4\")\n       \
+    \     make_frame_by_frame_video(imgs, lbls, ff, args.fps)\n        if args.mode\
+    \ in (\"Object by Object\",\"Both\"):\n            obo = os.path.join(out_dir,\
+    \ f\"{name}_object_by_object.mp4\")\n            make_object_by_object_video(imgs,\
+    \ lbls, obo, args.fps)\n"
+  train_script_path: "import argparse\nfrom ultralytics import YOLO\n\ndef main(model_path,\
+    \ data_path, train_path):\n    # Load a model from the given model configuration\
+    \ file\n    model = YOLO(model_path)\n    # Train the model using the specified\
+    \ training and data configuration files\n    model.train(cfg=train_path, data=data_path)\n\
+    \nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(description=\"\
+    Train a YOLO model using ultralytics\")\n    parser.add_argument(\n        \"\
+    --model_path\",\n        type=str,\n        default=\"cfgs/yolo/model/hololens_combined_v11.yaml\"\
+    ,\n        help=\"Path to the model configuration file\"\n    )\n    parser.add_argument(\n\
+    \        \"--data_path\",\n        type=str,\n        default=\"cfgs/yolo/data/hololens_combined.yaml\"\
+    ,\n        help=\"Path to the data configuration file\"\n    )\n    parser.add_argument(\n\
+    \        \"--train_path\",\n        type=str,\n        default=\"cfgs/yolo/train/hololend_combined_v11.yaml\"\
+    ,\n        help=\"Path to the training configuration file\"\n    )\n    args =\
+    \ parser.parse_args()\n    main(args.model_path, args.data_path, args.train_path)\n"
 unverified_image_scale: 1.0
+yamls:
+  train_data_yaml_path: "path: /data/TGSSE/\ntrain: 'train/images'\nval: 'val/images'\
+    \ \ntest: 'test/images' \n \n# class names\nnames: \n  0: \"Airplane\"\n  1: \"\
+    Rotary Drone\"\n  2: \"Fixed Wing Drone\"\n  3: \"Fighter Jet\"\n  4: \"Birds\"\
+    \n  5: \"Helicopter\"\n"
+  train_model_yaml_path: "# Ultralytics YOLO \U0001F680, AGPL-3.0 license\n# YOLOv8\
+    \ object detection model with P3-P5 outputs. For Usage examples see https://docs.ultralytics.com/tasks/detect\n\
+    \n# Parameters\nnc: 6  # number of classes\nscales: # model compound scaling constants,\
+    \ i.e. 'model=yolov8n.yaml' will call yolov8.yaml with scale 'n'\n  # [depth,\
+    \ width, max_channels]\n  n: [0.33, 0.25, 1024]  # YOLOv8n summary: 225 layers,\
+    \  3157200 parameters,  3157184 gradients,   8.9 GFLOPs\n  # s: [0.33, 0.50, 1024]\
+    \  # YOLOv8s summary: 225 layers, 11166560 parameters, 11166544 gradients,  28.8\
+    \ GFLOPs\n  # m: [0.67, 0.75, 768]   # YOLOv8m summary: 295 layers, 25902640 parameters,\
+    \ 25902624 gradients,  79.3 GFLOPs\n  # l: [1.00, 1.00, 512]   # YOLOv8l summary:\
+    \ 365 layers, 43691520 parameters, 43691504 gradients, 165.7 GFLOPs\n  # x: [1.00,\
+    \ 1.25, 512]   # YOLOv8x summary: 365 layers, 68229648 parameters, 68229632 gradients,\
+    \ 258.5 GFLOPs\n\n# YOLOv8.0n backbone\nbackbone:\n  # [from, repeats, module,\
+    \ args]\n  - [-1, 1, Conv, [64, 3, 2]]  # 0-P1/2\n  - [-1, 1, Conv, [128, 3, 2]]\
+    \  # 1-P2/4\n  - [-1, 3, C2f, [128, True]]\n  - [-1, 1, Conv, [256, 3, 2]]  #\
+    \ 3-P3/8\n  - [-1, 6, C2f, [256, True]]\n  - [-1, 1, Conv, [512, 3, 2]]  # 5-P4/16\n\
+    \  - [-1, 6, C2f, [512, True]]\n  - [-1, 1, Conv, [1024, 3, 2]]  # 7-P5/32\n \
+    \ - [-1, 3, C2f, [1024, True]]\n  - [-1, 1, SPPF, [1024, 5]]  # 9\n\n# YOLOv8.0n\
+    \ head\nhead:\n  - [-1, 1, nn.Upsample, [None, 2, 'nearest']]\n  - [[-1, 6], 1,\
+    \ Concat, [1]]  # cat backbone P4\n  - [-1, 3, C2f, [512]]  # 12\n\n  - [-1, 1,\
+    \ nn.Upsample, [None, 2, 'nearest']]\n  - [[-1, 4], 1, Concat, [1]]  # cat backbone\
+    \ P3\n  - [-1, 3, C2f, [256]]  # 15 (P3/8-small)\n\n  - [-1, 1, Conv, [256, 3,\
+    \ 2]]\n  - [[-1, 12], 1, Concat, [1]]  # cat head P4\n  - [-1, 3, C2f, [512]]\
+    \  # 18 (P4/16-medium)\n\n  - [-1, 1, Conv, [512, 3, 2]]\n  - [[-1, 9], 1, Concat,\
+    \ [1]]  # cat head P5\n  - [-1, 3, C2f, [1024]]  # 21 (P5/32-large)\n\n  - [[15,\
+    \ 18, 21], 1, Detect, [nc]]  # Detect(P3, P4, P5)"
+  train_train_yaml_path: "# Ultralytics \U0001F680 AGPL-3.0 License - https://ultralytics.com/license\n\
+    \n# Global configuration YAML with settings and hyperparameters for YOLO training,\
+    \ validation, prediction and export\n# For documentation see https://docs.ultralytics.com/usage/cfg/\n\
+    \ntask: detect # (str) YOLO task, i.e. detect, segment, classify, pose, obb\n\
+    mode: train # (str) YOLO mode, i.e. train, val, predict, export, track, benchmark\n\
+    \n# Train settings -------------------------------------------------------------------------------------------------------\n\
+    model: # (str, optional) path to model file, i.e. yolov8n.pt, yolov8n.yaml\ndata:\
+    \ # (str, optional) path to data file, i.e. coco8.yaml\nepochs: 15 # (int) number\
+    \ of epochs to train for\ntime: # (float, optional) number of hours to train for,\
+    \ overrides epochs if supplied\npatience: 100 # (int) epochs to wait for no observable\
+    \ improvement for early stopping of training\nbatch: 21 # (int) number of images\
+    \ per batch (-1 for AutoBatch)\nimgsz: 640 # (int | list) input images size as\
+    \ int for train and val modes, or list[h,w] for predict and export modes\nsave:\
+    \ True # (bool) save train checkpoints and predict results\nsave_period: -1 #\
+    \ (int) Save checkpoint every x epochs (disabled if < 1)\ncache: True # (bool)\
+    \ True/ram, disk or False. Use cache for data loading\ndevice: 4,5,6 # (int |\
+    \ str | list, optional) device to run on, i.e. cuda device=0 or device=0,1,2,3\
+    \ or device=cpu\nworkers: 8 # (int) number of worker threads for data loading\
+    \ (per RANK if DDP)\nproject:  # (str, optional) project name\nname:  # (str,\
+    \ optional) experiment name, results saved to 'project/name' directory\nexist_ok:\
+    \ False # (bool) whether to overwrite existing experiment\npretrained: True #\
+    \ (bool | str) whether to use a pretrained model (bool) or a model to load weights\
+    \ from (str)\noptimizer: auto # (str) optimizer to use, choices=[SGD, Adam, Adamax,\
+    \ AdamW, NAdam, RAdam, RMSProp, auto]\nverbose: True # (bool) whether to print\
+    \ verbose output\nseed: 0 # (int) random seed for reproducibility\ndeterministic:\
+    \ True # (bool) whether to enable deterministic mode\nsingle_cls: False # (bool)\
+    \ train multi-class data as single-class\nrect: False # (bool) rectangular training\
+    \ if mode='train' or rectangular validation if mode='val'\ncos_lr: False # (bool)\
+    \ use cosine learning rate scheduler\nclose_mosaic: 10 # (int) disable mosaic\
+    \ augmentation for final epochs (0 to disable)\nresume: False # (bool) resume\
+    \ training from last checkpoint\namp: True # (bool) Automatic Mixed Precision\
+    \ (AMP) training, choices=[True, False], True runs AMP check\nfraction: 1.0 #\
+    \ (float) dataset fraction to train on (default is 1.0, all images in train set)\n\
+    profile: False # (bool) profile ONNX and TensorRT speeds during training for loggers\n\
+    freeze: None # (int | list, optional) freeze first n layers, or freeze list of\
+    \ layer indices during training\nmulti_scale: False # (bool) Whether to use multiscale\
+    \ during training\n# Segmentation\noverlap_mask: True # (bool) merge object masks\
+    \ into a single image mask during training (segment train only)\nmask_ratio: 4\
+    \ # (int) mask downsample ratio (segment train only)\n# Classification\ndropout:\
+    \ 0.0 # (float) use dropout regularization (classify train only)\n\n# Val/Test\
+    \ settings ----------------------------------------------------------------------------------------------------\n\
+    val: False # (bool) validate/test during training\nsplit: val # (str) dataset\
+    \ split to use for validation, i.e. 'val', 'test' or 'train'\nsave_json: False\
+    \ # (bool) save results to JSON file\nsave_hybrid: False # (bool) save hybrid\
+    \ version of labels (labels + additional predictions)\nconf: # (float, optional)\
+    \ object confidence threshold for detection (default 0.25 predict, 0.001 val)\n\
+    iou: 0.7 # (float) intersection over union (IoU) threshold for NMS\nmax_det: 300\
+    \ # (int) maximum number of detections per image\nhalf: False # (bool) use half\
+    \ precision (FP16)\ndnn: False # (bool) use OpenCV DNN for ONNX inference\nplots:\
+    \ True # (bool) save plots and images during train/val\n\n# Predict settings -----------------------------------------------------------------------------------------------------\n\
+    source: # (str, optional) source directory for images or videos\nvid_stride: 1\
+    \ # (int) video frame-rate stride\nstream_buffer: False # (bool) buffer all streaming\
+    \ frames (True) or return the most recent frame (False)\nvisualize: False # (bool)\
+    \ visualize model features\naugment: False # (bool) apply image augmentation to\
+    \ prediction sources\nagnostic_nms: False # (bool) class-agnostic NMS\nclasses:\
+    \ # (int | list[int], optional) filter results by class, i.e. classes=0, or classes=[0,2,3]\n\
+    retina_masks: False # (bool) use high-resolution segmentation masks\nembed: #\
+    \ (list[int], optional) return feature vectors/embeddings from given layers\n\n\
+    # Visualize settings ---------------------------------------------------------------------------------------------------\n\
+    show: True # (bool) show predicted images and videos if environment allows\nsave_frames:\
+    \ False # (bool) save predicted individual video frames\nsave_txt: False # (bool)\
+    \ save results as .txt file\nsave_conf: False # (bool) save results with confidence\
+    \ scores\nsave_crop: False # (bool) save cropped images with results\nshow_labels:\
+    \ True # (bool) show prediction labels, i.e. 'person'\nshow_conf: True # (bool)\
+    \ show prediction confidence, i.e. '0.99'\nshow_boxes: True # (bool) show prediction\
+    \ boxes\nline_width: # (int, optional) line width of the bounding boxes. Scaled\
+    \ to image size if None.\n\n# Export settings ------------------------------------------------------------------------------------------------------\n\
+    format: torchscript # (str) format to export to, choices at https://docs.ultralytics.com/modes/export/#export-formats\n\
+    keras: False # (bool) use Kera=s\noptimize: False # (bool) TorchScript: optimize\
+    \ for mobile\nint8: False # (bool) CoreML/TF INT8 quantization\ndynamic: False\
+    \ # (bool) ONNX/TF/TensorRT: dynamic axes\nsimplify: True # (bool) ONNX: simplify\
+    \ model using `onnxslim`\nopset: # (int, optional) ONNX: opset version\nworkspace:\
+    \ # (float, optional) TensorRT: workspace size (GiB), `None` will let TensorRT\
+    \ auto-allocate memory\nnms: False # (bool) CoreML: add NMS\n\n# Hyperparameters\
+    \ ------------------------------------------------------------------------------------------------------\n\
+    lr0: 0.01 # (float) initial learning rate (i.e. SGD=1E-2, Adam=1E-3)\nlrf: 0.01\
+    \ # (float) final learning rate (lr0 * lrf)\nmomentum: 0.937 # (float) SGD momentum/Adam\
+    \ beta1\nweight_decay: 0.0005 # (float) optimizer weight decay 5e-4\nwarmup_epochs:\
+    \ 3.0 # (float) warmup epochs (fractions ok)\nwarmup_momentum: 0.8 # (float) warmup\
+    \ initial momentum\nwarmup_bias_lr: 0.1 # (float) warmup initial bias lr\nbox:\
+    \ 7.5 # (float) box loss gain\ncls: 0.5 # (float) cls loss gain (scale with pixels)\n\
+    dfl: 1.5 # (float) dfl loss gain\npose: 12.0 # (float) pose loss gain\nkobj: 1.0\
+    \ # (float) keypoint obj loss gain\nnbs: 64 # (int) nominal batch size\nhsv_h:\
+    \ 0.015 # (float) image HSV-Hue augmentation (fraction)\nhsv_s: 0.7 # (float)\
+    \ image HSV-Saturation augmentation (fraction)\nhsv_v: 0.4 # (float) image HSV-Value\
+    \ augmentation (fraction)\ndegrees: 0.0 # (float) image rotation (+/- deg)\ntranslate:\
+    \ 0.1 # (float) image translation (+/- fraction)\nscale: 0.5 # (float) image scale\
+    \ (+/- gain)\nshear: 0.0 # (float) image shear (+/- deg)\nperspective: 0.0 # (float)\
+    \ image perspective (+/- fraction), range 0-0.001\nflipud: 0.0 # (float) image\
+    \ flip up-down (probability)\nfliplr: 0.5 # (float) image flip left-right (probability)\n\
+    bgr: 0.0 # (float) image channel BGR (probability)\nmosaic: 1.0 # (float) image\
+    \ mosaic (probability)\nmixup: 0.0 # (float) image mixup (probability)\ncopy_paste:\
+    \ 0.0 # (float) segment copy-paste (probability)\ncopy_paste_mode: \"flip\" #\
+    \ (str) the method to do copy_paste augmentation (flip, mixup)\nauto_augment:\
+    \ randaugment # (str) auto augmentation policy for classification (randaugment,\
+    \ autoaugment, augmix)\nerasing: 0.4 # (float) probability of random erasing during\
+    \ classification training (0-0.9), 0 means no erasing, must be less than 1.0.\n\
+    crop_fraction: 1.0 # (float) image crop fraction for classification (0.1-1), 1.0\
+    \ means no crop, must be greater than 0.\n\n# Custom config.yaml ---------------------------------------------------------------------------------------------------\n\
+    cfg: # (str, optional) for overriding defaults.yaml\n\n# Tracker settings ------------------------------------------------------------------------------------------------------\n\
+    tracker: botsort.yaml # (str) tracker type, choices=[botsort.yaml, bytetrack.yaml]"
+  unverified_names_yaml_path: "names: \n  0: \"Airplane\"\n  1: \"Rotary Drone\"\n\
+    \  2: \"Fixed Wing Drone\"\n  3: \"Fighter Jet\"\n  4: \"Birds\"\n  5: \"Helicopter\"\
+    \n"
