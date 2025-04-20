@@ -2232,6 +2232,14 @@ tabs = st.tabs(["Generate Data", "Auto Label", "Manual Labeling", "Dataset Stati
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
+
+    with st.expander("Auto Label Engine Workflow"):
+        st.write(
+            "Below is a diagram of the Auto Label Engine workflow. Components are color-coded into human interaction, files and folders, and "
+            "processes. See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for more information."
+        )
+        st.image("figures/ale_workflow.png", use_container_width=True)
+
     output = None
     action_option = st.radio(
         "Choose:", 
