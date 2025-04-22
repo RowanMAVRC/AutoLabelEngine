@@ -8,12 +8,14 @@ os.umask(0) # remove any default umask restrictions so that os.makedirs(…, mod
 import re
 import glob
 import time
+import base64
 import random
 import shutil
 import subprocess
 import zipfile
 import hashlib
 import uuid
+import io
 
 ## Third-Party Libraries 
 
@@ -1717,6 +1719,34 @@ def object_by_object_edit_callback():
 
 ## Image / Video Processing & Creation
 
+def remove_white_background(img: Image.Image, threshold=240):
+    img = img.convert("RGBA")
+    datas = img.getdata()
+
+    newData = []
+    for item in datas:
+        if item[0] > threshold and item[1] > threshold and item[2] > threshold:
+            # Set white-ish pixels to transparent
+            newData.append((255, 255, 255, 0))
+        else:
+            newData.append(item)
+    img.putdata(newData)
+    return img
+
+def center_image_transparent(image_path, width):
+    img = Image.open(image_path)
+    img = remove_white_background(img)
+
+    # Save to buffer
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode()
+
+    st.markdown(
+        f'<div style="text-align: center;"><img src="data:image/png;base64,{encoded}" width="{width}"></div>',
+        unsafe_allow_html=True
+    )
+
 def add_labels(frame, image_path):
     """
     Overlay YOLO-format labels onto a video frame.
@@ -2170,6 +2200,16 @@ st.title("Auto Label Engine")
 st.write("This is a GUI for the Auto Label Engine. It allows you to generate datasets, auto label images,"
 " manually label images, see dataset statistics/figures, finetune models, and run Linux commands on the server.")
 
+with st.expander("Recommended Auto Label Engine Workflow"):
+    st.write(
+        "Below is a diagram of the Auto Label Engine workflow. Components are color-coded into human interaction, files and folders, and "
+        "processes"
+    )
+    
+    center_image_transparent("figures/ale_workflow.png", 800)
+
+    st.write("See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for more information.")
+
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
 
@@ -2232,13 +2272,6 @@ tabs = st.tabs(["Generate Data", "Auto Label", "Manual Labeling", "Dataset Stati
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
-
-    with st.expander("Auto Label Engine Workflow"):
-        st.write(
-            "Below is a diagram of the Auto Label Engine workflow. Components are color-coded into human interaction, files and folders, and "
-            "processes. See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for more information."
-        )
-        st.image("figures/ale_workflow.png", use_container_width=True)
 
     output = None
     action_option = st.radio(
