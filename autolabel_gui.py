@@ -159,7 +159,6 @@ def infer_image_pattern(images_dir, extensions=(".jpg", ".png")):
 
     return best_pattern, start_index, end_index
 
-
 def upload_to_dir(save_dir):
     """
     Allows the user to upload a single file or a ZIP archive (representing a directory) 
@@ -2290,7 +2289,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
 ## Main Tabs
-tabs = st.tabs(["Generate Data", "Auto Label", "Dataset Statistics", "Finetune Model", "Linux Terminal", "Unrestrict Workspace"])
+tabs = st.tabs(["Generate Data", "Linux Terminal", "Unrestrict Workspace"])
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
@@ -2302,11 +2301,14 @@ with tabs[0]:
             "Upload Data", 
             "Convert Video to Frames", 
             "Rotate Image Dataset",
+            "Auto Label",
             "Generate Labeled Video",
             "Manual Labeling",
             "Move Directory",
             "Split YOLO Dataset into Objects / No Objects", 
-            "Combine YOLO Datasets"
+            "Combine YOLO Datasets",
+            "Dataset Statistics",
+            "Finetune Model"
         ],
         key=f"generate_data_radio",
         label_visibility="collapsed"
@@ -2554,6 +2556,115 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="rotate_images_kill_tmux_session_btn"):
                     output = kill_tmux_session("rotate_images")
                     st.text(output)
+
+    elif action_option == "Auto Label":
+        with st.expander("Auto Label Settings"):
+            st.subheader("Model Weights Path")
+            st.write("The path to the model weights.")
+            path_navigator("auto_label_model_weight_path")
+
+            st.subheader("Images Path")
+            st.write("The path to the images.")
+            path_navigator("auto_label_data_path")
+            
+            # Check whether the provided images path is a directory.
+            images_path = st.session_state.paths.get("auto_label_data_path", "")
+            if os.path.isdir(images_path):
+                # Build a dictionary with counts of images per directory.
+                dir_image_counts = {}
+                base_dir = os.path.abspath(images_path)
+                for root, dirs, files in os.walk(images_path):
+                    count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')))
+                    if count > 0:
+                        rel_dir = os.path.relpath(root, base_dir)
+                        # If the relative directory is just ".", show "Base Directory".
+                        key_name = "Base Directory" if rel_dir == "." else rel_dir
+                        dir_image_counts[key_name] = count
+
+                if not dir_image_counts:
+                    st.warning("No images (PNG/JPG/JPEG) found in the selected directory.")
+                else:
+                    # Build a sorted list of options like "FolderName (N images)"
+                    options = sorted([f"{k} ({v} images)" for k, v in dir_image_counts.items()])
+                    st.selectbox("Found Image Directories", options=options,
+                                key="found_autolabel_images", label_visibility="collapsed")
+            else:
+                st.write("**Single image file selected** (if this is not intended, please choose a directory).")
+
+            st.subheader("Label Save Path Replacement")
+            st.write("Instead of specifying a full path, enter the folder name that will replace the last folder in the images path. For example, use 'labels' to automatically replace the 'images' folder.")
+            # Provide a radio button to choose between the default replacement and a custom value.
+            key = "auto_label_replacement"
+            replacement_option = st.radio("Choose label replacement option:", ["Default", "Custom"],
+                                        key="autolabel_replacement_radio", label_visibility="collapsed")
+            if replacement_option == "Default":
+                st.session_state.paths[key] = "labels"
+            else:
+                st.session_state.paths[key] = st.text_input("Enter custom label replacement", value="labels")
+            st.write(f"**Label Replacement:** {st.session_state.paths[key]}")
+
+        with st.expander("Virtual Environment Path"):
+            st.subheader("Venv Path")
+            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+            path_navigator("venv_path", radio_button_prefix="auto_label")
+
+        with st.expander("Script"):
+            path_navigator("auto_label_script_path")
+            python_code_editor("auto_label_script_path")
+
+        with st.expander("Auto Label Data"):
+            st.write("Click the 'Begin Auto Labeling Data' button to start the auto-labeling process.")
+            output = None
+            c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
+
+            with c1:
+                output = check_gpu_status("auto_label_check_gpu_status_button")
+
+            with c2:
+                try:
+                    if st.session_state.gpu_list:
+                        selected_gpu = st.selectbox("Select GPU", options=list(range(len(st.session_state.gpu_list))),
+                                                    format_func=lambda x: f"GPU {x}", label_visibility="collapsed")
+                        st.session_state.auto_label_gpu = int(selected_gpu)
+                        st.write(f"Selected GPU: GPU {st.session_state.auto_label_gpu}")
+                    else:
+                        st.warning("No GPUs found, defaulting to CPU")
+                        st.session_state.auto_label_gpu = -1
+                except Exception as e:
+                    st.error(f"Error checking GPUs: {e}")
+                    st.session_state.auto_label_gpu = -1
+
+            with c3:
+                if st.button("▶ Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
+                    run_in_tmux(
+                        session_key="auto_label_data", 
+                        script_path=st.session_state.paths["auto_label_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\ "),
+                            "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\ "),
+                            "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\ "),
+                            "gpu_number": st.session_state.auto_label_gpu
+                        }
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("auto_label_data")
+
+            with c4:
+                if st.button("🔄 Refresh Terminal", key="check_auto_labeling_data_btn"):
+                    output = update_tmux_terminal("auto_label_data")
+
+            with c5:
+                if st.button("🧹 Clear Output", key="auto_labeling_clear_terminal_btn"):
+                    output = None
+
+            with c6:
+                if st.button("❌ Kill Session", key="auto_labeling_kill_tmux_session_btn"):
+                    output = kill_tmux_session("auto_label_data")
+
+            terminal_output = st.empty()
+            if output is not None:
+                terminal_output.text(output)
 
     elif action_option == "Generate Labeled Video":
         # — defaults
@@ -3337,7 +3448,6 @@ with tabs[0]:
                     else:
                         st.warning("No videos generated please go to Generate Data Tab.")
 
-
     elif action_option == "Move Directory":
         # SETTINGS
         with st.expander("Move Directory Settings"):
@@ -3450,7 +3560,7 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="split_data_kill_tmux_session_btn"):
                     output = kill_tmux_session("split_data")
     
-    else:
+    elif action_option == "Combine YOLO Datasets":
         # Combine YOLO Datasets
         with st.expander("Dataset Settings"):
             c1, c2, c3 = st.columns(3)
@@ -3506,224 +3616,112 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="combine_dataset_kill_tmux_session_btn"):
                     output = kill_tmux_session("combine_dataset")
     
+    elif action_option == "Daset Statistics":
+        with st.expander("Dataset Statistics"):
+            st.subheader("Dataset Figures")
+            st.write("The path to the formated dataset (with images and labels folders).")
+
+            path_navigator("dataset_path")
+
+            dataset_path = st.session_state.paths.get("dataset_path", "")
+            if dataset_path:
+                images_path = os.path.join(dataset_path, "images")
+                labels_path = os.path.join(dataset_path, "labels")
+
+                # Two columns for generating figures and clearing buttons
+                c1, c2 = st.columns([1,1])
+                with c1:
+                    if st.button("Generate Figures", key="generate_figs_btn"):
+                        st.session_state["show_figs"] = True
+                with c2:
+                    if st.button("Clear Figures", key="clear_figs_btn"):
+                        st.session_state["show_figs"] = False
+
+                # Show figs only if toggled on
+                if st.session_state.get("show_figs", False):
+                    class_counts, x_vals, y_vals, w_vals, h_vals = parse_label_data(labels_path)
+
+                    st.markdown("### Sample Labeled Images")
+                    display_images(images_path, labels_path)
+
+                    st.markdown("### Bounding Box Location, Size, and Class Distribution")
+                    st.write("These figures will help see where the bounding boxes are commonly located"
+                    " on the images (0.0 y-axis is the top of the image), the size, and the distribution"
+                    " of the classes (unlabeled are the number of images that do not have any labels).")
+                    generate_label_plots(class_counts, x_vals, y_vals, w_vals, h_vals)
+
+                else:
+                    st.info("Figures are cleared. Click 'Generate Figures' to display them.")
+
+    else:
+        with st.expander("Data YAML"):
+            st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
+            path_navigator("train_data_yaml_path")
+            yaml_editor("train_data_yaml_path")
+        
+        with st.expander("Model YAML"):
+            st.write("The path to the model YAML file. This file contains the model architecture and layers.")
+            path_navigator("train_model_yaml_path")
+            yaml_editor("train_model_yaml_path")
+            
+        with st.expander("Train YAML Path"):
+            st.write("The path to the train YAML file. This file contains all model hyperparameters.")
+            path_navigator("train_train_yaml_path")
+            yaml_editor("train_train_yaml_path")
+
+        with st.expander("Venv Path"):
+            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+            path_navigator("venv_path", radio_button_prefix="train")
+
+        with st.expander("Script"):
+            path_navigator("train_script_path")
+            python_code_editor("train_script_path")
+
+        with st.expander("Finetune Model"):
+            st.write("Click the 'Begin Training' button to start the training process.")
+            output = None
+            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+
+            with c1:
+                output = check_gpu_status("train_check_gpu_status_button")
+
+            with c2:
+                if st.button("▶ Begin Training", key="begin_train_btn"):
+                    output = run_in_tmux(
+                        session_key="auto_label_trainer", 
+                        script_path=st.session_state.paths["train_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\ "),
+                            "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\ "),
+                            "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\ ")
+                        }
+                    )
+                    time.sleep(3)
+                    output = update_tmux_terminal("auto_label_trainer")
+
+            with c3:
+                if st.button("Check Training", key="check_train_btn"):
+                    output = update_tmux_terminal("auto_label_trainer")
+
+            with c4:
+                if st.button("🧹 Clear Output", key="clear_terminal_btn"):
+                    output = None
+
+            with c5:
+                if st.button("❌ Kill Session", key="kill_tmux_session_btn"):
+                    output = kill_tmux_session("auto_label_trainer")
+
+            terminal_output = st.empty()
+            if output is not None:
+                terminal_output.text(output)
+
     terminal_output = st.empty()
     if output is not None:
         display_terminal_output(output)
 
-# ----------------------- Auto Label Tab -----------------------
-with tabs[1]:
-    with st.expander("Auto Label Settings"):
-        st.subheader("Model Weights Path")
-        st.write("The path to the model weights.")
-        path_navigator("auto_label_model_weight_path")
-
-        st.subheader("Images Path")
-        st.write("The path to the images.")
-        path_navigator("auto_label_data_path")
-        
-        # Check whether the provided images path is a directory.
-        images_path = st.session_state.paths.get("auto_label_data_path", "")
-        if os.path.isdir(images_path):
-            # Build a dictionary with counts of images per directory.
-            dir_image_counts = {}
-            base_dir = os.path.abspath(images_path)
-            for root, dirs, files in os.walk(images_path):
-                count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')))
-                if count > 0:
-                    rel_dir = os.path.relpath(root, base_dir)
-                    # If the relative directory is just ".", show "Base Directory".
-                    key_name = "Base Directory" if rel_dir == "." else rel_dir
-                    dir_image_counts[key_name] = count
-
-            if not dir_image_counts:
-                st.warning("No images (PNG/JPG/JPEG) found in the selected directory.")
-            else:
-                # Build a sorted list of options like "FolderName (N images)"
-                options = sorted([f"{k} ({v} images)" for k, v in dir_image_counts.items()])
-                st.selectbox("Found Image Directories", options=options,
-                            key="found_autolabel_images", label_visibility="collapsed")
-        else:
-            st.write("**Single image file selected** (if this is not intended, please choose a directory).")
-
-        st.subheader("Label Save Path Replacement")
-        st.write("Instead of specifying a full path, enter the folder name that will replace the last folder in the images path. For example, use 'labels' to automatically replace the 'images' folder.")
-        # Provide a radio button to choose between the default replacement and a custom value.
-        key = "auto_label_replacement"
-        replacement_option = st.radio("Choose label replacement option:", ["Default", "Custom"],
-                                    key="autolabel_replacement_radio", label_visibility="collapsed")
-        if replacement_option == "Default":
-            st.session_state.paths[key] = "labels"
-        else:
-            st.session_state.paths[key] = st.text_input("Enter custom label replacement", value="labels")
-        st.write(f"**Label Replacement:** {st.session_state.paths[key]}")
-
-    with st.expander("Virtual Environment Path"):
-        st.subheader("Venv Path")
-        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
-        path_navigator("venv_path", radio_button_prefix="auto_label")
-
-    with st.expander("Script"):
-        path_navigator("auto_label_script_path")
-        python_code_editor("auto_label_script_path")
-
-    with st.expander("Auto Label Data"):
-        st.write("Click the 'Begin Auto Labeling Data' button to start the auto-labeling process.")
-        output = None
-        c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
-
-        with c1:
-            output = check_gpu_status("auto_label_check_gpu_status_button")
-
-        with c2:
-            try:
-                if st.session_state.gpu_list:
-                    selected_gpu = st.selectbox("Select GPU", options=list(range(len(st.session_state.gpu_list))),
-                                                format_func=lambda x: f"GPU {x}", label_visibility="collapsed")
-                    st.session_state.auto_label_gpu = int(selected_gpu)
-                    st.write(f"Selected GPU: GPU {st.session_state.auto_label_gpu}")
-                else:
-                    st.warning("No GPUs found, defaulting to CPU")
-                    st.session_state.auto_label_gpu = -1
-            except Exception as e:
-                st.error(f"Error checking GPUs: {e}")
-                st.session_state.auto_label_gpu = -1
-
-        with c3:
-            if st.button("▶ Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
-                run_in_tmux(
-                    session_key="auto_label_data", 
-                    script_path=st.session_state.paths["auto_label_script_path"], 
-                    venv_path=st.session_state.paths["venv_path"],
-                    args={
-                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\ "),
-                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\ "),
-                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\ "),
-                        "gpu_number": st.session_state.auto_label_gpu
-                    }
-                )
-                time.sleep(3)
-                output = update_tmux_terminal("auto_label_data")
-
-        with c4:
-            if st.button("🔄 Refresh Terminal", key="check_auto_labeling_data_btn"):
-                output = update_tmux_terminal("auto_label_data")
-
-        with c5:
-            if st.button("🧹 Clear Output", key="auto_labeling_clear_terminal_btn"):
-                output = None
-
-        with c6:
-            if st.button("❌ Kill Session", key="auto_labeling_kill_tmux_session_btn"):
-                output = kill_tmux_session("auto_label_data")
-
-        terminal_output = st.empty()
-        if output is not None:
-            terminal_output.text(output)
-
-# ----------------------- Dataset Statistics Tab -----------------------
-with tabs[2]:
-    with st.expander("Dataset Statistics"):
-        st.subheader("Dataset Figures")
-        st.write("The path to the formated dataset (with images and labels folders).")
-
-        path_navigator("dataset_path")
-
-        dataset_path = st.session_state.paths.get("dataset_path", "")
-        if dataset_path:
-            images_path = os.path.join(dataset_path, "images")
-            labels_path = os.path.join(dataset_path, "labels")
-
-            # Two columns for generating figures and clearing buttons
-            c1, c2 = st.columns([1,1])
-            with c1:
-                if st.button("Generate Figures", key="generate_figs_btn"):
-                    st.session_state["show_figs"] = True
-            with c2:
-                if st.button("Clear Figures", key="clear_figs_btn"):
-                    st.session_state["show_figs"] = False
-
-            # Show figs only if toggled on
-            if st.session_state.get("show_figs", False):
-                class_counts, x_vals, y_vals, w_vals, h_vals = parse_label_data(labels_path)
-
-                st.markdown("### Sample Labeled Images")
-                display_images(images_path, labels_path)
-
-                st.markdown("### Bounding Box Location, Size, and Class Distribution")
-                st.write("These figures will help see where the bounding boxes are commonly located"
-                " on the images (0.0 y-axis is the top of the image), the size, and the distribution"
-                " of the classes (unlabeled are the number of images that do not have any labels).")
-                generate_label_plots(class_counts, x_vals, y_vals, w_vals, h_vals)
-
-            else:
-                st.info("Figures are cleared. Click 'Generate Figures' to display them.")
-
-# ----------------------- Train Status Tab -----------------------
-with tabs[3]:
-    with st.expander("Data YAML"):
-        st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
-        path_navigator("train_data_yaml_path")
-        yaml_editor("train_data_yaml_path")
-    
-    with st.expander("Model YAML"):
-        st.write("The path to the model YAML file. This file contains the model architecture and layers.")
-        path_navigator("train_model_yaml_path")
-        yaml_editor("train_model_yaml_path")
-        
-    with st.expander("Train YAML Path"):
-        st.write("The path to the train YAML file. This file contains all model hyperparameters.")
-        path_navigator("train_train_yaml_path")
-        yaml_editor("train_train_yaml_path")
-
-    with st.expander("Venv Path"):
-        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
-        path_navigator("venv_path", radio_button_prefix="train")
-
-    with st.expander("Script"):
-        path_navigator("train_script_path")
-        python_code_editor("train_script_path")
-
-    with st.expander("Finetune Model"):
-        st.write("Click the 'Begin Training' button to start the training process.")
-        output = None
-        c1, c2, c3, c4, c5 = st.columns(5, gap="small")
-
-        with c1:
-            output = check_gpu_status("train_check_gpu_status_button")
-
-        with c2:
-            if st.button("▶ Begin Training", key="begin_train_btn"):
-                output = run_in_tmux(
-                    session_key="auto_label_trainer", 
-                    script_path=st.session_state.paths["train_script_path"], 
-                    venv_path=st.session_state.paths["venv_path"],
-                    args={
-                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\ "),
-                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\ "),
-                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\ ")
-                    }
-                )
-                time.sleep(3)
-                output = update_tmux_terminal("auto_label_trainer")
-
-        with c3:
-            if st.button("Check Training", key="check_train_btn"):
-                output = update_tmux_terminal("auto_label_trainer")
-
-        with c4:
-            if st.button("🧹 Clear Output", key="clear_terminal_btn"):
-                output = None
-
-        with c5:
-            if st.button("❌ Kill Session", key="kill_tmux_session_btn"):
-                output = kill_tmux_session("auto_label_trainer")
-
-        terminal_output = st.empty()
-        if output is not None:
-            terminal_output.text(output)
-
 # ----------------------- Linux Terminal Tab -----------------------
-with tabs[4]:
+with tabs[1]:
     # Initialize accumulated terminal output in session state.
     if "terminal_text" not in st.session_state:
         st.session_state.terminal_text = ""
@@ -3772,7 +3770,7 @@ with tabs[4]:
     output_placeholder.code(st.session_state.terminal_text, language="bash")
 
 # ----------------------- Unrestrict Tab -----------------------
-with tabs[5]:
+with tabs[2]:
     st.subheader("Open Workspace")
     st.write("Pick a folder to keep with fully unrestricted (777) permissions on every rerun.")
     path_navigator("open_workspace", must_exist=True)
