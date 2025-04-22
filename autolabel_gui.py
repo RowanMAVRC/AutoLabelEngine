@@ -2622,7 +2622,7 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="kill_gen_vid_btn"):
                     output = kill_tmux_session("gen_vid")
         
-    if action_option == "Move Directory":
+    elif action_option == "Move Directory":
         # SETTINGS
         with st.expander("Move Directory Settings"):
             st.subheader("Source Directory")
@@ -2677,7 +2677,6 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="kill_move_dir_btn"):
                     output = kill_tmux_session("move_dir")
           
-
     elif action_option == "Split YOLO Dataset into Objects / No Objects":
         with st.expander("Dataset Settings"):
             c1, c2 = st.columns(2)
