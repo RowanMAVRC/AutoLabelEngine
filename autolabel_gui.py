@@ -1591,7 +1591,7 @@ def zoom_edit_callback(i):
             st.session_state["skip_label_update"] = True
     except:
         pass
-    
+
 def get_object_by_global_index(global_index):
     """
     Iterates over the image list (built using the naming pattern if available)
@@ -2290,7 +2290,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
 ## Main Tabs
-tabs = st.tabs(["Generate Data", "Auto Label", "Manual Labeling", "Dataset Statistics", "Finetune Model", "Linux Terminal", "Unrestrict Workspace"])
+tabs = st.tabs(["Generate Data", "Auto Label", "Dataset Statistics", "Finetune Model", "Linux Terminal", "Unrestrict Workspace"])
 
 # ----------------------- Generate Data Tab -----------------------
 with tabs[0]:  
@@ -2303,6 +2303,7 @@ with tabs[0]:
             "Convert Video to Frames", 
             "Rotate Image Dataset",
             "Generate Labeled Video",
+            "Manual Labeling",
             "Move Directory",
             "Split YOLO Dataset into Objects / No Objects", 
             "Combine YOLO Datasets"
@@ -2644,6 +2645,699 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="kill_gen_vid_btn"):
                     output = kill_tmux_session("gen_vid")
         
+    elif action_option == "Manual Labeling":
+            
+        with st.expander("Settings"):
+            st.write("### Image Scale")
+            st.write("Scale the image to fit the screen. This is useful for large images.")
+            st.number_input(
+                "Image Scale", 
+                value=st.session_state.unverified_image_scale,
+                step=0.25,
+                key="unverified_image_scale_input",
+                on_change=set_scale
+            )
+
+            st.write("### Images Path")
+            st.write("The path to the images.")
+            path_navigator("unverified_images_path")
+
+            st.write("### Label Names YAML Path")
+            st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
+            path_navigator("unverified_names_yaml_path")
+            
+            if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+                st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+                st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+                update_unverified_data_path()
+
+                if st.session_state.max_images > 0:
+                    update_unverified_frame()
+                    
+                st.rerun()
+            
+            yaml_editor("unverified_names_yaml_path")
+
+        with st.expander("Subset Selection"):
+            st.write("Select only a small subset of images to review or manually label.")
+            if handle_image_list_update(prefix="subset_"):
+                # --- CSV Path Selection ---
+                st.subheader("Choose CSV Path for Subset")
+                
+                path_option = st.radio("PLease Choose:", ["Default", "Custom"], key="default_subset", label_visibility="collapsed")
+                if path_option == "Default":
+                    st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
+                else:
+                    path_navigator("unverified_subset_csv_path")
+
+                csv_file = st.session_state.paths["unverified_subset_csv_path"]
+                if os.path.exists(csv_file):
+                    # Reload the subset frames from the CSV file
+                    st.session_state.subset_frames = load_subset_frames(csv_file)
+
+                    st.subheader("Modify/View Subset")
+
+                    # Add/Remove Frames
+                    if st.session_state.max_images > 0:
+                        c1, c2, c3 = st.columns([10, 10, 10])
+                        with c1:
+                            st.number_input(
+                                "Add Frame Index",
+                                min_value=0,
+                                max_value=st.session_state.max_images - 1,
+                                value=None,
+                                step=1,
+                                key="subset_add_frame",
+                                on_change=add_frame_callback,
+                                args=("subset_add_frame",)
+                            )
+
+                        with c2:
+                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="subset_view_frames_in_subset")
+
+                        with c3:
+                            st.number_input(
+                                "Remove Frame Index",
+                                min_value=0,
+                                max_value=st.session_state.max_images - 1,
+                                value=None,
+                                step=1,
+                                key="subset_remove_frame",
+                                on_change=remove_frame_callback,
+                                args=("subset_remove_frame",)
+                            )
+                    else:
+                        st.warning("No images available.")
+
+                    # --- Copy CSV to a New File ---
+                    base, ext = os.path.splitext(csv_file)
+                    default_copy_path = base + "_copy" + ext
+                    new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
+                    if st.button("Copy CSV to new file"):
+                        if new_save_path:
+                            try:
+                                st.session_state["skip_label_update"] = True
+                                save_subset_csv(new_save_path, st.session_state.subset_frames)
+                                st.success(f"Subset CSV copied to {new_save_path}")
+                            except Exception as e:
+                                st.error(f"Error copying file: {e}")
+                        else:
+                            st.error("Please enter a valid new file path.")
+                
+                    # ---  Bulk Operations ---
+                    st.markdown("---")
+                    st.subheader("Bulk Subset Operations")
+
+                    def _frame_label_count(idx):
+                        """Return number of non‑empty lines in that frame's label file."""
+                        # build image path
+                        if st.session_state.image_pattern:
+                            img = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            img = st.session_state.image_list[idx]
+                        lbl = img.replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
+                        if os.path.exists(lbl):
+                            with open(lbl) as f:
+                                return sum(1 for l in f if l.strip())
+                        return 0
+
+                    if st.button("Add ALL Labeled Frames"):
+                        st.session_state["skip_label_update"] = True
+                        labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
+                        for i in labeled:
+                            if i not in st.session_state.subset_frames:
+                                st.session_state.subset_frames.append(i)
+                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                        st.success(f"Added {len(labeled)} labeled frames.")
+                
+                    if st.button("Remove ALL Labeled Frames"):
+                        st.session_state["skip_label_update"] = True
+                        before = set(st.session_state.subset_frames)
+                        st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
+                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                        removed = len(before) - len(st.session_state.subset_frames)
+                        st.success(f"Removed {removed} frames.")
+
+                    if st.button("Add ALL Unlabeled Frames"):
+                        st.session_state["skip_label_update"] = True
+                        unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
+                        for i in unlabeled:
+                            if i not in st.session_state.subset_frames:
+                                st.session_state.subset_frames.append(i)
+                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                        st.success(f"Added {len(unlabeled)} unlabeled frames.")
+                    
+                    if st.button("Remove ALL Unlabeled Frames"):
+                        st.session_state["skip_label_update"] = True
+                        before = set(st.session_state.subset_frames)
+                        st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
+                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                        removed = len(before) - len(st.session_state.subset_frames)
+                        st.success(f"Removed {removed} frames.")
+
+                    if st.button("Invert Subset Selection"):
+                        st.session_state["skip_label_update"] = True
+                        # all frame indices 0 … max_images-1
+                        all_frames = list(range(st.session_state.max_images))
+                        # keep only those not already in subset
+                        new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
+                        st.session_state.subset_frames = new_subset
+                        # persist to CSV
+                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                        st.success(f"Inverted subset: {len(new_subset)} frames selected.")
+                        st.rerun()
+
+                    if st.button("Delete ALL Labels in Subset"):
+                        st.session_state["skip_label_update"] = True
+                        for idx in st.session_state.subset_frames:
+                            # construct label path
+                            if st.session_state.image_pattern:
+                                img = os.path.join(
+                                    st.session_state.images_dir,
+                                    st.session_state.image_pattern.format(idx)
+                                )
+                            else:
+                                img = st.session_state.image_list[idx]
+                            lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                            open(lbl, "w").close()
+                        st.success("Cleared all label files for frames in subset.")
+
+                    st.markdown("---")
+                    # --- Save subset to directory ---
+                    st.subheader("Save Subset to New Directory")
+                    save_dir = path_navigator("subset_save_path", radio_button_prefix="save_subset")
+                    if st.button("Save images & labels here"):
+                        st.session_state["skip_label_update"] = True
+                        out_imgs = os.path.join(save_dir, "images")
+                        out_lbls = os.path.join(save_dir, "labels")
+                        os.makedirs(out_imgs, exist_ok=True, mode=0o777)
+                        os.makedirs(out_lbls, exist_ok=True, mode=0o777)
+
+                        for idx in st.session_state.subset_frames:
+                            # resolve source image
+                            if st.session_state.image_pattern:
+                                src = os.path.join(
+                                    st.session_state.images_dir,
+                                    st.session_state.image_pattern.format(idx)
+                                )
+                            else:
+                                src = st.session_state.image_list[idx]
+                            # copy image
+                            shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
+                            # copy or touch label
+                            lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                            dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
+                            if os.path.exists(lbl):
+                                shutil.copy2(lbl, dst_lbl)
+                            else:
+                                open(dst_lbl, "w").close()
+                        st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
+                
+                else:
+                    st.info("No CSV found. Create or upload a CSV to begin using a subset.")
+
+        # --- Radio Button for Review Mode Selection ---
+        review_mode = st.radio(
+            "Select Review Mode",
+            options=["Frame by Frame Review", "Object by Object Review", "Video Review"],
+            index=0
+        )
+
+        if review_mode == "Frame by Frame Review":
+            
+            with st.expander("Frame by Frame Label Review"):
+                st.write( "Review the labels in a frame by frame sequence.")
+                if handle_image_list_update(prefix="frame_by_frame_"):
+                    loading = st.session_state.get("detection_running", False)
+
+                    if st.session_state.max_images > 0:
+                        if st.session_state.max_images > 1:
+                            # --- Top Navigation (Prev / Next) ---
+                            col_prev, _, col_next = st.columns([4, 5, 4])
+                            with col_prev:
+                                st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
+                            with col_next:
+                                st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
+
+                            col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
+                            with col_copy_prev:
+                                st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
+                            with col_copy_next:
+                                st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
+
+                        # --- Read and Display Current Frame ---
+                        update_unverified_frame()
+
+                        st.write(f"Current File Path: {st.session_state.image_path}")
+
+                        # Annotate with detection()
+                        det_container = st.container()
+                        with det_container:
+                            if not loading:
+                                with st.spinner("Processing..."):
+                                    out = detection(**st.session_state.detection_config)
+                            else:
+                                out = detection(**st.session_state.detection_config)
+
+                        st.session_state.out = out
+
+                        # Update labels if changed
+                        update_labels_from_detection()
+
+                        c1, c2 = st.columns([10, 90])
+                        with c1:
+                            st.markdown(
+                                """
+                                <style>
+                                .stCheckbox input[type="checkbox"] {
+                                    transform: scale(1.5);
+                                }
+                                .stCheckbox label {
+                                    font-size: 24px;
+                                    font-weight: bold;
+                                }
+                                </style>
+                                """,
+                                unsafe_allow_html=True,
+                            )
+                            use_subset_val = st.checkbox(
+                                "Use Subset",
+                                value=st.session_state.use_subset,
+                                key="manual_label_subset_btn",
+                                on_change=manual_label_subset_checkbox_callback,
+                                disabled=not len(st.session_state.subset_frames) > 1
+                            )
+                            if st.session_state.use_subset_changed:
+                                st.session_state.use_subset_changed = False
+                                st.rerun()
+
+                            
+                        with c2:
+                            c12, c22, c32 = st.columns([10, 10, 10])
+                            with c12:
+                                st.number_input(
+                                    "Add Frame Index",
+                                    min_value=0,
+                                    max_value=st.session_state.max_images - 1,
+                                    value=None,
+                                    step=1,
+                                    key="frame_by_frame_add_frame",
+                                    on_change=add_frame_callback,
+                                    args=("frame_by_frame_add_frame",)
+                                )
+
+                            with c22:
+                                st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
+
+                            with c32:
+                                st.number_input(
+                                    "Remove Frame Index",
+                                    min_value=0,
+                                    max_value=st.session_state.max_images - 1,
+                                    value=None,
+                                    step=1,
+                                    key="frame_by_frame_remove_frame",
+                                    on_change=remove_frame_callback,
+                                    args=("frame_by_frame_remove_frame",)
+                                )
+
+                        if not len(st.session_state.subset_frames) > 1:
+                                st.warning("Subset needs to be two or larger.")
+                        
+                        if st.session_state.max_images > 1:
+                            # Additional navigation (jump, slider, second Prev/Next)
+                            st.number_input(
+                                "Current Frame",
+                                min_value=0,
+                                max_value=st.session_state.max_images-1,
+                                value=st.session_state.frame_index,
+                                step=10,
+                                key="jump_page",
+                                on_change=jump_frame_frame_by_frame_callback
+                            )
+                            col_prev, col_slider, col_next = st.columns([2, 10, 4])
+                            with col_prev:
+                                st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
+                            with col_slider:
+                                st.slider(
+                                    f"Subset Index: {st.session_state.frame_index}  Frame Index: {st.session_state.actual_frame_index}"
+                                    if st.session_state.use_subset else f"Frame Index: {st.session_state.actual_frame_index}",
+                                    0,
+                                    st.session_state.max_images - 1 if not st.session_state.use_subset
+                                    else len(st.session_state.subset_frames) - 1,
+                                    st.session_state.frame_index,
+                                    key="slider_det",
+                                    on_change=frame_slider_frame_by_frame_callback,
+                                    label_visibility="collapsed"
+                                )
+                            with col_next:
+                                st.button("Next Frame", key="next_btn", on_click=next_callback)
+                    else:
+                        st.warning("Data Path is empty...")
+            
+            with st.expander("Zoomed‑in Bounding Box Regions"):
+                # Safely pull values (defaults to empty or None)
+                image    = st.session_state.get("image", None)
+                bboxes   = st.session_state.get("bboxes_xyxy", [])
+                labels   = st.session_state.get("labels", [])
+                bbox_ids = st.session_state.get("bbox_ids", [])
+
+                # If there's no image or no boxes, show a message
+                if image is None or not bboxes:
+                    st.warning("No bounding boxes in current frame.")
+                else:
+                    # Update frame if needed
+                    update_unverified_frame()
+
+                    # Render each crop + controls
+                    for i, (x, y, w, h) in enumerate(bboxes):
+                        # Compute coordinates
+                        x1, y1 = max(x, 0.0), max(y, 0.0)
+                        x2, y2 = x1 + w,      y1 + h
+
+                        # Sanity check
+                        if x2 <= x1 or y2 <= y1:
+                            st.session_state.labels.pop(i)
+                            st.session_state.bboxes_xyxy.pop(i)
+                            st.session_state.bbox_ids.pop(i)
+                            st.rerun()
+
+                        # Crop & caption
+                        cropped = image.crop((x1, y1, x2, y2))
+                        if i < len(labels):
+                            idx = labels[i]
+                            try:
+                                label_name = st.session_state.label_list[idx]
+                            except Exception:
+                                label_name = f"Label {idx}"
+                        else:
+                            label_name = "Unknown"
+                        caption = (
+                            f"ID: {bbox_ids[i]}, "
+                            f"Label: {label_name}, "
+                            f"BBox: ({x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f})"
+                        )
+
+                        key_x = f"bbox_{bbox_ids[i]}_cx"
+                        key_y = f"bbox_{bbox_ids[i]}_cy"
+                        key_w = f"bbox_{bbox_ids[i]}_w"
+                        key_h = f"bbox_{bbox_ids[i]}_h"
+
+                        st.markdown(f"#### Edit Bounding Box {i} Parameters")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.image(cropped, caption=caption)
+
+                        # Default center coords
+                        center_x = x + w / 2
+                        center_y = y + h / 2
+
+                        with col2:
+                            st.number_input(
+                                f"Center X for bbox {i}",
+                                min_value=0.0,
+                                max_value=float(st.session_state.image_width),
+                                value=center_x,
+                                key=key_x,
+                                step=1.0,
+                                on_change=lambda i=i: zoom_edit_callback(i),
+                            )
+                            st.number_input(
+                                f"Center Y for bbox {i}",
+                                min_value=0.0,
+                                max_value=float(st.session_state.image_height),
+                                value=center_y,
+                                key=key_y,
+                                step=1.0,
+                                on_change=lambda i=i: zoom_edit_callback(i),
+                            )
+                            st.number_input(
+                                f"Width for bbox {i}",
+                                min_value=1.0,
+                                max_value=float(st.session_state.image_width),
+                                value=w,
+                                key=key_w,
+                                step=1.0,
+                                on_change=lambda i=i: zoom_edit_callback(i),
+                            )
+                            st.number_input(
+                                f"Height for bbox {i}",
+                                min_value=1.0,
+                                max_value=float(st.session_state.image_height),
+                                value=h,
+                                key=key_h,
+                                step=1.0,
+                                on_change=lambda i=i: zoom_edit_callback(i),
+                        )
+                            
+        elif review_mode == "Object by Object Review":
+            with st.expander("Object by Object Label Review"):
+                st.write( "Review the labels in an object by object sequence.")
+                
+                # Call the helper function to ensure image list/naming pattern is up-to-date.
+                if handle_image_list_update(prefix="object_by_object_"):
+                    current_obj = get_object_by_global_index(st.session_state.global_object_index)
+                    if current_obj is None:
+                        st.session_state.global_object_index = 0
+                        current_obj = get_object_by_global_index(st.session_state.global_object_index)
+                        if current_obj is None:
+                            st.info("No objects found in the dataset.")
+                        else:
+                            st.rerun()
+                    else:
+                        img = current_obj["img"]
+                        bbox = current_obj["bbox"]
+                        obj_label = current_obj["label"]
+                        image_path = current_obj["image_path"]
+                        label_path = current_obj["label_path"]
+                        x, y, w, h = bbox
+                        center_x = x + w / 2
+                        center_y = y + h / 2
+
+                        mode = st.radio(
+                            "Display Mode",
+                            options=["Cropped Object", "Full Image with BBox"],
+                            key=f"object_display_mode_{current_obj['global_index']}"
+                        )
+
+                        if mode == "Cropped Object":
+                            display_img = img.crop((x, y, x + w, y + h))
+                            caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Cropped)"
+                        else:
+                            full_img = img.copy()
+                            draw = ImageDraw.Draw(full_img)
+                            draw.rectangle((x, y, x + w, y + h), outline="red", width=2)
+                            display_img = full_img
+                            caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Full Image)"
+
+                        col_img, col_ctrl = st.columns(2)
+                        with col_img:
+                            st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                            st.image(display_img, caption=caption, use_container_width=True)
+                            st.markdown("</div>", unsafe_allow_html=True)
+                        with col_ctrl:
+                            st.number_input(
+                                f"Center X for object {current_obj['global_index']}",
+                                min_value=0.0,
+                                max_value=float(img.width),
+                                value=center_x,
+                                key=f"object_{current_obj['global_index']}_center_x",
+                                step=1.0,
+                                on_change=object_by_object_edit_callback
+                            )
+                            st.number_input(
+                                f"Center Y for object {current_obj['global_index']}",
+                                min_value=0.0,
+                                max_value=float(img.height),
+                                value=center_y,
+                                key=f"object_{current_obj['global_index']}_center_y",
+                                step=1.0,
+                                on_change=object_by_object_edit_callback
+                            )
+                            st.number_input(
+                                f"Width for object {current_obj['global_index']}",
+                                min_value=1.0,
+                                max_value=float(img.width),
+                                value=w,
+                                key=f"object_{current_obj['global_index']}_w",
+                                step=1.0,
+                                on_change=object_by_object_edit_callback
+                            )
+                            st.number_input(
+                                f"Height for object {current_obj['global_index']}",
+                                min_value=1.0,
+                                max_value=float(img.height),
+                                value=h,
+                                key=f"object_{current_obj['global_index']}_h",
+                                step=1.0,
+                                on_change=object_by_object_edit_callback
+                            )
+
+                            col_input1, col_input2 = st.columns(2)
+                            with col_input1:
+                                num_labels = current_obj["num_labels"]
+                                new_global_index = st.number_input(
+                                    f"Set Global Object Index (0-{num_labels-1})",
+                                    min_value=0,
+                                    value=st.session_state.global_object_index,
+                                    key="global_obj_index_input"
+                                )
+                                if new_global_index != st.session_state.global_object_index:
+                                    st.session_state.global_object_index = int(new_global_index)
+                                    st.rerun()
+
+                            with col_input2:
+                                frame_index = get_frame_index_from_filename(current_obj["image_path"])
+                                if frame_index:
+                                    st.session_state.frame_index = frame_index
+                                jump_frame = st.number_input(
+                                    "Jump to Frame Number",
+                                    min_value=0,
+                                    value=st.session_state.frame_index,  # or a separate default value if desired
+                                    max_value= st.session_state.max_images - 1,
+                                    key="jump_to_frame_input",
+                                    on_change=jump_frame_object_by_object_callback
+                                    
+                                )
+
+                                if st.session_state.object_by_object_jump_warning is None:     
+                                    if st.session_state.object_by_object_jump_valid:
+                                        st.session_state.object_by_object_jump_valid = False                         
+                                        st.rerun()
+                                else: 
+                                    st.warning(st.session_state.object_by_object_jump_warning)
+                                    st.session_state.object_by_object_jump_warning = None  # Reset flag.
+
+                            col_nav1, col_nav2, col_nav3 = st.columns(3)
+                            with col_nav1:
+                                if st.button("Previous Object", key="prev_global_obj"):
+                                    if st.session_state.global_object_index - 1 < 0:
+                                        st.session_state.global_object_index = current_obj["num_labels"] - 1
+                                    else:
+                                        st.session_state.global_object_index -= 1
+                                    st.rerun()
+                            with col_nav2:
+                                if st.button("Next Object", key="next_global_obj"):
+                                    if st.session_state.global_object_index >= current_obj["num_labels"]:
+                                        st.session_state.global_object_index = 0
+                                    else:
+                                        st.session_state.global_object_index += 1
+                                    st.rerun()
+                            with col_nav3:
+                                if st.button("Delete Object", key="delete_global_obj"):
+                                    try:
+                                        with open(label_path, "r") as f:
+                                            lines = f.readlines()
+                                        local_idx = current_obj["local_index"]
+                                        if local_idx < len(lines):
+                                            del lines[local_idx]
+                                            with open(label_path, "w") as f:
+                                                f.writelines(lines)
+                                            st.success("Object deleted.")
+                                        else:
+                                            st.error("Local object index out of range in label file.")
+                                    except Exception as e:
+                                        st.error(f"Error deleting object: {e}")
+                                    st.rerun()
+
+        else:
+            with st.expander("Video Label Review"):
+                update_unverified_data_path()
+                if handle_image_list_update(prefix="video_"):
+                    video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
+                    if os.path.exists(video_base_path):
+                            
+                        video_paths = os.listdir(video_base_path)
+
+                        for i in range(len(video_paths) + 1):
+                            video_path = video_paths[i-1]
+
+                            if i > 0:
+                                if "frame_by_frame" in video_path or "object_by_object" in video_path:
+                                    st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
+
+                            # Add/Remove Frames (single)
+                            if st.session_state.max_images > 0:
+                                    c1, c2, c3 = st.columns([10, 10, 10])
+                                    with c1:
+                                        st.number_input(
+                                            "Add Frame Index",
+                                            min_value=0,
+                                            max_value=st.session_state.max_images - 1,
+                                            value=None,
+                                            step=1,
+                                            key=f"{i}_video_subset_add_frame",
+                                            on_change=add_frame_callback,
+                                            args=(f"{i}_video_subset_add_frame",),
+                                            label_visibility="visible"     
+                                        )
+                                    with c2:
+                                        st.selectbox(
+                                            "View Frames in Subset (selection does nothing)",
+                                            options=sorted(st.session_state.subset_frames),
+                                            key=f"{i}_video_subset_view_frames_in_subset",
+                                            label_visibility="visible"     
+                                        )
+                                    with c3:
+                                        st.number_input(
+                                            "Remove Frame Index",
+                                            min_value=0,
+                                            max_value=st.session_state.max_images - 1,
+                                            value=None,
+                                            step=1,
+                                            key=f"{i}_video_subset_remove_frame",
+                                            on_change=remove_frame_callback,
+                                            args=(f"{i}_video_subset_remove_frame",),
+                                            label_visibility="visible"     
+                                        )
+
+                                    # Add/Remove Frames (range)
+                                    max_idx = st.session_state.max_images - 1
+                                    r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
+                                    with r1:
+                                        range_start = st.number_input(
+                                            "Range Start",
+                                            min_value=0,
+                                            max_value=max_idx,
+                                            value=0,
+                                            key=f"{i}_video_subset_range_start",
+                                            label_visibility="visible"     
+                                        )
+                                    with r2:
+                                        range_end = st.number_input(
+                                            "Range End",
+                                            min_value=0,
+                                            max_value=max_idx,
+                                            value=max_idx,
+                                            key=f"{i}_video_subset_range_end",
+                                            label_visibility="visible"     
+                                        )
+                                    with r3:
+                                        if st.button("Add Range", key=f"{i}_add_range_btn"):
+                                            lo, hi = sorted((range_start, range_end))
+                                            for i in range(lo, hi + 1):
+                                                if i not in st.session_state.subset_frames:
+                                                    st.session_state.subset_frames.append(i)
+                                            save_subset_csv(csv_file, st.session_state.subset_frames)
+                                            st.success(f"Added frames {lo}–{hi}")
+                                    with r4:
+                                        if st.button("Remove Range", key=f"{i}_remove_range_btn"):
+                                            lo, hi = sorted((range_start, range_end))
+                                            before = set(st.session_state.subset_frames)
+                                            st.session_state.subset_frames = [
+                                                i for i in st.session_state.subset_frames if not (lo <= i <= hi)
+                                            ]
+                                            save_subset_csv(csv_file, st.session_state.subset_frames)
+                                            removed = len(before) - len(st.session_state.subset_frames)
+                                            st.success(f"Removed {removed} frames")
+                    
+                    else:
+                        st.warning("No videos generated please go to Generate Data Tab.")
+
+
     elif action_option == "Move Directory":
         # SETTINGS
         with st.expander("Move Directory Settings"):
@@ -2926,701 +3620,8 @@ with tabs[1]:
         if output is not None:
             terminal_output.text(output)
 
-# ----------------------- Manual Label Tab -----------------------
-with tabs[2]:
-
-    with st.expander("Settings"):
-        st.write("### Image Scale")
-        st.write("Scale the image to fit the screen. This is useful for large images.")
-        st.number_input(
-            "Image Scale", 
-            value=st.session_state.unverified_image_scale,
-            step=0.25,
-            key="unverified_image_scale_input",
-            on_change=set_scale
-        )
-
-        st.write("### Images Path")
-        st.write("The path to the images.")
-        path_navigator("unverified_images_path")
-
-        st.write("### Label Names YAML Path")
-        st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
-        path_navigator("unverified_names_yaml_path")
-        
-        if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
-            st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
-            st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
-            update_unverified_data_path()
-
-            if st.session_state.max_images > 0:
-                update_unverified_frame()
-                
-            st.rerun()
-        
-        yaml_editor("unverified_names_yaml_path")
-
-    with st.expander("Subset Selection"):
-        st.write("Select only a small subset of images to review or manually label.")
-        if handle_image_list_update(prefix="subset_"):
-            # --- CSV Path Selection ---
-            st.subheader("Choose CSV Path for Subset")
-            
-            path_option = st.radio("PLease Choose:", ["Default", "Custom"], key="default_subset", label_visibility="collapsed")
-            if path_option == "Default":
-                st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
-            else:
-                path_navigator("unverified_subset_csv_path")
-
-            csv_file = st.session_state.paths["unverified_subset_csv_path"]
-            if os.path.exists(csv_file):
-                # Reload the subset frames from the CSV file
-                st.session_state.subset_frames = load_subset_frames(csv_file)
-
-                st.subheader("Modify/View Subset")
-
-                # Add/Remove Frames
-                if st.session_state.max_images > 0:
-                    c1, c2, c3 = st.columns([10, 10, 10])
-                    with c1:
-                        st.number_input(
-                            "Add Frame Index",
-                            min_value=0,
-                            max_value=st.session_state.max_images - 1,
-                            value=None,
-                            step=1,
-                            key="subset_add_frame",
-                            on_change=add_frame_callback,
-                            args=("subset_add_frame",)
-                        )
-
-                    with c2:
-                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="subset_view_frames_in_subset")
-
-                    with c3:
-                        st.number_input(
-                            "Remove Frame Index",
-                            min_value=0,
-                            max_value=st.session_state.max_images - 1,
-                            value=None,
-                            step=1,
-                            key="subset_remove_frame",
-                            on_change=remove_frame_callback,
-                            args=("subset_remove_frame",)
-                        )
-                else:
-                    st.warning("No images available.")
-
-                # --- Copy CSV to a New File ---
-                base, ext = os.path.splitext(csv_file)
-                default_copy_path = base + "_copy" + ext
-                new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
-                if st.button("Copy CSV to new file"):
-                    if new_save_path:
-                        try:
-                            st.session_state["skip_label_update"] = True
-                            save_subset_csv(new_save_path, st.session_state.subset_frames)
-                            st.success(f"Subset CSV copied to {new_save_path}")
-                        except Exception as e:
-                            st.error(f"Error copying file: {e}")
-                    else:
-                        st.error("Please enter a valid new file path.")
-            
-                # ---  Bulk Operations ---
-                st.markdown("---")
-                st.subheader("Bulk Subset Operations")
-
-                def _frame_label_count(idx):
-                    """Return number of non‑empty lines in that frame's label file."""
-                    # build image path
-                    if st.session_state.image_pattern:
-                        img = os.path.join(
-                            st.session_state.images_dir,
-                            st.session_state.image_pattern.format(idx)
-                        )
-                    else:
-                        img = st.session_state.image_list[idx]
-                    lbl = img.replace("/images/", "/labels/").rsplit(".", 1)[0] + ".txt"
-                    if os.path.exists(lbl):
-                        with open(lbl) as f:
-                            return sum(1 for l in f if l.strip())
-                    return 0
-
-                if st.button("Add ALL Labeled Frames"):
-                    st.session_state["skip_label_update"] = True
-                    labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
-                    for i in labeled:
-                        if i not in st.session_state.subset_frames:
-                            st.session_state.subset_frames.append(i)
-                    save_subset_csv(csv_file, st.session_state.subset_frames)
-                    st.success(f"Added {len(labeled)} labeled frames.")
-             
-                if st.button("Remove ALL Labeled Frames"):
-                    st.session_state["skip_label_update"] = True
-                    before = set(st.session_state.subset_frames)
-                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
-                    save_subset_csv(csv_file, st.session_state.subset_frames)
-                    removed = len(before) - len(st.session_state.subset_frames)
-                    st.success(f"Removed {removed} frames.")
-
-                if st.button("Add ALL Unlabeled Frames"):
-                    st.session_state["skip_label_update"] = True
-                    unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
-                    for i in unlabeled:
-                        if i not in st.session_state.subset_frames:
-                            st.session_state.subset_frames.append(i)
-                    save_subset_csv(csv_file, st.session_state.subset_frames)
-                    st.success(f"Added {len(unlabeled)} unlabeled frames.")
-                
-                if st.button("Remove ALL Unlabeled Frames"):
-                    st.session_state["skip_label_update"] = True
-                    before = set(st.session_state.subset_frames)
-                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
-                    save_subset_csv(csv_file, st.session_state.subset_frames)
-                    removed = len(before) - len(st.session_state.subset_frames)
-                    st.success(f"Removed {removed} frames.")
-
-                if st.button("Invert Subset Selection"):
-                    st.session_state["skip_label_update"] = True
-                    # all frame indices 0 … max_images-1
-                    all_frames = list(range(st.session_state.max_images))
-                    # keep only those not already in subset
-                    new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
-                    st.session_state.subset_frames = new_subset
-                    # persist to CSV
-                    save_subset_csv(csv_file, st.session_state.subset_frames)
-                    st.success(f"Inverted subset: {len(new_subset)} frames selected.")
-                    st.rerun()
-
-                if st.button("Delete ALL Labels in Subset"):
-                    st.session_state["skip_label_update"] = True
-                    for idx in st.session_state.subset_frames:
-                        # construct label path
-                        if st.session_state.image_pattern:
-                            img = os.path.join(
-                                st.session_state.images_dir,
-                                st.session_state.image_pattern.format(idx)
-                            )
-                        else:
-                            img = st.session_state.image_list[idx]
-                        lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
-                        open(lbl, "w").close()
-                    st.success("Cleared all label files for frames in subset.")
-
-                st.markdown("---")
-                # --- Save subset to directory ---
-                st.subheader("Save Subset to New Directory")
-                save_dir = path_navigator("subset_save_path", radio_button_prefix="save_subset")
-                if st.button("Save images & labels here"):
-                    st.session_state["skip_label_update"] = True
-                    out_imgs = os.path.join(save_dir, "images")
-                    out_lbls = os.path.join(save_dir, "labels")
-                    os.makedirs(out_imgs, exist_ok=True, mode=0o777)
-                    os.makedirs(out_lbls, exist_ok=True, mode=0o777)
-
-                    for idx in st.session_state.subset_frames:
-                        # resolve source image
-                        if st.session_state.image_pattern:
-                            src = os.path.join(
-                                st.session_state.images_dir,
-                                st.session_state.image_pattern.format(idx)
-                            )
-                        else:
-                            src = st.session_state.image_list[idx]
-                        # copy image
-                        shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
-                        # copy or touch label
-                        lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
-                        dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
-                        if os.path.exists(lbl):
-                            shutil.copy2(lbl, dst_lbl)
-                        else:
-                            open(dst_lbl, "w").close()
-                    st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
-            
-            else:
-                st.info("No CSV found. Create or upload a CSV to begin using a subset.")
-
-    # --- Radio Button for Review Mode Selection ---
-    review_mode = st.radio(
-        "Select Review Mode",
-        options=["Frame by Frame Review", "Object by Object Review", "Video Review"],
-        index=0
-    )
-
-    if review_mode == "Frame by Frame Review":
-        
-        with st.expander("Frame by Frame Label Review"):
-            st.write( "Review the labels in a frame by frame sequence.")
-            if handle_image_list_update(prefix="frame_by_frame_"):
-                loading = st.session_state.get("detection_running", False)
-
-                if st.session_state.max_images > 0:
-                    if st.session_state.max_images > 1:
-                        # --- Top Navigation (Prev / Next) ---
-                        col_prev, _, col_next = st.columns([4, 5, 4])
-                        with col_prev:
-                            st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
-                        with col_next:
-                            st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
-
-                        col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
-                        with col_copy_prev:
-                            st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
-                        with col_copy_next:
-                            st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
-
-                    # --- Read and Display Current Frame ---
-                    update_unverified_frame()
-
-                    st.write(f"Current File Path: {st.session_state.image_path}")
-
-                    # Annotate with detection()
-                    det_container = st.container()
-                    with det_container:
-                        if not loading:
-                            with st.spinner("Processing..."):
-                                out = detection(**st.session_state.detection_config)
-                        else:
-                            out = detection(**st.session_state.detection_config)
-
-                    st.session_state.out = out
-
-                    # Update labels if changed
-                    update_labels_from_detection()
-
-                    c1, c2 = st.columns([10, 90])
-                    with c1:
-                        st.markdown(
-                            """
-                            <style>
-                            .stCheckbox input[type="checkbox"] {
-                                transform: scale(1.5);
-                            }
-                            .stCheckbox label {
-                                font-size: 24px;
-                                font-weight: bold;
-                            }
-                            </style>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                        use_subset_val = st.checkbox(
-                            "Use Subset",
-                            value=st.session_state.use_subset,
-                            key="manual_label_subset_btn",
-                            on_change=manual_label_subset_checkbox_callback,
-                            disabled=not len(st.session_state.subset_frames) > 1
-                        )
-                        if st.session_state.use_subset_changed:
-                            st.session_state.use_subset_changed = False
-                            st.rerun()
-
-                        
-                    with c2:
-                        c12, c22, c32 = st.columns([10, 10, 10])
-                        with c12:
-                            st.number_input(
-                                "Add Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="frame_by_frame_add_frame",
-                                on_change=add_frame_callback,
-                                args=("frame_by_frame_add_frame",)
-                            )
-
-                        with c22:
-                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
-
-                        with c32:
-                            st.number_input(
-                                "Remove Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="frame_by_frame_remove_frame",
-                                on_change=remove_frame_callback,
-                                args=("frame_by_frame_remove_frame",)
-                            )
-
-                    if not len(st.session_state.subset_frames) > 1:
-                            st.warning("Subset needs to be two or larger.")
-                    
-                    if st.session_state.max_images > 1:
-                        # Additional navigation (jump, slider, second Prev/Next)
-                        st.number_input(
-                            "Current Frame",
-                            min_value=0,
-                            max_value=st.session_state.max_images-1,
-                            value=st.session_state.frame_index,
-                            step=10,
-                            key="jump_page",
-                            on_change=jump_frame_frame_by_frame_callback
-                        )
-                        col_prev, col_slider, col_next = st.columns([2, 10, 4])
-                        with col_prev:
-                            st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
-                        with col_slider:
-                            st.slider(
-                                f"Subset Index: {st.session_state.frame_index}  Frame Index: {st.session_state.actual_frame_index}"
-                                if st.session_state.use_subset else f"Frame Index: {st.session_state.actual_frame_index}",
-                                0,
-                                st.session_state.max_images - 1 if not st.session_state.use_subset
-                                else len(st.session_state.subset_frames) - 1,
-                                st.session_state.frame_index,
-                                key="slider_det",
-                                on_change=frame_slider_frame_by_frame_callback,
-                                label_visibility="collapsed"
-                            )
-                        with col_next:
-                            st.button("Next Frame", key="next_btn", on_click=next_callback)
-                else:
-                    st.warning("Data Path is empty...")
-        
-        with st.expander("Zoomed‑in Bounding Box Regions"):
-            # Safely pull values (defaults to empty or None)
-            image    = st.session_state.get("image", None)
-            bboxes   = st.session_state.get("bboxes_xyxy", [])
-            labels   = st.session_state.get("labels", [])
-            bbox_ids = st.session_state.get("bbox_ids", [])
-
-            # If there's no image or no boxes, show a message
-            if image is None or not bboxes:
-                st.warning("No bounding boxes in current frame.")
-            else:
-                # Update frame if needed
-                update_unverified_frame()
-
-                # Render each crop + controls
-                for i, (x, y, w, h) in enumerate(bboxes):
-                    # Compute coordinates
-                    x1, y1 = max(x, 0.0), max(y, 0.0)
-                    x2, y2 = x1 + w,      y1 + h
-
-                    # Sanity check
-                    if x2 <= x1 or y2 <= y1:
-                        st.session_state.labels.pop(i)
-                        st.session_state.bboxes_xyxy.pop(i)
-                        st.session_state.bbox_ids.pop(i)
-                        st.rerun()
-
-                    # Crop & caption
-                    cropped = image.crop((x1, y1, x2, y2))
-                    if i < len(labels):
-                        idx = labels[i]
-                        try:
-                            label_name = st.session_state.label_list[idx]
-                        except Exception:
-                            label_name = f"Label {idx}"
-                    else:
-                        label_name = "Unknown"
-                    caption = (
-                        f"ID: {bbox_ids[i]}, "
-                        f"Label: {label_name}, "
-                        f"BBox: ({x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f})"
-                    )
-
-                    key_x = f"bbox_{bbox_ids[i]}_cx"
-                    key_y = f"bbox_{bbox_ids[i]}_cy"
-                    key_w = f"bbox_{bbox_ids[i]}_w"
-                    key_h = f"bbox_{bbox_ids[i]}_h"
-
-                    st.markdown(f"#### Edit Bounding Box {i} Parameters")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.image(cropped, caption=caption)
-
-                    # Default center coords
-                    center_x = x + w / 2
-                    center_y = y + h / 2
-
-                    with col2:
-                        st.number_input(
-                            f"Center X for bbox {i}",
-                            min_value=0.0,
-                            max_value=float(st.session_state.image_width),
-                            value=center_x,
-                            key=key_x,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                        )
-                        st.number_input(
-                            f"Center Y for bbox {i}",
-                            min_value=0.0,
-                            max_value=float(st.session_state.image_height),
-                            value=center_y,
-                            key=key_y,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                        )
-                        st.number_input(
-                            f"Width for bbox {i}",
-                            min_value=1.0,
-                            max_value=float(st.session_state.image_width),
-                            value=w,
-                            key=key_w,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                        )
-                        st.number_input(
-                            f"Height for bbox {i}",
-                            min_value=1.0,
-                            max_value=float(st.session_state.image_height),
-                            value=h,
-                            key=key_h,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                    )
-                        
-    elif review_mode == "Object by Object Review":
-        with st.expander("Object by Object Label Review"):
-            st.write( "Review the labels in an object by object sequence.")
-            
-            # Call the helper function to ensure image list/naming pattern is up-to-date.
-            if handle_image_list_update(prefix="object_by_object_"):
-                current_obj = get_object_by_global_index(st.session_state.global_object_index)
-                if current_obj is None:
-                    st.session_state.global_object_index = 0
-                    current_obj = get_object_by_global_index(st.session_state.global_object_index)
-                    if current_obj is None:
-                        st.info("No objects found in the dataset.")
-                    else:
-                        st.rerun()
-                else:
-                    img = current_obj["img"]
-                    bbox = current_obj["bbox"]
-                    obj_label = current_obj["label"]
-                    image_path = current_obj["image_path"]
-                    label_path = current_obj["label_path"]
-                    x, y, w, h = bbox
-                    center_x = x + w / 2
-                    center_y = y + h / 2
-
-                    mode = st.radio(
-                        "Display Mode",
-                        options=["Cropped Object", "Full Image with BBox"],
-                        key=f"object_display_mode_{current_obj['global_index']}"
-                    )
-
-                    if mode == "Cropped Object":
-                        display_img = img.crop((x, y, x + w, y + h))
-                        caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Cropped)"
-                    else:
-                        full_img = img.copy()
-                        draw = ImageDraw.Draw(full_img)
-                        draw.rectangle((x, y, x + w, y + h), outline="red", width=2)
-                        display_img = full_img
-                        caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Full Image)"
-
-                    col_img, col_ctrl = st.columns(2)
-                    with col_img:
-                        st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-                        st.image(display_img, caption=caption, use_container_width=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    with col_ctrl:
-                        st.number_input(
-                            f"Center X for object {current_obj['global_index']}",
-                            min_value=0.0,
-                            max_value=float(img.width),
-                            value=center_x,
-                            key=f"object_{current_obj['global_index']}_center_x",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback
-                        )
-                        st.number_input(
-                            f"Center Y for object {current_obj['global_index']}",
-                            min_value=0.0,
-                            max_value=float(img.height),
-                            value=center_y,
-                            key=f"object_{current_obj['global_index']}_center_y",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback
-                        )
-                        st.number_input(
-                            f"Width for object {current_obj['global_index']}",
-                            min_value=1.0,
-                            max_value=float(img.width),
-                            value=w,
-                            key=f"object_{current_obj['global_index']}_w",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback
-                        )
-                        st.number_input(
-                            f"Height for object {current_obj['global_index']}",
-                            min_value=1.0,
-                            max_value=float(img.height),
-                            value=h,
-                            key=f"object_{current_obj['global_index']}_h",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback
-                        )
-
-                        col_input1, col_input2 = st.columns(2)
-                        with col_input1:
-                            num_labels = current_obj["num_labels"]
-                            new_global_index = st.number_input(
-                                f"Set Global Object Index (0-{num_labels-1})",
-                                min_value=0,
-                                value=st.session_state.global_object_index,
-                                key="global_obj_index_input"
-                            )
-                            if new_global_index != st.session_state.global_object_index:
-                                st.session_state.global_object_index = int(new_global_index)
-                                st.rerun()
-
-                        with col_input2:
-                            frame_index = get_frame_index_from_filename(current_obj["image_path"])
-                            if frame_index:
-                                st.session_state.frame_index = frame_index
-                            jump_frame = st.number_input(
-                                "Jump to Frame Number",
-                                min_value=0,
-                                value=st.session_state.frame_index,  # or a separate default value if desired
-                                max_value= st.session_state.max_images - 1,
-                                key="jump_to_frame_input",
-                                on_change=jump_frame_object_by_object_callback
-                                
-                            )
-
-                            if st.session_state.object_by_object_jump_warning is None:     
-                                if st.session_state.object_by_object_jump_valid:
-                                    st.session_state.object_by_object_jump_valid = False                         
-                                    st.rerun()
-                            else: 
-                                st.warning(st.session_state.object_by_object_jump_warning)
-                                st.session_state.object_by_object_jump_warning = None  # Reset flag.
-
-                        col_nav1, col_nav2, col_nav3 = st.columns(3)
-                        with col_nav1:
-                            if st.button("Previous Object", key="prev_global_obj"):
-                                if st.session_state.global_object_index - 1 < 0:
-                                    st.session_state.global_object_index = current_obj["num_labels"] - 1
-                                else:
-                                    st.session_state.global_object_index -= 1
-                                st.rerun()
-                        with col_nav2:
-                            if st.button("Next Object", key="next_global_obj"):
-                                if st.session_state.global_object_index >= current_obj["num_labels"]:
-                                    st.session_state.global_object_index = 0
-                                else:
-                                    st.session_state.global_object_index += 1
-                                st.rerun()
-                        with col_nav3:
-                            if st.button("Delete Object", key="delete_global_obj"):
-                                try:
-                                    with open(label_path, "r") as f:
-                                        lines = f.readlines()
-                                    local_idx = current_obj["local_index"]
-                                    if local_idx < len(lines):
-                                        del lines[local_idx]
-                                        with open(label_path, "w") as f:
-                                            f.writelines(lines)
-                                        st.success("Object deleted.")
-                                    else:
-                                        st.error("Local object index out of range in label file.")
-                                except Exception as e:
-                                    st.error(f"Error deleting object: {e}")
-                                st.rerun()
-
-    else:
-        with st.expander("Video Label Review"):
-            update_unverified_data_path()
-            if handle_image_list_update(prefix="video_"):
-                video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
-                if os.path.exists(video_base_path):
-                        
-                    video_paths = os.listdir(video_base_path)
-
-                    for i in range(len(video_paths) + 1):
-                        video_path = video_paths[i-1]
-
-                        if i > 0:
-                            if "frame_by_frame" in video_path or "object_by_object" in video_path:
-                                st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
-
-                        # Add/Remove Frames (single)
-                        if st.session_state.max_images > 0:
-                                c1, c2, c3 = st.columns([10, 10, 10])
-                                with c1:
-                                    st.number_input(
-                                        "Add Frame Index",
-                                        min_value=0,
-                                        max_value=st.session_state.max_images - 1,
-                                        value=None,
-                                        step=1,
-                                        key=f"{i}_video_subset_add_frame",
-                                        on_change=add_frame_callback,
-                                        args=(f"{i}_video_subset_add_frame",),
-                                        label_visibility="visible"     
-                                    )
-                                with c2:
-                                    st.selectbox(
-                                        "View Frames in Subset (selection does nothing)",
-                                        options=sorted(st.session_state.subset_frames),
-                                        key=f"{i}_video_subset_view_frames_in_subset",
-                                        label_visibility="visible"     
-                                    )
-                                with c3:
-                                    st.number_input(
-                                        "Remove Frame Index",
-                                        min_value=0,
-                                        max_value=st.session_state.max_images - 1,
-                                        value=None,
-                                        step=1,
-                                        key=f"{i}_video_subset_remove_frame",
-                                        on_change=remove_frame_callback,
-                                        args=(f"{i}_video_subset_remove_frame",),
-                                        label_visibility="visible"     
-                                    )
-
-                                # Add/Remove Frames (range)
-                                max_idx = st.session_state.max_images - 1
-                                r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
-                                with r1:
-                                    range_start = st.number_input(
-                                        "Range Start",
-                                        min_value=0,
-                                        max_value=max_idx,
-                                        value=0,
-                                        key=f"{i}_video_subset_range_start",
-                                        label_visibility="visible"     
-                                    )
-                                with r2:
-                                    range_end = st.number_input(
-                                        "Range End",
-                                        min_value=0,
-                                        max_value=max_idx,
-                                        value=max_idx,
-                                        key=f"{i}_video_subset_range_end",
-                                        label_visibility="visible"     
-                                    )
-                                with r3:
-                                    if st.button("Add Range", key=f"{i}_add_range_btn"):
-                                        lo, hi = sorted((range_start, range_end))
-                                        for i in range(lo, hi + 1):
-                                            if i not in st.session_state.subset_frames:
-                                                st.session_state.subset_frames.append(i)
-                                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                                        st.success(f"Added frames {lo}–{hi}")
-                                with r4:
-                                    if st.button("Remove Range", key=f"{i}_remove_range_btn"):
-                                        lo, hi = sorted((range_start, range_end))
-                                        before = set(st.session_state.subset_frames)
-                                        st.session_state.subset_frames = [
-                                            i for i in st.session_state.subset_frames if not (lo <= i <= hi)
-                                        ]
-                                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                                        removed = len(before) - len(st.session_state.subset_frames)
-                                        st.success(f"Removed {removed} frames")
-                
-                else:
-                    st.warning("No videos generated please go to Generate Data Tab.")
-
 # ----------------------- Dataset Statistics Tab -----------------------
-with tabs[3]:
+with tabs[2]:
     with st.expander("Dataset Statistics"):
         st.subheader("Dataset Figures")
         st.write("The path to the formated dataset (with images and labels folders).")
@@ -3658,7 +3659,7 @@ with tabs[3]:
                 st.info("Figures are cleared. Click 'Generate Figures' to display them.")
 
 # ----------------------- Train Status Tab -----------------------
-with tabs[4]:
+with tabs[3]:
     with st.expander("Data YAML"):
         st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
         path_navigator("train_data_yaml_path")
@@ -3722,7 +3723,7 @@ with tabs[4]:
             terminal_output.text(output)
 
 # ----------------------- Linux Terminal Tab -----------------------
-with tabs[5]:
+with tabs[4]:
     # Initialize accumulated terminal output in session state.
     if "terminal_text" not in st.session_state:
         st.session_state.terminal_text = ""
@@ -3771,7 +3772,7 @@ with tabs[5]:
     output_placeholder.code(st.session_state.terminal_text, language="bash")
 
 # ----------------------- Unrestrict Tab -----------------------
-with tabs[6]:
+with tabs[5]:
     st.subheader("Open Workspace")
     st.write("Pick a folder to keep with fully unrestricted (777) permissions on every rerun.")
     path_navigator("open_workspace", must_exist=True)
