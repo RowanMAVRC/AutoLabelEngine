@@ -3712,19 +3712,36 @@ with tabs[5]:
 with tabs[6]:
     st.subheader("Open Workspace")
     st.write("Pick a folder to keep with fully unrestricted (777) permissions on every rerun.")
-    path_navigator("open_workspace", must_exist=False)
-    ow = st.session_state.paths["open_workspace"]
-    if ow:
-        st.success(f"📂 Will keep `{ow}` at 777 perms on each rerun")
-    else:
-        st.info("No open workspace set yet.")
+    path_navigator("open_workspace", must_exist=True)
 
-    ow = st.session_state.paths.get("open_workspace")
-    if ow and os.path.exists(ow):
-        # kill any previous session to avoid duplicates
-        subprocess.call("tmux kill-session -t chmod_free_workspace 2>/dev/null", shell=True)
-        # spawn a new background tmux session that does the chmod
-        subprocess.call(
-            f"tmux new-session -d -s chmod_free_workspace \"chmod -R 777 '{ow}'\"",
-            shell=True
-        )
+    
+    ow = st.session_state.paths["open_workspace"]
+
+
+    enable_option = st.radio(
+        "Choose option:",
+        ["Disable", "Enable"],
+        key=f"enable_chmod_radio",
+        label_visibility="collapsed",
+    )
+
+    if enable_option == "Enable":
+        if ow:
+            st.success(f"📂 Will keep `{ow}` at 777 perms on each rerun")
+        else:
+            st.info("No open workspace set yet.")
+
+        ow = st.session_state.paths.get("open_workspace")
+        if ow and os.path.exists(ow):
+            # kill any previous session to avoid duplicates
+            subprocess.call("tmux kill-session -t chmod_free_workspace 2>/dev/null", shell=True)
+            # spawn a new background tmux session that does the chmod
+            subprocess.call(
+                f"tmux new-session -d -s chmod_free_workspace \"chmod -R 777 '{ow}'\"",
+                shell=True
+            )
+    else:
+        if ow and os.path.exists(ow):
+            st.info(f"Currently disabled. Workspace is set to `{ow}`. Once enabled, permissions will be set to 777 on each rerun.")
+        else:
+            st.info("Currently disabled and no valid open workspace set yet.")
