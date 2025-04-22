@@ -188,7 +188,11 @@ def upload_to_dir(save_dir):
             temp_zip_path = os.path.join(save_dir, uploaded_file.name)
             with open(temp_zip_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            os.chmod(temp_zip_path, 0o777)
+            
+            try:
+                os.chmod(temp_zip_path, 0o777)
+            except:
+                pass
             
             # Extract all contents of the ZIP file to the save directory.
             with zipfile.ZipFile(temp_zip_path, 'r') as zip_ref:
@@ -201,8 +205,12 @@ def upload_to_dir(save_dir):
             file_path = os.path.join(save_dir, uploaded_file.name)
             with open(file_path, "wb") as f:
                 f.write(uploaded_file.getbuffer())
-            os.chmod(file_path, 0o777)
-
+            
+            try:
+                os.chmod(file_path, 0o777)
+            except:
+                pass
+            
         # Reset the file uploader state
         if uploader_key in st.session_state:
             del st.session_state[uploader_key]  # Properly reset uploader key
@@ -488,7 +496,12 @@ def save_subset_csv(csv_path, frames):
     with open(csv_path, "w") as f:
         for frame in frames_sorted:
             f.write(f"{frame}\n")
-    os.chmod(csv_path, 0o777)
+    
+    try:
+        os.chmod(csv_path, 0o777)
+    except:
+        pass
+    
     
 
 ## TMUX Terminal Commands
@@ -1075,7 +1088,12 @@ def update_unverified_frame():
     else:
         with open(label_path, "w") as f:
             f.write("")
-        os.chmod(label_path, 0o777)
+        
+        try:
+            os.chmod(label_path, 0o777)
+        except:
+            pass
+        
 
     bbox_ids = ["bbox-" + str(i) for i in range(len(bboxes_xyxy))]
 
@@ -3548,7 +3566,7 @@ with tabs[2]:
                                         max_value=st.session_state.max_images - 1,
                                         value=None,
                                         step=1,
-                                        key=f"{i}_subset_remove_frame",
+                                        key=f"{i}_video_subset_remove_frame",
                                         on_change=remove_frame_callback,
                                         args=(f"{i}_video_subset_remove_frame",),
                                         label_visibility="visible"     
