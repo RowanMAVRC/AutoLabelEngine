@@ -1549,45 +1549,49 @@ def set_scale():
 ## Zoom & Object Edit Callbacks
 
 def zoom_edit_callback(i):
+
     # If the box at index i has been deleted, just return.
     if i < 0 or i >= len(st.session_state.bboxes_xyxy):
         return
 
     old_bbox = st.session_state.bboxes_xyxy[i]
 
-    new_center_x = st.session_state[f"bbox_{i}_cx"]
-    flipped_center_y = st.session_state[f"bbox_{i}_cy"]
-    image_height = st.session_state.image_height
-    actual_center_y = image_height - flipped_center_y
-    new_w = st.session_state[f"bbox_{i}_w"]
-    new_h = st.session_state[f"bbox_{i}_h"]
+    try:
+        new_center_x = st.session_state[f"bbox_{i}_cx"]
+        flipped_center_y = st.session_state[f"bbox_{i}_cy"]
+        image_height = st.session_state.image_height
+        actual_center_y = image_height - flipped_center_y
+        new_w = st.session_state[f"bbox_{i}_w"]
+        new_h = st.session_state[f"bbox_{i}_h"]
 
-    new_x = new_center_x - new_w/2
-    new_y = actual_center_y - new_h/2
+        new_x = new_center_x - new_w/2
+        new_y = actual_center_y - new_h/2
 
-    if new_x < 0:
-        new_x = 0.0
-    if new_y < 0:
-        new_y = 0.0
-    if new_x + new_w > st.session_state.image_width:
-        new_x = st.session_state.image_width - new_w
-    if new_y + new_h > image_height:
-        new_y = image_height - new_h
+        if new_x < 0:
+            new_x = 0.0
+        if new_y < 0:
+            new_y = 0.0
+        if new_x + new_w > st.session_state.image_width:
+            new_x = st.session_state.image_width - new_w
+        if new_y + new_h > image_height:
+            new_y = image_height - new_h
 
-    if (new_x, new_y, new_w, new_h) != tuple(old_bbox):
-        st.session_state.bboxes_xyxy[i] = [new_x, new_y, new_w, new_h]
-        label_path = st.session_state.label_path
-        image_width = st.session_state.image_width
-        with open(label_path, "w") as f:
-            for label, bbox in zip(st.session_state.labels, st.session_state.bboxes_xyxy):
-                bx, by, bw, bh = bbox
-                x_center_norm = (bx + bw/2) / image_width
-                y_center_norm = (by + bh/2) / image_height
-                width_norm = bw / image_width
-                height_norm = bh / image_height
-                f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
-        st.session_state["skip_label_update"] = True
-
+        if (new_x, new_y, new_w, new_h) != tuple(old_bbox):
+            st.session_state.bboxes_xyxy[i] = [new_x, new_y, new_w, new_h]
+            label_path = st.session_state.label_path
+            image_width = st.session_state.image_width
+            with open(label_path, "w") as f:
+                for label, bbox in zip(st.session_state.labels, st.session_state.bboxes_xyxy):
+                    bx, by, bw, bh = bbox
+                    x_center_norm = (bx + bw/2) / image_width
+                    y_center_norm = (by + bh/2) / image_height
+                    width_norm = bw / image_width
+                    height_norm = bh / image_height
+                    f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+            st.session_state["skip_label_update"] = True
+    except:
+        pass
+    
 def get_object_by_global_index(global_index):
     """
     Iterates over the image list (built using the naming pattern if available)
