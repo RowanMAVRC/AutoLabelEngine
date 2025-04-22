@@ -1555,12 +1555,12 @@ def zoom_edit_callback(i):
 
     old_bbox = st.session_state.bboxes_xyxy[i]
 
-    new_center_x = st.session_state[f"bbox_{i}_center_x_input"]
-    flipped_center_y = st.session_state[f"bbox_{i}_center_y_input"]
+    new_center_x = st.session_state[f"bbox_{i}_cx"]
+    flipped_center_y = st.session_state[f"bbox_{i}_cy"]
     image_height = st.session_state.image_height
     actual_center_y = image_height - flipped_center_y
-    new_w = st.session_state[f"bbox_{i}_w_input"]
-    new_h = st.session_state[f"bbox_{i}_h_input"]
+    new_w = st.session_state[f"bbox_{i}_w"]
+    new_h = st.session_state[f"bbox_{i}_h"]
 
     new_x = new_center_x - new_w/2
     new_y = actual_center_y - new_h/2
