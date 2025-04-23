@@ -7,6 +7,7 @@ import pandas as pd
 import torch
 import numpy as np
 from PIL import Image
+from tqdm import tqdm
 
 def extract_features_tensor(img_crop):
     """
@@ -49,7 +50,7 @@ def build_mapping(images_dir):
     rows = []
     idx = 0
 
-    for img_name in sorted(os.listdir(images_dir)):
+    for img_name in tqdm(sorted(os.listdir(images_dir)), desc="Building mapping"):
         if not img_name.lower().endswith((".jpg", ".jpeg", ".png")):
             continue
         img_path = os.path.join(images_dir, img_name)
@@ -121,7 +122,7 @@ def main():
 
     # 3) Extract features for reference objects
     ref_feats = []
-    for idx in refs:
+    for idx in tqdm(refs, desc="Extracting reference features"):
         row = mapping.iloc[idx]
         img = Image.open(row.image_path)
         crop = img.crop((
@@ -140,7 +141,7 @@ def main():
 
     # 4) Extract features for all objects
     all_feats = []
-    for _, row in mapping.iterrows():
+    for _, row in tqdm(mapping.iterrows(), total=len(mapping), desc="Extracting all features"):
         img = Image.open(row.image_path)
         crop = img.crop((
             int(row.bbox_x), int(row.bbox_y),
