@@ -2928,6 +2928,12 @@ with tabs[0]:
                                 return sum(1 for l in f if l.strip())
                         return 0
 
+                    if st.button("Clear Subset Selection", key="clear_subset_selection"):
+                        st.session_state.subset_frames = []
+                        save_subset_csv(csv_file, st.session_state.subset_frames)
+                        st.success("Cleared all frames from subset selection.")
+                        st.rerun()
+
                     if st.button("Add ALL Labeled Frames"):
                         st.session_state["skip_label_update"] = True
                         labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
