@@ -1694,44 +1694,41 @@ def load_objects_from_image(image_path):
 def object_by_object_edit_callback():
     """
     Reads new values from session_state keys for the current object,
-    recalculates the bounding box (clamping to image boundaries), and
-    updates the corresponding line in the label file if changes occurred.
+    recalculates the bounding box, updates the label file if changed,
+    and sets a flag to freeze the UI while running.
     """
-    current_obj = get_object_by_global_index(st.session_state.global_object_index)
-    if current_obj is None:
-        st.warning("No object found to update.")
-        return
+    st.session_state["object_running"] = True
+    try:
+        current_obj = get_object_by_global_index(st.session_state.global_object_index)
+        if current_obj is None:
+            st.warning("No object found to update.")
+            return
 
-    img = current_obj["img"]
-    old_bbox = current_obj["bbox"]  # Format: [x, y, w, h]
-    global_idx = current_obj["global_index"]
+        img = current_obj["img"]
+        old_bbox = current_obj["bbox"]
+        global_idx = current_obj["global_index"]
 
-    # Retrieve new values from session_state; use old values if not set.
-    new_center_x = st.session_state.get(f"object_{global_idx}_center_x", old_bbox[0] + old_bbox[2]/2)
-    new_center_y = st.session_state.get(f"object_{global_idx}_center_y", old_bbox[1] + old_bbox[3]/2)
-    new_w = st.session_state.get(f"object_{global_idx}_w", old_bbox[2])
-    new_h = st.session_state.get(f"object_{global_idx}_h", old_bbox[3])
+        # Retrieve new values (falling back on old if missing)
+        new_center_x = st.session_state.get(f"object_{global_idx}_center_x", old_bbox[0] + old_bbox[2]/2)
+        new_center_y = st.session_state.get(f"object_{global_idx}_center_y", old_bbox[1] + old_bbox[3]/2)
+        new_w = st.session_state.get(f"object_{global_idx}_w", old_bbox[2])
+        new_h = st.session_state.get(f"object_{global_idx}_h", old_bbox[3])
 
-    # Calculate new top-left corner based on center and dimensions.
-    new_x = new_center_x - new_w/2
-    new_y = new_center_y - new_h/2
+        # Compute and clamp new bbox
+        new_x = max(0.0, new_center_x - new_w/2)
+        new_y = max(0.0, new_center_y - new_h/2)
+        new_w = min(new_w, img.width)
+        new_h = min(new_h, img.height)
+        if new_x + new_w > img.width:
+            new_x = img.width - new_w
+        if new_y + new_h > img.height:
+            new_y = img.height - new_h
 
-    # Clamp the new bounding box within image boundaries.
-    if new_x < 0:
-        new_x = 0.0
-    if new_y < 0:
-        new_y = 0.0
-    if new_x + new_w > img.width:
-        new_x = img.width - new_w
-    if new_y + new_h > img.height:
-        new_y = img.height - new_h
+        new_bbox = [new_x, new_y, new_w, new_h]
 
-    new_bbox = [new_x, new_y, new_w, new_h]
-
-    # Update the label file if the bounding box has changed.
-    if new_bbox != old_bbox:
-        label_file = current_obj["label_path"]
-        try:
+        # If changed, rewrite the label file
+        if new_bbox != old_bbox:
+            label_file = current_obj["label_path"]
             with open(label_file, "r") as f:
                 lines = f.readlines()
             local_idx = current_obj["local_index"]
@@ -1739,14 +1736,14 @@ def object_by_object_edit_callback():
             y_center_norm = (new_y + new_h/2) / img.height
             width_norm = new_w / img.width
             height_norm = new_h / img.height
-            new_line = f"{current_obj['label']} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n"
-            lines[local_idx] = new_line
+            lines[local_idx] = f"{current_obj['label']} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n"
             with open(label_file, "w") as f:
                 f.writelines(lines)
-        except Exception as e:
-            st.error(f"Error updating label file: {e}")
-    else:
-        st.info("No changes detected.")
+    except Exception as e:
+        st.error(f"Error updating object: {e}")
+    finally:
+        # always clear the “running” flag
+        st.session_state["object_running"] = False
 
 @st.cache_data(show_spinner=False)
 def extract_features(img_crop):
@@ -3274,6 +3271,8 @@ with tabs[0]:
                 
                 # Call the helper function to ensure image list/naming pattern is up-to-date.
                 if handle_image_list_update(prefix="object_by_object_"):
+                    object_running = st.session_state.get("object_running", False)
+
                     current_obj = get_object_by_global_index(st.session_state.global_object_index)
                     if current_obj is None:
                         st.session_state.global_object_index = 0
@@ -3298,7 +3297,8 @@ with tabs[0]:
                         mode = st.radio(
                             "Display Mode",
                             options=["Cropped Object", "Full Image with BBox"],
-                            key=f"object_display_mode_{current_obj['global_index']}"
+                            key=f"object_display_mode_{current_obj['global_index']}",
+                            disabled=object_running
                         )
 
                         if mode == "Cropped Object":
@@ -3324,7 +3324,8 @@ with tabs[0]:
                                 value=center_x,
                                 key=f"object_{current_obj['global_index']}_center_x",
                                 step=1.0,
-                                on_change=object_by_object_edit_callback
+                                on_change=object_by_object_edit_callback,
+                                disabled=object_running
                             )
                             st.number_input(
                                 f"Center Y for object {current_obj['global_index']}",
@@ -3333,7 +3334,8 @@ with tabs[0]:
                                 value=center_y,
                                 key=f"object_{current_obj['global_index']}_center_y",
                                 step=1.0,
-                                on_change=object_by_object_edit_callback
+                                on_change=object_by_object_edit_callback,
+                                disabled=object_running
                             )
                             st.number_input(
                                 f"Width for object {current_obj['global_index']}",
@@ -3342,7 +3344,8 @@ with tabs[0]:
                                 value=w,
                                 key=f"object_{current_obj['global_index']}_w",
                                 step=1.0,
-                                on_change=object_by_object_edit_callback
+                                on_change=object_by_object_edit_callback,
+                                disabled=object_running
                             )
                             st.number_input(
                                 f"Height for object {current_obj['global_index']}",
@@ -3351,7 +3354,8 @@ with tabs[0]:
                                 value=h,
                                 key=f"object_{current_obj['global_index']}_h",
                                 step=1.0,
-                                on_change=object_by_object_edit_callback
+                                on_change=object_by_object_edit_callback,
+                                disabled=object_running
                             )
 
                             col_input1, col_input2 = st.columns(2)
@@ -3361,7 +3365,8 @@ with tabs[0]:
                                     f"Set Global Object Index (0-{num_labels-1})",
                                     min_value=0,
                                     value=st.session_state.global_object_index,
-                                    key="global_obj_index_input"
+                                    key="global_obj_index_input",
+                                    disabled=object_running
                                 )
                                 if new_global_index != st.session_state.global_object_index:
                                     st.session_state.global_object_index = int(new_global_index)
@@ -3377,8 +3382,8 @@ with tabs[0]:
                                     value=st.session_state.frame_index,  # or a separate default value if desired
                                     max_value= st.session_state.max_images - 1,
                                     key="jump_to_frame_input",
-                                    on_change=jump_frame_object_by_object_callback
-                                    
+                                    on_change=jump_frame_object_by_object_callback,
+                                    disabled=object_running
                                 )
 
                                 if st.session_state.object_by_object_jump_warning is None:     
@@ -3391,21 +3396,21 @@ with tabs[0]:
 
                             col_nav1, col_nav2, col_nav3 = st.columns(3)
                             with col_nav1:
-                                if st.button("Previous Object", key="prev_global_obj"):
+                                if st.button("Previous Object", key="prev_global_obj", disabled=object_running):
                                     if st.session_state.global_object_index - 1 < 0:
                                         st.session_state.global_object_index = current_obj["num_labels"] - 1
                                     else:
                                         st.session_state.global_object_index -= 1
                                     st.rerun()
                             with col_nav2:
-                                if st.button("Next Object", key="next_global_obj"):
+                                if st.button("Next Object", key="next_global_obj", disabled=object_running):
                                     if st.session_state.global_object_index >= current_obj["num_labels"]:
                                         st.session_state.global_object_index = 0
                                     else:
                                         st.session_state.global_object_index += 1
                                     st.rerun()
                             with col_nav3:
-                                if st.button("Delete Object", key="delete_global_obj"):
+                                if st.button("Delete Object", key="delete_global_obj", disabled=object_running):
                                     try:
                                         with open(label_path, "r") as f:
                                             lines = f.readlines()
@@ -3426,7 +3431,8 @@ with tabs[0]:
                             "Select reference object(s)",
                             options=list(range(st.session_state.global_object_count)),
                             default=[],
-                            key="cluster_refs"
+                            key="cluster_refs",
+                            disabled=object_running
                         )
 
             with st.expander("Clustered Objects"):
@@ -3500,7 +3506,6 @@ with tabs[0]:
                 path_navigator("cluster_script_path")
                 python_code_editor("cluster_script_path")
 
-                        
             with st.expander("Cluster Objects"):
                 
 
