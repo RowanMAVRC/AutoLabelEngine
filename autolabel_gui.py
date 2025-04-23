@@ -1759,6 +1759,7 @@ def render_checkbox_grid(predicted_indices, thumb_width: int = 150, cols: int = 
     Displays a grid of thumbnails with checkboxes.
     Returns list of indices for which the checkbox was checked.
     """
+
     selected = []
     # Split into rows
     rows = [predicted_indices[i:i+cols] for i in range(0, len(predicted_indices), cols)]
@@ -1771,6 +1772,7 @@ def render_checkbox_grid(predicted_indices, thumb_width: int = 150, cols: int = 
                 st.image(f"data:image/png;base64,{b64}", width=thumb_width, use_container_width=False)
                 if checked:
                     selected.append(idx)
+
     return selected
 
 ## Image / Video Processing & Creation
@@ -3272,7 +3274,7 @@ with tabs[0]:
 
                         # Reference selector (no default)
                     reference_indices = st.multiselect(
-                        "Select reference object(s)",
+                        "Select reference object(s) for clustering",
                         options=list(range(st.session_state.global_object_count)),
                         default=[],
                         key="cluster_refs",
@@ -3296,8 +3298,8 @@ with tabs[0]:
 
                 st.session_state["predicted_indices"] = preds
                 if preds:
-
-                    to_remove = render_checkbox_grid(preds, thumb_width=150, cols=4)
+                    with st.spinner("Loading clustered objects…"):
+                        to_remove = render_checkbox_grid(preds, thumb_width=150, cols=4)
 
                     if st.button("Remove Selected Objects from Cluster", key="cluster_remove_selected"):
                         remaining = [i for i in preds if i not in to_remove]
@@ -3307,6 +3309,35 @@ with tabs[0]:
                         cluster_csv_path = os.path.join(os.path.dirname(st.session_state.paths["unverified_images_path"]), "cluster.csv")
                         pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
                         st.success(f"Removed {len(to_remove)} objects; {len(remaining)} remain.")
+                        st.rerun()
+
+                    if st.button("Delete Unchecked Objects in Cluster from Labels", key="cluster_delete_unchecked"):
+                        indices = [i for i in st.session_state.predicted_indices.copy() if i not in to_remove]
+                        file_map = {}
+                        file_map = {}
+                        for idx in indices:
+                            obj = get_object_by_global_index(idx)
+                            if obj is None:
+                                continue
+                            path = obj["label_path"]
+                            file_map.setdefault(path, []).append(obj["local_index"])
+
+                        # remove lines in each label file
+                        for path, local_indices in file_map.items():
+                            try:
+                                with open(path, "r") as f:
+                                    lines = f.readlines()
+                                for li in sorted(set(local_indices), reverse=True):
+                                    if 0 <= li < len(lines):
+                                        del lines[li]
+                                with open(path, "w") as f:
+                                    f.writelines(lines)
+                            except Exception as e:
+                                st.error(f"Error updating {path}: {e}")
+                        # clear cluster.csv and UI state
+                        pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+                        st.session_state.predicted_indices = []
+                        st.success("Deleted all unchecked clustered objects from their label files and cleared cluster.csv.")
                         st.rerun()
 
                     if st.button("Delete All Clustered Objects From Labels", key="cluster_delete_all"):
