@@ -2928,13 +2928,13 @@ with tabs[0]:
                                 return sum(1 for l in f if l.strip())
                         return 0
 
-                    if st.button("Clear Subset Selection", key="clear_subset_selection"):
+                    if st.button("Clear Subset Selection", key="clear_subset_selection", help="Clears all frames from the subset selection list."):
                         st.session_state.subset_frames = []
                         save_subset_csv(csv_file, st.session_state.subset_frames)
                         st.success("Cleared all frames from subset selection.")
                         st.rerun()
 
-                    if st.button("Add ALL Labeled Frames"):
+                    if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
                         st.session_state["skip_label_update"] = True
                         labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
                         for i in labeled:
@@ -2943,7 +2943,7 @@ with tabs[0]:
                         save_subset_csv(csv_file, st.session_state.subset_frames)
                         st.success(f"Added {len(labeled)} labeled frames.")
                 
-                    if st.button("Remove ALL Labeled Frames"):
+                    if st.button("Remove ALL Labeled Frames", help="Removes every frame containing labels from the subset."):
                         st.session_state["skip_label_update"] = True
                         before = set(st.session_state.subset_frames)
                         st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
@@ -2951,7 +2951,7 @@ with tabs[0]:
                         removed = len(before) - len(st.session_state.subset_frames)
                         st.success(f"Removed {removed} frames.")
 
-                    if st.button("Add ALL Unlabeled Frames"):
+                    if st.button("Add ALL Unlabeled Frames", help="Adds every frame with no labels to the subset."):
                         st.session_state["skip_label_update"] = True
                         unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
                         for i in unlabeled:
@@ -2960,7 +2960,7 @@ with tabs[0]:
                         save_subset_csv(csv_file, st.session_state.subset_frames)
                         st.success(f"Added {len(unlabeled)} unlabeled frames.")
                     
-                    if st.button("Remove ALL Unlabeled Frames"):
+                    if st.button("Remove ALL Unlabeled Frames", help="Removes every frame with no labels from the subset."):
                         st.session_state["skip_label_update"] = True
                         before = set(st.session_state.subset_frames)
                         st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
@@ -2968,7 +2968,7 @@ with tabs[0]:
                         removed = len(before) - len(st.session_state.subset_frames)
                         st.success(f"Removed {removed} frames.")
 
-                    if st.button("Invert Subset Selection"):
+                    if st.button("Invert Subset Selection", help="Selects all frames not currently in the subset and deselects those that are."):
                         st.session_state["skip_label_update"] = True
                         # all frame indices 0 … max_images-1
                         all_frames = list(range(st.session_state.max_images))
@@ -2980,7 +2980,7 @@ with tabs[0]:
                         st.success(f"Inverted subset: {len(new_subset)} frames selected.")
                         st.rerun()
 
-                    if st.button("Delete ALL Labels in Subset"):
+                    if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
                         st.session_state["skip_label_update"] = True
                         for idx in st.session_state.subset_frames:
                             # construct label path
