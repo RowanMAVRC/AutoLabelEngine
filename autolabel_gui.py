@@ -3224,7 +3224,7 @@ with tabs[0]:
 
                             try:
                                 jump_frame = st.number_input(
-                                    "Jump to Frame Number",
+                                    f"Jump to Frame Number (0-{st.session_state.max_images-1})",
                                     min_value=0,
                                     value=st.session_state.frame_index,
                                     max_value=st.session_state.max_images,
