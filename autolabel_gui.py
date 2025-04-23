@@ -16,9 +16,13 @@ import zipfile
 import hashlib
 import uuid
 import io
+from typing import List, Callable
 
 ## Third-Party Libraries 
-
+import json
+import pandas as pd
+from io import BytesIO
+import cv2
 import yaml
 import streamlit as st
 import numpy as np
@@ -116,6 +120,7 @@ def infer_image_pattern(images_dir, extensions=(".jpg", ".png")):
         files.extend(glob.glob(os.path.join(images_dir, f"*{ext}")))
     if not files:
         st.session_state.no_images_warning = "No images found in directory."
+                   
         return None
     else:
         st.session_state.no_images_warning = None
@@ -1047,8 +1052,12 @@ def update_unverified_frame():
         return
 
     # Open Image
-    image = Image.open(image_path)
-    image_width, image_height = image.size
+    if os.path.exists(image_path):
+        image = Image.open(image_path)
+        image_width, image_height = image.size
+    else:
+        update_unverified_data_path()
+        st.rerun()
 
     # Get Labels
     labels_dir = images_dir.replace("images", "labels")
@@ -1371,6 +1380,7 @@ def handle_image_list_update(prefix=""):
     else:
         if st.session_state.get("no_images_warning"):
             st.warning(st.session_state.no_images_warning)
+            
             return False
         elif st.session_state.get("naming_pattern_warning"):
             if st.session_state.automatic_generate_list:
@@ -1737,6 +1747,45 @@ def object_by_object_edit_callback():
             st.error(f"Error updating label file: {e}")
     else:
         st.info("No changes detected.")
+
+@st.cache_data(show_spinner=False)
+def extract_features(img_crop):
+    """
+    Compute a normalized 3D HSV histogram feature for an image crop.
+    """
+    hsv = cv2.cvtColor(np.array(img_crop), cv2.COLOR_RGB2HSV)
+    hist = cv2.calcHist([hsv], [0,1,2], None, [8,8,8], [0,180,0,256,0,256])
+    cv2.normalize(hist, hist)
+    return hist.flatten()
+
+@st.cache_data(show_spinner=False)
+def _get_thumbnail_b64(idx: int, thumb_width: int) -> str:
+    # Assumes existing function to fetch base64 thumbnail string for object idx
+    obj = get_object_by_global_index(idx)
+    bx, by, bw, bh = obj["bbox"]
+    crop = obj["img"].crop((int(bx), int(by), int(bx + bw), int(by + bh)))
+    buf = BytesIO()
+    crop.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+def render_checkbox_grid(predicted_indices, thumb_width: int = 150, cols: int = 4):
+    """
+    Displays a grid of thumbnails with checkboxes.
+    Returns list of indices for which the checkbox was checked.
+    """
+    selected = []
+    # Split into rows
+    rows = [predicted_indices[i:i+cols] for i in range(0, len(predicted_indices), cols)]
+    for row in rows:
+        columns = st.columns(cols)
+        for idx, col in zip(row, columns):
+            with col:
+                b64 = _get_thumbnail_b64(idx, thumb_width)
+                checked = st.checkbox(f"{idx}", key=f"remove_{idx}")
+                st.image(f"data:image/png;base64,{b64}", width=thumb_width, use_container_width=False)
+                if checked:
+                    selected.append(idx)
+    return selected
 
 ## Image / Video Processing & Creation
 
@@ -2193,7 +2242,9 @@ if "session_running" not in st.session_state:
         "move_dest_path": "",
         "move_dir_script_path": "move_dir.py",
 
-        "open_workspace": "."
+        "open_workspace": ".",
+
+        "cluster_script_path": "cluster_objects.py",
 
     }
     st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
@@ -2215,6 +2266,7 @@ if "session_running" not in st.session_state:
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
 
 save_session_state()
+
 
 ## Define the title bar and brief description
 st.title("Auto Label Engine")
@@ -2759,6 +2811,15 @@ with tabs[0]:
     elif action_option == "Manual Labeling":
             
         with st.expander("Settings"):
+            
+            st.write("### Images Path")
+            st.write("The path to the images.")
+            path_navigator("unverified_images_path")
+
+            st.write("### Label Names YAML Path")
+            st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
+            path_navigator("unverified_names_yaml_path")
+            
             st.write("### Image Scale")
             st.write("Scale the image to fit the screen. This is useful for large images.")
             st.number_input(
@@ -2769,14 +2830,6 @@ with tabs[0]:
                 on_change=set_scale
             )
 
-            st.write("### Images Path")
-            st.write("The path to the images.")
-            path_navigator("unverified_images_path")
-
-            st.write("### Label Names YAML Path")
-            st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
-            path_navigator("unverified_names_yaml_path")
-            
             if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
                 st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
                 st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
@@ -3109,6 +3162,10 @@ with tabs[0]:
                     else:
                         st.warning("Data Path is empty...")
             
+                else:
+                    if st.button("Refresh", key="refresh_empty"):
+                        update_unverified_data_path()
+                        st.rerun()
             with st.expander("Zoomed‑in Bounding Box Regions"):
                 # Safely pull values (defaults to empty or None)
                 image    = st.session_state.get("image", None)
@@ -3205,6 +3262,7 @@ with tabs[0]:
                         )
                             
         elif review_mode == "Object by Object Review":
+            
             with st.expander("Object by Object Label Review"):
                 st.write( "Review the labels in an object by object sequence.")
                 
@@ -3224,6 +3282,9 @@ with tabs[0]:
                         obj_label = current_obj["label"]
                         image_path = current_obj["image_path"]
                         label_path = current_obj["label_path"]
+                        st.session_state.global_object_count = current_obj["num_labels"]
+
+
                         x, y, w, h = bbox
                         center_x = x + w / 2
                         center_y = y + h / 2
@@ -3353,6 +3414,144 @@ with tabs[0]:
                                     except Exception as e:
                                         st.error(f"Error deleting object: {e}")
                                     st.rerun()
+
+                         # Reference selector (no default)
+                        reference_indices = st.multiselect(
+                            "Select reference object(s)",
+                            options=list(range(st.session_state.global_object_count)),
+                            default=[],
+                            key="cluster_refs"
+                        )
+
+            with st.expander("Clustered Objects"):
+                # 1) Compute cluster.csv path
+                images_dir = st.session_state.paths["unverified_images_path"]
+                cluster_csv_path = os.path.join(os.path.dirname(images_dir), "cluster.csv")
+
+                # 2) Load existing predictions (if any), handling empty files
+                if os.path.exists(cluster_csv_path):
+                    
+                    try:
+                        # If the file is empty, this will raise EmptyDataError
+                        df = pd.read_csv(cluster_csv_path, header=None)
+                        preds = df[0].tolist()
+                    except pd.errors.EmptyDataError:
+                        preds = []  # treat empty file as no predictions
+
+                    st.session_state["predicted_indices"] = preds
+                    if preds:
+
+                        to_remove = render_checkbox_grid(preds, thumb_width=150, cols=4)
+
+                        if st.button("Remove Selected Objects from Cluster", key="cluster_remove_selected"):
+                            remaining = [i for i in preds if i not in to_remove]
+                            # Update session state and CSV
+                            st.session_state.predicted_indices = remaining
+                            import pandas as pd
+                            cluster_csv_path = os.path.join(os.path.dirname(st.session_state.paths["unverified_images_path"]), "cluster.csv")
+                            pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
+                            st.success(f"Removed {len(to_remove)} objects; {len(remaining)} remain.")
+                            st.rerun()
+
+                        if st.button("Delete All Clustered Objects From Labels", key="cluster_delete_all"):
+                            indices = st.session_state.predicted_indices.copy()
+                            file_map = {}
+                            for idx in indices:
+                                obj = get_object_by_global_index(idx)
+                                if obj is None:
+                                    continue
+                                path = obj["label_path"]
+                                file_map.setdefault(path, []).append(obj["local_index"])
+                            # remove lines in each label file
+                            for path, local_indices in file_map.items():
+                                try:
+                                    with open(path, "r") as f:
+                                        lines = f.readlines()
+                                    for li in sorted(set(local_indices), reverse=True):
+                                        if 0 <= li < len(lines):
+                                            del lines[li]
+                                    with open(path, "w") as f:
+                                        f.writelines(lines)
+                                except Exception as e:
+                                    st.error(f"Error updating {path}: {e}")
+                            # clear cluster.csv and UI state
+                            pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+                            st.session_state.predicted_indices = []
+                            st.success("Deleted all clustered objects from their label files and cleared cluster.csv.")
+                            st.rerun()
+
+                    else:
+                        st.info("cluster.csv is present but empty.")
+                else:
+                    st.info("No cluster.csv yet—run “Begin Clustering” to create it.")
+
+            with st.expander("Cluster Object Settings"):
+
+                st.subheader("Virtual Environment")
+                path_navigator("venv_path", radio_button_prefix="cluster_")
+
+                st.subheader("Script")
+                path_navigator("cluster_script_path")
+                python_code_editor("cluster_script_path")
+
+                        
+            with st.expander("Cluster Objects"):
+                
+
+                st.session_state.cluster_threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.7, 0.1)
+                
+                # 2) Show tmux controls for running the clustering script
+                c0, c1, c2 = st.columns([1,1,4], gap="small")
+                with c0:
+                    output = check_gpu_status("cluster_check_gpu")
+                with c1:
+                    gpu = st.selectbox(
+                        "GPU", 
+                        options=list(range(len(st.session_state.gpu_list))),
+                        format_func=lambda x: f"GPU {x}",
+                        key="cluster_gpu_select"
+                    )
+    
+                with c2:
+                    # Begin / Refresh / Clear / Kill buttons
+                    btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4, gap="small")
+                    with btn_col1:
+                        if st.button("▶ Begin Clustering", key="cluster_begin"):
+                            if reference_indices is not None:
+                                # Save index list to CSV (no header, one index per line)
+                                pd.DataFrame(reference_indices).to_csv(
+                                    cluster_csv_path,
+                                    index=False,
+                                    header=False
+                                )
+
+                            run_in_tmux(
+                                session_key="cluster",
+                                script_path=st.session_state.paths["cluster_script_path"],
+                                venv_path=st.session_state.paths["venv_path"],
+                                args={
+                                    "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ "),
+                                    "cluster_csv": cluster_csv_path.replace(" ", "\\ "),
+                                    "threshold": st.session_state.cluster_threshold,
+                                    "gpu": st.session_state.cluster_gpu_select
+                                }
+                            )
+
+                            time.sleep(3)
+                            output = update_tmux_terminal("cluster")
+
+                    with btn_col2:
+                        if st.button("🔄 Refresh", key="cluster_refresh"):
+                            output = update_tmux_terminal("cluster")
+                    with btn_col3:
+                        if st.button("🧹 Clear", key="cluster_clear"):
+                            output = None
+                    with btn_col4:
+                        if st.button("❌ Kill", key="cluster_kill"):
+                            output = kill_tmux_session("cluster")
+
+            
+            
 
         else:
             with st.expander("Video Label Review"):
