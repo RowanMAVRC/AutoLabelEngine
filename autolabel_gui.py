@@ -3222,15 +3222,18 @@ with tabs[0]:
 
                         with col_input2:
 
-                            jump_frame = st.number_input(
-                                "Jump to Frame Number",
-                                min_value=0,
-                                value=st.session_state.frame_index,
-                                max_value=st.session_state.max_images,
-                                key="jump_to_frame_input",
-                                on_change=jump_frame_object_by_object_callback,
-                                disabled=object_running
-                            )
+                            try:
+                                jump_frame = st.number_input(
+                                    "Jump to Frame Number",
+                                    min_value=0,
+                                    value=st.session_state.frame_index,
+                                    max_value=st.session_state.max_images,
+                                    key="jump_to_frame_input",
+                                    on_change=jump_frame_object_by_object_callback,
+                                    disabled=object_running
+                                )
+                            except:
+                                pass
 
                             if st.session_state.object_by_object_jump_warning is None:     
                                 if st.session_state.object_by_object_jump_valid:
