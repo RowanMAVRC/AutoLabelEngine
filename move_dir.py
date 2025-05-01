@@ -50,12 +50,8 @@ def main():
 
     # If destination exists, remove it to allow overwrite
     if os.path.exists(dst):
-        try:
-            shutil.rmtree(dst)
-            print(f"Removed existing destination '{dst}'")
-        except Exception as e:
-            print(f"Error removing existing destination '{dst}': {e}", file=sys.stderr)
-            sys.exit(1)
+        print("[ABORTED] Destination path already exists, please pick a new path or move the current one.")
+        sys.exit(1)
 
     # Perform the move
     try:
