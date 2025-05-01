@@ -2267,7 +2267,6 @@ if "session_running" not in st.session_state:
 
 save_session_state()
 
-
 ## Define the title bar and brief description
 st.title("Auto Label Engine")
 st.write("This is a GUI for the Auto Label Engine. It allows you to generate datasets, auto label images,"
@@ -3883,7 +3882,6 @@ with tabs[0]:
                 st.session_state.paths["move_src_path"], st.session_state.paths["move_dest_path"] = dst, src
                 st.rerun()
 
-
         # VENV
         with st.expander("Virtual Environment Path"):
             st.write("Path to the virtual environment for the move script.")
@@ -3912,7 +3910,6 @@ with tabs[0]:
                     )
                     time.sleep(3)
                     output = update_tmux_terminal("move_dir")
-
             with c2:
                 if st.button("🔄 Refresh Terminal", key="refresh_move_dir_btn"):
                     output = update_tmux_terminal("move_dir")
