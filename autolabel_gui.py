@@ -4036,7 +4036,7 @@ with tabs[0]:
                 if st.button("❌ Kill Session", key="combine_dataset_kill_tmux_session_btn"):
                     output = kill_tmux_session("combine_dataset")
     
-    elif action_option == "Daset Statistics":
+    elif action_option == "Dataset Statistics":
         with st.expander("Dataset Statistics"):
             st.subheader("Dataset Figures")
             st.write("The path to the formated dataset (with images and labels folders).")

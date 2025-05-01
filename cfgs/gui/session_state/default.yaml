@@ -32,14 +32,15 @@ paths:
   auto_label_save_path: example_data/labels/
   auto_label_script_path: inference.py
   cluster_script_path: cluster_objects.py
-  combine_dataset_1_path: example_data/
-  combine_dataset_2_path: example_data/
+  combine_dataset_1_path: example_data
+  combine_dataset_2_path: example_data
   combine_dataset_save_path: example_data_combined/
   combine_dataset_script_path: combine_yolo_dirs.py
   convert_video_copy_path: ''
   convert_video_path: ''
   convert_video_save_path: ''
   convert_video_script_path: convert_mp4_2_png.py
+  dataset_path: /data/TGSSE/AutoLabelEngine/yolo_format_data/area_denial_001
   gen_vid_fps: 5.0
   gen_vid_input_path: /data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/Batch
     1/Area Denial/IMG_6725
@@ -226,6 +227,44 @@ python_codes:
     [cluster] {len(selected)} objects passed threshold {args.threshold}\")\n    save_cluster_csv(args.cluster_csv,\
     \ selected)\n    print(f\"[cluster] Saved clustered indices to {args.cluster_csv}\"\
     )\n\nif __name__ == \"__main__\":\n    main()\n"
+  combine_dataset_script_path: "import os\nimport shutil\nfrom pathlib import Path\n\
+    from tqdm import tqdm\nimport argparse\n\ndef combine_yolo_dirs(yolo_dirs, dst_dir):\n\
+    \    \"\"\"\n    Combine two YOLO directories into a single destination directory\
+    \ with prefixed filenames.\n    Resolves duplicate prefixes by appending a higher-level\
+    \ directory name to make them unique.\n\n    Args:\n        yolo_dirs (list of\
+    \ str): List of two YOLO directories to combine. Each directory must contain 'images'\
+    \ and 'labels' subdirectories.\n        dst_dir (str): Destination directory where\
+    \ combined files will be saved.\n    \"\"\"\n    dst_images_dir = Path(dst_dir)\
+    \ / \"images\"\n    dst_labels_dir = Path(dst_dir) / \"labels\"\n\n    # Create\
+    \ destination subdirectories if they don't exist\n    dst_images_dir.mkdir(parents=True,\
+    \ exist_ok=True)\n    dst_labels_dir.mkdir(parents=True, exist_ok=True)\n\n  \
+    \  # Determine unique prefixes for each dataset\n    prefixes = {}\n    for yolo_dir\
+    \ in yolo_dirs:\n        yolo_path = Path(yolo_dir)\n        prefix = f\"{yolo_path.parent.name}_{yolo_path.name}\"\
+    \n        # Ensure the prefix is unique\n        while prefix in prefixes.values():\n\
+    \            prefix = f\"{Path(yolo_path.parent.parent).name}_{prefix}\"\n   \
+    \     if prefix.startswith(\"_\"):\n            prefix = prefix[1:]\n        prefixes[yolo_dir]\
+    \ = prefix\n\n    # Process each YOLO directory\n    for yolo_dir, prefix in prefixes.items():\n\
+    \        yolo_path = Path(yolo_dir)\n        images_dir = yolo_path / \"images\"\
+    \n        labels_dir = yolo_path / \"labels\"\n\n        # Check if subdirectories\
+    \ exist\n        if not images_dir.exists() or not labels_dir.exists():\n    \
+    \        print(f\"Skipping {yolo_dir}: Missing 'images' or 'labels' directory.\"\
+    )\n            continue\n\n        # Copy images with new prefixed filenames\n\
+    \        image_files = list(images_dir.glob(\"*.*\"))  # Match all files\n   \
+    \     for image_file in tqdm(image_files, desc=f\"Copying images from {yolo_dir}\"\
+    , unit=\"file\"):\n            new_name = f\"{prefix}_{image_file.name}\"\n  \
+    \          shutil.copy(image_file, dst_images_dir / new_name)\n\n        # Copy\
+    \ labels with new prefixed filenames\n        label_files = list(labels_dir.glob(\"\
+    *.*\"))  # Match all files\n        for label_file in tqdm(label_files, desc=f\"\
+    Copying labels from {yolo_dir}\", unit=\"file\"):\n            new_name = f\"\
+    {prefix}_{label_file.name}\"\n            shutil.copy(label_file, dst_labels_dir\
+    \ / new_name)\n\n    print(f\"All files have been combined and saved to {dst_dir}.\"\
+    )\n\nif __name__ == \"__main__\":\n    parser = argparse.ArgumentParser(description=\"\
+    Combine two YOLO dataset directories into one.\")\n    parser.add_argument(\"\
+    --dataset1\", help=\"Path to the first YOLO dataset directory\")\n    parser.add_argument(\"\
+    --dataset2\", help=\"Path to the second YOLO dataset directory\")\n    parser.add_argument(\"\
+    --dst_dir\", help=\"Destination directory where combined files will be saved\"\
+    )\n    args = parser.parse_args()\n\n    combine_yolo_dirs([args.dataset1, args.dataset2],\
+    \ args.dst_dir)\n"
   gen_vid_script_path: "\n#!/usr/bin/env python3\nimport os\nimport argparse\nimport\
     \ random\nimport numpy as np\nfrom tqdm import tqdm\nfrom PIL import Image, ImageDraw,\
     \ ImageFont\nimport matplotlib.pyplot as plt\nfrom matplotlib.backends.backend_agg\
