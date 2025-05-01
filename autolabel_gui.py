@@ -16,7 +16,6 @@ import zipfile
 import hashlib
 import uuid
 import io
-from typing import List, Callable
 
 ## Third-Party Libraries 
 import json
@@ -506,8 +505,6 @@ def save_subset_csv(csv_path, frames):
     except:
         pass
     
-    
-
 ## TMUX Terminal Commands
 
 def update_tmux_terminal(session_key):
@@ -633,7 +630,6 @@ def wait_for_conversion(session_key, check_interval=3):
             if re.search(prompt_pattern, line.strip()):
                 return output
         time.sleep(check_interval)
-
 
 ## GPU Tools
 
