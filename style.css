@@ -1,0 +1,15 @@
+header.stAppHeader {
+    background: rgba(0, 0, 0, 0);
+}
+
+div.stMainBlockContainer {
+    padding-top: 0.2rem;
+}
+
+div.st-key-app_title div.stHeading {
+    text-align: center;
+}
+
+div.st-key-app_title div.stHeading h1 {
+    font-family: serif;
+}

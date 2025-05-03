@@ -18,6 +18,7 @@ import uuid
 import io
 
 ## Third-Party Libraries 
+import math
 import json
 import pandas as pd
 from io import BytesIO
@@ -35,6 +36,8 @@ import matplotlib.pyplot as plt
 
 from streamlit_label_kit import detection as _orig_detection
 from streamlit_ace import st_ace
+
+
 
 #-------------------------------------------------------------------------------------------------------------------------#
 ## Functions
@@ -1730,6 +1733,13 @@ def object_by_object_edit_callback():
         # always clear the “running” flag
         st.session_state["object_running"] = False
 
+# Callbacks for Prev/Next
+def go_prev_cluster_page():
+    st.session_state.cluster_page = pages if st.session_state.cluster_page - 1 < 1 else st.session_state.cluster_page - 1
+
+def go_next_cluster_page():
+    st.session_state.cluster_page = 1 if st.session_state.cluster_page + 1 > pages else st.session_state.cluster_page + 1
+
 @st.cache_data(show_spinner=False)
 def extract_features(img_crop):
     """
@@ -1750,7 +1760,7 @@ def _get_thumbnail_b64(idx: int, thumb_width: int) -> str:
     crop.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
 
-def render_checkbox_grid(predicted_indices, thumb_width: int = 150, cols: int = 4):
+def render_checkbox_grid_OLD(predicted_indices, thumb_width: int = 150, cols: int = 4):
     """
     Displays a grid of thumbnails with checkboxes.
     Returns list of indices for which the checkbox was checked.
@@ -1770,6 +1780,72 @@ def render_checkbox_grid(predicted_indices, thumb_width: int = 150, cols: int = 
                     selected.append(idx)
 
     return selected
+
+def render_checkbox_grid(predicted_indices, thumb_width: int = 150, cols: int = 4):
+    """
+    Displays a grid of thumbnails with checkboxes.
+    Returns list of indices for which the checkbox was checked.
+    """
+    selected = []
+    # Split into rows
+    rows = [predicted_indices[i : i + cols] for i in range(0, len(predicted_indices), cols)]
+
+    for row in rows:
+        columns = st.columns(cols)
+        for idx, col in zip(row, columns):
+            key = f"remove_{idx}"
+            # initialize default before widget
+            if key not in st.session_state:
+                st.session_state[key] = False
+
+            with col:
+                b64 = _get_thumbnail_b64(idx, thumb_width)
+                # st.checkbox will now auto-store into st.session_state[key]
+                checked = st.checkbox(str(idx),
+                                      value=st.session_state[key],
+                                      key=key)
+                st.image(f"data:image/png;base64,{b64}",
+                         width=thumb_width,
+                         use_container_width=False)
+
+            # just read the returned value; no further st.session_state assignment
+            if checked:
+                selected.append(idx)
+
+    return selected
+
+## Linux Terminal
+
+def run_command_and_accumulate(command):
+    """
+    Executes a shell command and appends its output to st.session_state.terminal_text,
+    updating output_placeholder in real time in a single code block.
+    """
+    try:
+        process = subprocess.Popen(
+            command, shell=True,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, bufsize=1
+        )
+        for line in process.stdout:
+            st.session_state.terminal_text += line
+            output_placeholder.code(st.session_state.terminal_text, language="bash")
+        for line in process.stderr:
+            st.session_state.terminal_text += line
+            output_placeholder.code(st.session_state.terminal_text, language="bash")
+    except Exception as e:
+        st.session_state.terminal_text += f"Error executing command: {e}\n"
+        output_placeholder.code(st.session_state.terminal_text, language="bash")
+
+def local_run_callback():
+    command = st.session_state.command_input
+    if command.strip():
+        # Clear previous output on each new enter, then add the command prompt.
+        st.session_state.terminal_text = f"$ {command}\n"
+        output_placeholder.code(st.session_state.terminal_text, language="bash")
+        run_command_and_accumulate(command)
+    else:
+        output_placeholder.warning("Please enter a valid command.")
 
 ## Image / Video Processing & Creation
 
@@ -2191,7 +2267,8 @@ if "session_running" not in st.session_state:
 
     st.set_page_config(
         page_title="Autolabel Engine",
-        layout="wide"
+        layout="wide",
+        page_icon="🤖"
     )
 
     st.session_state.paths = {
@@ -2257,6 +2334,7 @@ if "session_running" not in st.session_state:
     st.session_state.automatic_generate_list = False
 
     st.session_state.unverified_image_scale = 1.0
+    st.session_state.cluster_page = 1
 
     load_session_state()
     
@@ -2267,24 +2345,11 @@ if "session_running" not in st.session_state:
 
 save_session_state()
 
-## Define the title bar and brief description
-st.title("Auto Label Engine")
-st.write("This is a GUI for the Auto Label Engine. It allows you to generate datasets, auto label images,"
-" manually label images, see dataset statistics/figures, finetune models, and run Linux commands on the server.")
-
-with st.expander("Recommended Auto Label Engine Workflow"):
-    st.write(
-        "Below is a diagram of the Auto Label Engine workflow. Components are color-coded into human interaction, files and folders, and "
-        "processes"
-    )
-    
-    center_image_transparent("figures/ale_workflow.png", 800)
-
-    st.write("See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for more information.")
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
 
+# Check for Virtual Environment
 if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/activate")):
     with st.expander("Please generate a venv before running any modules"):
         
@@ -2339,1806 +2404,1986 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
-## Main Tabs
-tabs = st.tabs(["Generate Data", "Linux Terminal", "Unrestrict Workspace"])
+## Main 
+st.markdown(
+    """
+    <style>
+    /* main content container that follows the (collapsed) sidebar */
+    section[data-testid="stSidebar"][aria-expanded="false"]
+      ~ section[data-testid="stMain"] > div:first-child {
+        padding-left: 12rem;   /* ⇐ adjust size here */
+        padding-right: 12rem;  /* ⇐ adjust size here */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# ----------------------- Generate Data Tab -----------------------
-with tabs[0]:  
+## Define the title bar and brief description
+with open("style.css") as css:
+    st.html(f"<style>{css.read()}</style>")
 
-    output = None
-    action_option = st.radio(
-        "Choose:", 
-        [
-            "Upload Data", 
-            "Convert Video to Frames", 
-            "Rotate Image Dataset",
-            "Auto Label",
-            "Generate Labeled Video",
-            "Video Review",
-            "Object by Object Review", 
-            "Frame by Frame Review", 
-            "Move Directory",
-            "Split YOLO Dataset into Objects / No Objects", 
-            "Combine YOLO Datasets",
-            "Dataset Statistics",
-            "Finetune Model"
-        ],
-        key=f"generate_data_radio",
-        label_visibility="collapsed"
-    )
+with st.container(key="app_title"):
+    # st.title("Auto Label Engine")
 
-    if action_option == "Upload Data":
-        with st.expander("Upload Data"):
-            st.write("### Save Path")
-            st.write("The path to upload image data on the server.")
-            path_navigator("upload_save_path")
-            upload_to_dir(st.session_state.paths["upload_save_path"])
+    st.title("Auto-Label → Review → Learn → Repeat")
 
-    elif action_option == "Convert Video to Frames":
-        with st.expander("Settings"):
-            st.subheader("Video Path")
-            st.write("Enter the path to an MP4/MOV video file **or directory** containing video files (all subdirectories will be scanned).")
-            path_navigator("convert_video_path")
-            
-            video_path = st.session_state.paths.get('convert_video_path', '')
-            video_files = []
-            if os.path.isdir(video_path):
-                st.write("Found videos...")
-                for root, dirs, files in os.walk(video_path):
-                    for f in files:
-                        if f.lower().endswith(('.mp4', '.mov')):
-                            video_files.append(os.path.join(root, f))
-                if not video_files:
-                    st.warning("No MP4/MOV video files found in the selected directory.")
-                else:
-                    base_dir = os.path.abspath(video_path)
-                    rel_paths = [os.path.relpath(v, base_dir) for v in sorted(video_files)]
-                    st.selectbox("Found Videos", options=rel_paths, key="found_video_select", label_visibility="collapsed")
+    st.divider()
+
+st.markdown(
+    """
+    <style>
+    .stLogo { /* CSS selector for the main logo */
+        width: 110px;  /* Adjust the width as desired */
+        height: 110px;  /* Adjust the height as desired */
+    }
+
+    .stLogo > img { /* CSS selector for the icon image */
+        width: 25px;  /* Adjust the width as desired */
+        height: 25px;  /* Adjust the height as desired */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.logo(image="figures/icon_image.png", icon_image="figures/icon_image.png", size='large')
+
+# Sidebar Settings
+st.markdown(
+    """
+    <style>
+    /* target the sidebar container */
+    [data-testid="stSidebar"] > div:first-child {
+        background-color: white !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+action_option = st.sidebar.selectbox(
+    "Select Action to Perform:",
+    [
+        "🎓📘 Tutorials",
+        "📤🗄️ Upload Data",
+        "🎞️🖼️ Convert Video to Frames",
+        "🔄🖼️ Rotate Image Dataset",
+        "🤖🏷️ Auto Label",
+        "🔍🧩 Object by Object Review",
+        "🎥🖼️ Frame by Frame Review",
+        "📹✏️ Generate Labeled Video",
+        "📹🏷️ Labeled Video",
+        "🚚📁 Move Directory",
+        "🗂️✂️ Split YOLO Dataset into Objects / No Objects",
+        "🔗📂 Combine YOLO Datasets",
+        "📈📊 Dataset Statistics",
+        "🔧🤖 Finetune Model",
+        "🐧⌨️ Linux Terminal",
+        "🔓⚙️ Unrestrict Workspace"
+    ],
+    key="generate_data_dropdown",
+)
+
+# Main Screen
+output = None
+
+if action_option == "🎓📘 Tutorials":
+    
+    with st.expander("Recommended Auto Label Engine Workflow"):
+        st.write(
+            "Below is a diagram of the Auto Label Engine workflow. Components are color-coded into human interaction, files and folders, and "
+            "processes"
+        )
+        
+        center_image_transparent("figures/ale_workflow.png", 600)
+
+        st.write("See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for more information.")
+
+elif action_option == "📤🗄️ Upload Data":
+    with st.expander("Upload Data"):
+        st.write("### Save Path")
+        st.write("The path to upload image data on the server.")
+        path_navigator("upload_save_path")
+        upload_to_dir(st.session_state.paths["upload_save_path"])
+
+elif action_option == "🎞️🖼️ Convert Video to Frames":
+    with st.expander("Settings"):
+        st.subheader("Video Path")
+        st.write("Enter the path to an MP4/MOV video file **or directory** containing video files (all subdirectories will be scanned).")
+        path_navigator("convert_video_path")
+        
+        video_path = st.session_state.paths.get('convert_video_path', '')
+        video_files = []
+        if os.path.isdir(video_path):
+            st.write("Found videos...")
+            for root, dirs, files in os.walk(video_path):
+                for f in files:
+                    if f.lower().endswith(('.mp4', '.mov')):
+                        video_files.append(os.path.join(root, f))
+            if not video_files:
+                st.warning("No MP4/MOV video files found in the selected directory.")
             else:
-                st.write("**Single video file selected.**")
-            
-            st.subheader("Frame Save Path")
-            st.write("The global default output directory is determined as follows:")
-            key = "convert_video_save_path"
-            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"],
-                                        key="frame_save_path_radio", label_visibility="collapsed")
-            if save_path_option == "Default":
-                if os.path.isdir(video_path):
-                    if "to_be_converted" in video_path:
-                        default_output_dir = video_path.replace("to_be_converted", "to_be_reviewed").replace("video_data", "yolo_format_data")
-                    else:
-                        default_output_dir = video_path.rstrip(os.sep) + "_images"
-                    st.session_state.paths[key] = default_output_dir
+                base_dir = os.path.abspath(video_path)
+                rel_paths = [os.path.relpath(v, base_dir) for v in sorted(video_files)]
+                st.selectbox("Found Videos", options=rel_paths, key="found_video_select", label_visibility="collapsed")
+        else:
+            st.write("**Single video file selected.**")
+        
+        st.subheader("Frame Save Path")
+        st.write("The global default output directory is determined as follows:")
+        key = "convert_video_save_path"
+        save_path_option = st.radio("Choose save path option:", ["Default", "Custom"],
+                                    key="frame_save_path_radio", label_visibility="collapsed")
+        if save_path_option == "Default":
+            if os.path.isdir(video_path):
+                if "to_be_converted" in video_path:
+                    default_output_dir = video_path.replace("to_be_converted", "to_be_reviewed").replace("video_data", "yolo_format_data")
                 else:
-                    st.session_state.paths[key] = (
-                        video_path.replace('.mp4', '/images/')
-                        .replace('video_data', 'yolo_format_data')
-                        .replace('.MOV', '/images/')
-                        .replace("to_be_converted", "to_be_reviewed")
+                    default_output_dir = video_path.rstrip(os.sep) + "_images"
+                st.session_state.paths[key] = default_output_dir
+            else:
+                st.session_state.paths[key] = (
+                    video_path.replace('.mp4', '/images/')
+                    .replace('video_data', 'yolo_format_data')
+                    .replace('.MOV', '/images/')
+                    .replace("to_be_converted", "to_be_reviewed")
+                )
+            st.write(f"**Current Frame Save Path:** {st.session_state.paths[key]}")
+        else:
+            path_navigator(key)
+
+        st.subheader("New Video Path Save Path")
+        st.write("The base folder to move the original video after conversion.")
+        key = "convert_video_copy_path"
+        save_path_option = st.radio("Choose save path option:", ["Default", "Custom"],
+                                    key="convert_video_copy_radio", label_visibility="collapsed")
+        if save_path_option == "Default":
+            if os.path.isdir(video_path):
+                if "to_be_converted" in video_path:
+                    default_copy_dir = video_path.replace("to_be_converted", "converted")
+                else:
+                    default_copy_dir = video_path.rstrip(os.sep) + "/converted_videos"
+                st.session_state.paths[key] = default_copy_dir
+            else:
+                st.session_state.paths[key] = os.path.dirname(
+                    video_path.replace("to_be_converted", "converted")
+                )
+            st.write(f"**Current New Video Path Save Path:** {st.session_state.paths[key]}")
+        else:
+            path_navigator(key, radio_button_prefix="change_after_conversion_")
+    
+    with st.expander("Virtual Environment Path"):
+        st.write("Provide the path to the virtual environment containing the required packages.")
+        path_navigator("venv_path", radio_button_prefix="convert_mp4")
+    
+    with st.expander("Script"):
+        path_navigator("convert_video_script_path")
+        python_code_editor("convert_video_script_path")
+    
+    with st.expander("🎞️🖼️ Convert Video to Frames"):
+        st.write(
+            "Click **Begin Converting** to start processing your video file(s) in a background tmux session.\n\n"
+            "• For directories, a single tmux session will be launched that loops over each video internally, so the GUI doesn't wait for each conversion.")
+        st.write(
+            "• Once conversion completes, each video file is automatically moved to the new location."
+        )
+
+        output = None
+        c1_conv, c2, c3, c4 = st.columns(4, gap="small")
+        session_key = "convert_video_background"
+        with c1_conv:
+
+            if st.button("▶ Begin Converting", key="begin_converting_data_btn"):
+                video_path = st.session_state.paths.get('convert_video_path', '')
+                # Launch the conversion script as a single background task,
+                # passing the "copy_destination" so the script can move each video when done.
+                
+                run_in_tmux(
+                    session_key=session_key,
+                    script_path=st.session_state.paths["convert_video_script_path"],
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "video_path": video_path.replace(" ", "\ "),
+                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\ "),
+                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\ ")
+                    }
+                )
+                st.success("Conversion started in the background. Check tmux for progress.")
+                converted = True
+
+        with c2:
+            if st.button("🔄 Refresh Terminal", key="check_convert_video_btn"):
+                output = update_tmux_terminal(session_key)
+
+        with c3:
+            if st.button("🧹 Clear Output", key="convert_video_terminal_btn"):
+                output = None
+
+        with c4:
+            if st.button("❌ Kill Session", key="convert_video_kill_tmux_session_btn"):
+                output = kill_tmux_session(session_key)
+
+elif action_option == "🔄🖼️ Rotate Image Dataset":
+    with st.expander("Settings"):
+        st.subheader("Image Path")
+        st.write("The path to the image datasets. If subdirectories are found, each subdirectory will be treated as an individual dataset.")
+        image_directory = path_navigator("rotate_images_path")
+
+        enable_option = st.radio(
+            "Choose save path option:", 
+            [
+                "Disable Preview (Better Performance)",
+                "Preview Datasets and Set Rotations", 
+            ],
+            key=f"enable_radio",
+            label_visibility="collapsed"
+        )
+
+        if enable_option == "Preview Datasets and Set Rotations":
+            datasets_list = []  # New list to collect each dataset's info.
+            if image_directory and os.path.isdir(image_directory):
+                subdirs = [os.path.join(image_directory, d, "images") for d in os.listdir(image_directory)
+                        if os.path.isdir(os.path.join(image_directory, d))]
+                datasets = subdirs if subdirs else [image_directory]
+
+                for dataset in datasets:
+                    st.markdown(f"#### Dataset: {dataset}")
+                    random_img_path = get_random_image(dataset)
+
+                    if random_img_path:
+                        c1, c2, c3 = st.columns([.37, .16, .37])
+                        
+                        with c1:
+                            st.image(random_img_path, caption="Randomly Sampled Image")
+                        
+                        with c2:
+                            if st.button("Randomize Image Path", key=f"randomize_{dataset}"):
+                                st.rerun()
+
+                            rotation_option = st.radio(
+                                "Choose Rotation:", 
+                                ["None", "CW", "CCW", "180"],
+                                key=f"rotate_images_radio_{dataset}",
+                                label_visibility="collapsed"
+                            )
+                        
+                        with c3:
+                            image = Image.open(random_img_path)
+                            if rotation_option == "CW":
+                                rotated_image = image.rotate(-90, expand=True)
+                            elif rotation_option == "CCW":
+                                rotated_image = image.rotate(90, expand=True)
+                            elif rotation_option == "180":
+                                rotated_image = image.rotate(180, expand=True)
+                            else:
+                                rotated_image = image
+                            st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
+                        
+                        datasets_list.append({
+                            "directory": dataset.replace("\ ", " "),
+                            "rotation": rotation_option
+                        })
+                    else:
+                        st.warning(f"No valid image found in dataset: {os.path.basename(dataset)}")
+            else:
+                st.error("Please select a valid image dataset directory.")
+            
+    with st.expander("Virtual Environment Path"):
+        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+        path_navigator("venv_path", radio_button_prefix="rotate_images")
+    
+    with st.expander("Script"):
+        path_navigator("rotate_images_script_path")
+        python_code_editor("rotate_images_script_path")
+    
+    with st.expander("Rotate Images"):
+        st.write("Press 'Begin Rotating Images' to perform the desired action on the images.")
+        output = None
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+        
+        with c1:
+            if st.button("▶ Begin Rotating Images", key="begin_rotating_data_btn"):
+                # Filter the datasets_list to include only entries with a rotation other than "None"
+                filtered_datasets = [entry for entry in datasets_list if entry["rotation"] != "None"]
+
+                if filtered_datasets:
+                    # Write the filtered datasets list to a temporary JSON file.
+                    with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as tf:
+                        json.dump(filtered_datasets, tf)
+                        temp_json_path = tf.name
+                    
+                    # Build command-line arguments by passing the JSON file path.
+                    # Use shlex.quote to ensure the path is safely escaped.
+                    cmd_args = f'--json_file {shlex.quote(temp_json_path)}'
+                    
+                    # Launch the tmux command with the --json_file argument.
+                    run_in_tmux(
+                        session_key="rotate_images", 
+                        script_path=st.session_state.paths["rotate_images_script_path"], 
+                        venv_path=st.session_state.paths["venv_path"],
+                        args=cmd_args
                     )
-                st.write(f"**Current Frame Save Path:** {st.session_state.paths[key]}")
+                    time.sleep(3)
+                    output = update_tmux_terminal("rotate_images")
+                else:
+                    st.warning("No rotations required as all settings are None.")
+        
+        with c2:
+            if st.button("🔄 Refresh Terminal", key="check_rotate_images_btn"):
+                output = update_tmux_terminal("rotate_images")
+        
+        with c3:
+            if st.button("🧹 Clear Output", key="rotate_images_clear_terminal_btn"):
+                output = None
+                st.text("Terminal output cleared.")
+        
+        with c4:
+            if st.button("❌ Kill Session", key="rotate_images_kill_tmux_session_btn"):
+                output = kill_tmux_session("rotate_images")
+                st.text(output)
+
+elif action_option == "🤖🏷️ Auto Label":
+    with st.expander("Auto Label Settings"):
+        st.subheader("Model Weights Path")
+        st.write("The path to the model weights.")
+        path_navigator("auto_label_model_weight_path")
+
+        st.subheader("Images Path")
+        st.write("The path to the images.")
+        path_navigator("auto_label_data_path")
+        
+        # Check whether the provided images path is a directory.
+        images_path = st.session_state.paths.get("auto_label_data_path", "")
+        if os.path.isdir(images_path):
+            # Build a dictionary with counts of images per directory.
+            dir_image_counts = {}
+            base_dir = os.path.abspath(images_path)
+            for root, dirs, files in os.walk(images_path):
+                count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')))
+                if count > 0:
+                    rel_dir = os.path.relpath(root, base_dir)
+                    # If the relative directory is just ".", show "Base Directory".
+                    key_name = "Base Directory" if rel_dir == "." else rel_dir
+                    dir_image_counts[key_name] = count
+
+            if not dir_image_counts:
+                st.warning("No images (PNG/JPG/JPEG) found in the selected directory.")
+            else:
+                # Build a sorted list of options like "FolderName (N images)"
+                options = sorted([f"{k} ({v} images)" for k, v in dir_image_counts.items()])
+                st.selectbox("Found Image Directories", options=options,
+                            key="found_autolabel_images", label_visibility="collapsed")
+        else:
+            st.write("**Single image file selected** (if this is not intended, please choose a directory).")
+
+        st.subheader("Label Save Path Replacement")
+        st.write("Instead of specifying a full path, enter the folder name that will replace the last folder in the images path. For example, use 'labels' to automatically replace the 'images' folder.")
+        # Provide a radio button to choose between the default replacement and a custom value.
+        key = "auto_label_replacement"
+        replacement_option = st.radio("Choose label replacement option:", ["Default", "Custom"],
+                                    key="autolabel_replacement_radio", label_visibility="collapsed")
+        if replacement_option == "Default":
+            st.session_state.paths[key] = "labels"
+        else:
+            st.session_state.paths[key] = st.text_input("Enter custom label replacement", value="labels")
+        st.write(f"**Label Replacement:** {st.session_state.paths[key]}")
+
+    with st.expander("Virtual Environment Path"):
+        st.subheader("Venv Path")
+        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+        path_navigator("venv_path", radio_button_prefix="auto_label")
+
+    with st.expander("Script"):
+        path_navigator("auto_label_script_path")
+        python_code_editor("auto_label_script_path")
+
+    with st.expander("Auto Label Data"):
+        st.write("Click the 'Begin Auto Labeling Data' button to start the auto-labeling process.")
+        output = None
+        c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
+
+        with c1:
+            output = check_gpu_status("auto_label_check_gpu_status_button")
+
+        with c2:
+            try:
+                if st.session_state.gpu_list:
+                    selected_gpu = st.selectbox("Select GPU", options=list(range(len(st.session_state.gpu_list))),
+                                                format_func=lambda x: f"GPU {x}", label_visibility="collapsed")
+                    st.session_state.auto_label_gpu = int(selected_gpu)
+                    st.write(f"Selected GPU: GPU {st.session_state.auto_label_gpu}")
+                else:
+                    st.warning("No GPUs found, defaulting to CPU")
+                    st.session_state.auto_label_gpu = -1
+            except Exception as e:
+                st.error(f"Error checking GPUs: {e}")
+                st.session_state.auto_label_gpu = -1
+
+        with c3:
+            if st.button("▶ Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
+                run_in_tmux(
+                    session_key="auto_label_data", 
+                    script_path=st.session_state.paths["auto_label_script_path"], 
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\ "),
+                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\ "),
+                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\ "),
+                        "gpu_number": st.session_state.auto_label_gpu
+                    }
+                )
+                time.sleep(3)
+                output = update_tmux_terminal("auto_label_data")
+
+        with c4:
+            if st.button("🔄 Refresh Terminal", key="check_auto_labeling_data_btn"):
+                output = update_tmux_terminal("auto_label_data")
+
+        with c5:
+            if st.button("🧹 Clear Output", key="auto_labeling_clear_terminal_btn"):
+                output = None
+
+        with c6:
+            if st.button("❌ Kill Session", key="auto_labeling_kill_tmux_session_btn"):
+                output = kill_tmux_session("auto_label_data")
+
+        terminal_output = st.empty()
+        if output is not None:
+            terminal_output.text(output)
+
+elif action_option == "📹✏️ Generate Labeled Video":
+    # — defaults
+    st.session_state.paths.setdefault(
+        "gen_vid_input_path", 
+        st.session_state.paths["unverified_images_path"]
+    )
+    default_out = os.path.join(
+        st.session_state.paths["gen_vid_input_path"],
+        "videos_with_labels"
+    )
+    st.session_state.paths.setdefault("gen_vid_output_path", default_out)
+    st.session_state.paths.setdefault("gen_vid_script_path", "generate_video.py")
+
+    # — SETTINGS —
+    with st.expander("Settings"):
+        st.subheader("Input Path")
+        st.write("Parent folder containing one or more subdirs with `images/` + `labels/`.")
+        path_navigator("gen_vid_input_path", radio_button_prefix="gen_vid")
+
+        input_root = st.session_state.paths.get("gen_vid_input_path", "")
+        valid_dirs = []
+        if os.path.isdir(input_root):
+            for entry in sorted(os.listdir(input_root)):
+                imgs = os.path.join(input_root, entry, "images")
+                lbls = os.path.join(input_root, entry, "labels")
+                if os.path.isdir(imgs) and os.path.isdir(lbls):
+                    valid_dirs.append(entry)
+
+        st.selectbox(
+            "Found subfolders with both `images/` and `labels/` (selection does nothing)",
+            options=valid_dirs,
+            index=0 if valid_dirs else None,
+        )
+
+        st.subheader("FPS")
+        st.session_state.paths["gen_vid_fps"] = st.number_input(
+            "Frames per second", 
+            min_value=1.0, 
+            value=float(st.session_state.paths.get("gen_vid_fps", 5.0)),
+            step=1.0,
+            key="gen_vid_fps_input"    
+        )
+
+        st.subheader("Mode")
+        st.session_state.paths["gen_vid_mode"] = st.radio(
+            "Which video(s) to generate?",
+            options=["Frame by Frame", "Object by Object", "Both"],
+            index=["Frame by Frame","Object by Object","Both"]
+                .index(st.session_state.paths.get("gen_vid_mode","Both")),
+            key="gen_vid_mode_radio"
+        )
+
+    # — VIRTUAL ENV —
+    with st.expander("Virtual Environment"):
+        st.write("Path to the venv containing Python + dependencies.")
+        path_navigator("venv_path", radio_button_prefix="gen_vid")
+
+    # — SCRIPT —
+    with st.expander("Script"):
+        st.write("Your `generate_video.py` (must accept --input_path, --output_path, --fps, --mode).")
+        path_navigator("gen_vid_script_path", radio_button_prefix="gen_vid")
+        python_code_editor("gen_vid_script_path")
+
+    # — ACTIONS —
+    with st.expander("Generate Videos"):
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+        with c1:
+            
+            if st.button("▶ Start Generating", key="begin_gen_vid_btn"):
+                output = run_in_tmux(
+                    session_key="gen_vid",
+                    script_path=st.session_state.paths["gen_vid_script_path"],
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\ "),
+                        "fps":           st.session_state.paths["gen_vid_fps"],
+                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\ ")
+                    },
+                    script_type="python"
+                )
+        with c2:
+            if st.button("🔄 Refresh Terminal", key="update_gen_vid_btn"):
+                output = update_tmux_terminal("gen_vid")
+        with c3:
+            if st.button("🧹 Clear Output", key="clear_gen_vid_btn"):
+                output = None
+        with c4:
+            if st.button("❌ Kill Session", key="kill_gen_vid_btn"):
+                output = kill_tmux_session("gen_vid")
+    
+elif action_option == "📹🏷️ Labeled Video Review":
+
+    with st.expander("Settings"):
+        
+        st.write("### Images Path")
+        st.write("The path to the images.")
+        path_navigator("unverified_images_path", radio_button_prefix="video_review")
+
+        if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+            st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+            st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+            update_unverified_data_path()
+
+            if st.session_state.max_images > 0:
+                update_unverified_frame()
+                
+            st.rerun()
+        
+    with st.expander("Subset Selection"):
+        st.write("Select only a small subset of images to review or manually label.")
+        if handle_image_list_update(prefix="subset_"):
+            # --- CSV Path Selection ---
+            st.subheader("Choose CSV Path for Subset")
+            
+            path_option = st.radio("Please Choose:", ["Default", "Custom"], key="default_subset", label_visibility="collapsed")
+            if path_option == "Default":
+                st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
+            else:
+                path_navigator("unverified_subset_csv_path", radio_button_prefix="video_review")
+
+            csv_file = st.session_state.paths["unverified_subset_csv_path"]
+            if os.path.exists(csv_file):
+                # Reload the subset frames from the CSV file
+                st.session_state.subset_frames = load_subset_frames(csv_file)
+
+                st.subheader("Modify/View Subset")
+
+                # Add/Remove Frames
+                if st.session_state.max_images > 0:
+                    c1, c2, c3 = st.columns([10, 10, 10])
+                    with c1:
+                        st.number_input(
+                            "Add Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="video_review_subset_add_frame",
+                            on_change=add_frame_callback,
+                            args=("subset_add_frame",)
+                        )
+
+                    with c2:
+                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="video_review_subset_view_frames_in_subset")
+
+                    with c3:
+                        st.number_input(
+                            "Remove Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="video_review_subset_remove_frame",
+                            on_change=remove_frame_callback,
+                            args=("subset_remove_frame",)
+                        )
+                else:
+                    st.warning("No images available.")
+
+                # --- Copy CSV to a New File ---
+                base, ext = os.path.splitext(csv_file)
+                default_copy_path = base + "_copy" + ext
+                new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
+                if st.button("Copy CSV to new file"):
+                    if new_save_path:
+                        try:
+                            st.session_state["skip_label_update"] = True
+                            save_subset_csv(new_save_path, st.session_state.subset_frames)
+                            st.success(f"Subset CSV copied to {new_save_path}")
+                        except Exception as e:
+                            st.error(f"Error copying file: {e}")
+                    else:
+                        st.error("Please enter a valid new file path.")
+            
+                # ---  Bulk Operations ---
+                st.markdown("---")
+                st.subheader("Bulk Subset Operations")
+
+                if st.button("Clear Subset Selection", key="video_review_clear_subset_selection", help="Clears all frames from the subset selection list."):
+                    st.session_state.subset_frames = []
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success("Cleared all frames from subset selection.")
+                    st.rerun()
+
+                if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
+                    st.session_state["skip_label_update"] = True
+                    labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
+                    for i in labeled:
+                        if i not in st.session_state.subset_frames:
+                            st.session_state.subset_frames.append(i)
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Added {len(labeled)} labeled frames.")
+            
+                if st.button("Remove ALL Labeled Frames", help="Removes every frame containing labels from the subset."):
+                    st.session_state["skip_label_update"] = True
+                    before = set(st.session_state.subset_frames)
+                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    removed = len(before) - len(st.session_state.subset_frames)
+                    st.success(f"Removed {removed} frames.")
+
+                if st.button("Add ALL Unlabeled Frames", help="Adds every frame with no labels to the subset."):
+                    st.session_state["skip_label_update"] = True
+                    unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
+                    for i in unlabeled:
+                        if i not in st.session_state.subset_frames:
+                            st.session_state.subset_frames.append(i)
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Added {len(unlabeled)} unlabeled frames.")
+                
+                if st.button("Remove ALL Unlabeled Frames", help="Removes every frame with no labels from the subset."):
+                    st.session_state["skip_label_update"] = True
+                    before = set(st.session_state.subset_frames)
+                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    removed = len(before) - len(st.session_state.subset_frames)
+                    st.success(f"Removed {removed} frames.")
+
+                if st.button("Invert Subset Selection", help="Selects all frames not currently in the subset and deselects those that are."):
+                    st.session_state["skip_label_update"] = True
+                    # all frame indices 0 … max_images-1
+                    all_frames = list(range(st.session_state.max_images))
+                    # keep only those not already in subset
+                    new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
+                    st.session_state.subset_frames = new_subset
+                    # persist to CSV
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Inverted subset: {len(new_subset)} frames selected.")
+                    st.rerun()
+
+                if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
+                    st.session_state["skip_label_update"] = True
+                    for idx in st.session_state.subset_frames:
+                        # construct label path
+                        if st.session_state.image_pattern:
+                            img = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            img = st.session_state.image_list[idx]
+                        lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                        open(lbl, "w").close()
+                    st.success("Cleared all label files for frames in subset.")
+
+                st.markdown("---")
+                # --- Save subset to directory ---
+                st.subheader("Save Subset to New Directory")
+                save_dir = path_navigator("subset_save_path", radio_button_prefix="video_review_save_subset")
+                if st.button("Save images & labels here"):
+                    st.session_state["skip_label_update"] = True
+                    out_imgs = os.path.join(save_dir, "images")
+                    out_lbls = os.path.join(save_dir, "labels")
+                    os.makedirs(out_imgs, exist_ok=True, mode=0o777)
+                    os.makedirs(out_lbls, exist_ok=True, mode=0o777)
+
+                    for idx in st.session_state.subset_frames:
+                        # resolve source image
+                        if st.session_state.image_pattern:
+                            src = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            src = st.session_state.image_list[idx]
+                        # copy image
+                        shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
+                        # copy or touch label
+                        lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                        dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
+                        if os.path.exists(lbl):
+                            shutil.copy2(lbl, dst_lbl)
+                        else:
+                            open(dst_lbl, "w").close()
+                    st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
+            
+            else:
+                st.info("No CSV found. Create or upload a CSV to begin using a subset.")
+
+    with st.expander("Video Label Review"):
+        update_unverified_data_path()
+        if handle_image_list_update(prefix="video_"):
+            video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
+            if os.path.exists(video_base_path):
+                    
+                video_paths = os.listdir(video_base_path)
+
+                for i in range(len(video_paths) + 1):
+                    video_path = video_paths[i-1]
+
+                    if i > 0:
+                        if "frame_by_frame" in video_path or "object_by_object" in video_path:
+                            st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
+
+                    # Add/Remove Frames (single)
+                    if st.session_state.max_images > 0:
+                            c1, c2, c3 = st.columns([10, 10, 10])
+                            with c1:
+                                st.number_input(
+                                    "Add Frame Index",
+                                    min_value=0,
+                                    max_value=st.session_state.max_images - 1,
+                                    value=None,
+                                    step=1,
+                                    key=f"{i}_video_subset_add_frame",
+                                    on_change=add_frame_callback,
+                                    args=(f"{i}_video_subset_add_frame",),
+                                    label_visibility="visible"     
+                                )
+                            with c2:
+                                st.selectbox(
+                                    "View Frames in Subset (selection does nothing)",
+                                    options=sorted(st.session_state.subset_frames),
+                                    key=f"{i}_video_subset_view_frames_in_subset",
+                                    label_visibility="visible"     
+                                )
+                            with c3:
+                                st.number_input(
+                                    "Remove Frame Index",
+                                    min_value=0,
+                                    max_value=st.session_state.max_images - 1,
+                                    value=None,
+                                    step=1,
+                                    key=f"{i}_video_subset_remove_frame",
+                                    on_change=remove_frame_callback,
+                                    args=(f"{i}_video_subset_remove_frame",),
+                                    label_visibility="visible"     
+                                )
+
+                            # Add/Remove Frames (range)
+                            max_idx = st.session_state.max_images - 1
+                            r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
+                            with r1:
+                                range_start = st.number_input(
+                                    "Range Start",
+                                    min_value=0,
+                                    max_value=max_idx,
+                                    value=0,
+                                    key=f"{i}_video_subset_range_start",
+                                    label_visibility="visible"     
+                                )
+                            with r2:
+                                range_end = st.number_input(
+                                    "Range End",
+                                    min_value=0,
+                                    max_value=max_idx,
+                                    value=max_idx,
+                                    key=f"{i}_video_subset_range_end",
+                                    label_visibility="visible"     
+                                )
+                            with r3:
+                                if st.button("Add Range", key=f"{i}_add_range_btn"):
+                                    lo, hi = sorted((range_start, range_end))
+                                    for i in range(lo, hi + 1):
+                                        if i not in st.session_state.subset_frames:
+                                            st.session_state.subset_frames.append(i)
+                                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                                    st.success(f"Added frames {lo}–{hi}")
+                            with r4:
+                                if st.button("Remove Range", key=f"{i}_remove_range_btn"):
+                                    lo, hi = sorted((range_start, range_end))
+                                    before = set(st.session_state.subset_frames)
+                                    st.session_state.subset_frames = [
+                                        i for i in st.session_state.subset_frames if not (lo <= i <= hi)
+                                    ]
+                                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                                    removed = len(before) - len(st.session_state.subset_frames)
+                                    st.success(f"Removed {removed} frames")
+            
+            else:
+                st.warning("No videos generated please go to Generate Data Tab.")
+
+elif action_option == "🔍🧩 Object by Object Review":
+
+    with st.expander("Settings"):
+        
+        st.write("### Images Path")
+        st.write("The path to the images.")
+        path_navigator("unverified_images_path", radio_button_prefix="object_")
+
+        if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+            st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+            st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+            update_unverified_data_path()
+
+            if st.session_state.max_images > 0:
+                update_unverified_frame()
+                
+            st.rerun()
+        
+    with st.expander("Object by Object Label Review"):
+        st.write( "Review the labels in an object by object sequence.")
+
+        # Call the helper function to ensure image list/naming pattern is up-to-date.
+        if handle_image_list_update(prefix="object_by_object_"):
+            object_running = st.session_state.get("object_running", False)
+
+            current_obj = get_object_by_global_index(st.session_state.global_object_index)
+            if current_obj is None:
+                st.session_state.global_object_index = 0
+                current_obj = get_object_by_global_index(st.session_state.global_object_index)
+                if current_obj is None:
+                    st.info("No objects found in the dataset.")
+                else:
+                    st.rerun()
+            else:
+                img = current_obj["img"]
+                bbox = current_obj["bbox"]
+                obj_label = current_obj["label"]
+                image_path = current_obj["image_path"]
+                label_path = current_obj["label_path"]
+                st.session_state.global_object_count = current_obj["num_labels"]
+
+
+                x, y, w, h = bbox
+                center_x = x + w / 2
+                center_y = y + h / 2
+
+                mode = st.radio(
+                    "Display Mode",
+                    options=["Cropped Object", "Full Image with BBox"],
+                    key=f"object_display_mode_{current_obj['global_index']}",
+                    disabled=object_running
+                )
+
+                if mode == "Cropped Object":
+                    display_img = img.crop((x, y, x + w, y + h))
+                    caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Cropped)"
+                else:
+                    full_img = img.copy()
+                    draw = ImageDraw.Draw(full_img)
+                    draw.rectangle((x, y, x + w, y + h), outline="red", width=2)
+                    display_img = full_img
+                    caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Full Image)"
+
+                col_img, col_ctrl = st.columns(2)
+                with col_img:
+                    st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
+                    st.image(display_img, caption=caption, use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+                with col_ctrl:
+                    st.number_input(
+                        f"Center X for object {current_obj['global_index']}",
+                        min_value=0.0,
+                        max_value=float(img.width),
+                        value=center_x,
+                        key=f"object_{current_obj['global_index']}_center_x",
+                        step=1.0,
+                        on_change=object_by_object_edit_callback,
+                        disabled=object_running
+                    )
+                    st.number_input(
+                        f"Center Y for object {current_obj['global_index']}",
+                        min_value=0.0,
+                        max_value=float(img.height),
+                        value=center_y,
+                        key=f"object_{current_obj['global_index']}_center_y",
+                        step=1.0,
+                        on_change=object_by_object_edit_callback,
+                        disabled=object_running
+                    )
+                    st.number_input(
+                        f"Width for object {current_obj['global_index']}",
+                        min_value=1.0,
+                        max_value=float(img.width),
+                        value=w,
+                        key=f"object_{current_obj['global_index']}_w",
+                        step=1.0,
+                        on_change=object_by_object_edit_callback,
+                        disabled=object_running
+                    )
+                    st.number_input(
+                        f"Height for object {current_obj['global_index']}",
+                        min_value=1.0,
+                        max_value=float(img.height),
+                        value=h,
+                        key=f"object_{current_obj['global_index']}_h",
+                        step=1.0,
+                        on_change=object_by_object_edit_callback,
+                        disabled=object_running
+                    )
+
+                    col_input1, col_input2 = st.columns(2)
+                    with col_input1:
+                        num_labels = current_obj["num_labels"]
+                        new_global_index = st.number_input(
+                            f"Set Global Object Index (0-{num_labels-1})",
+                            min_value=0,
+                            value=st.session_state.global_object_index,
+                            key="global_obj_index_input",
+                            disabled=object_running
+                        )
+                        if new_global_index != st.session_state.global_object_index:
+                            st.session_state.global_object_index = int(new_global_index)
+                            st.rerun()
+
+                    with col_input2:
+
+                        try:
+                            jump_frame = st.number_input(
+                                f"Jump to Frame Number (0-{st.session_state.max_images-1})",
+                                min_value=0,
+                                value=st.session_state.frame_index,
+                                max_value=st.session_state.max_images,
+                                key="jump_to_frame_input",
+                                on_change=jump_frame_object_by_object_callback,
+                                disabled=object_running
+                            )
+                        except:
+                            pass
+
+                        if st.session_state.object_by_object_jump_warning is None:     
+                            if st.session_state.object_by_object_jump_valid:
+                                st.session_state.object_by_object_jump_valid = False                         
+                                st.rerun()
+                        else: 
+                            st.warning(st.session_state.object_by_object_jump_warning)
+                            st.session_state.object_by_object_jump_warning = None  # Reset flag.
+
+                    col_nav1, col_nav2, col_nav3 = st.columns(3)
+                    with col_nav1:
+                        if st.button("Previous Object", key="prev_global_obj", disabled=object_running):
+                            if st.session_state.global_object_index - 1 < 0:
+                                st.session_state.global_object_index = current_obj["num_labels"] - 1
+                            else:
+                                st.session_state.global_object_index -= 1
+                            st.rerun()
+                    with col_nav2:
+                        if st.button("Next Object", key="next_global_obj", disabled=object_running):
+                            if st.session_state.global_object_index >= current_obj["num_labels"]:
+                                st.session_state.global_object_index = 0
+                            else:
+                                st.session_state.global_object_index += 1
+                            st.rerun()
+                    with col_nav3:
+                        if st.button("Delete Object", key="delete_global_obj", disabled=object_running):
+                            try:
+                                with open(label_path, "r") as f:
+                                    lines = f.readlines()
+                                local_idx = current_obj["local_index"]
+                                if local_idx < len(lines):
+                                    del lines[local_idx]
+                                    with open(label_path, "w") as f:
+                                        f.writelines(lines)
+                                    st.success("Object deleted.")
+                                else:
+                                    st.error("Local object index out of range in label file.")
+                            except Exception as e:
+                                st.error(f"Error deleting object: {e}")
+                            st.rerun()
+
+                    # Reference selector (no default)
+                reference_indices = st.multiselect(
+                    "Select reference object(s) for clustering",
+                    options=list(range(st.session_state.global_object_count)),
+                    default=[],
+                    key="cluster_refs",
+                    disabled=object_running
+                )
+
+
+    with st.expander("Clustered Objects"):
+        # 1) Rows/Cols controls
+        rows = st.number_input("Rows per page", min_value=1, max_value=10, value=2, key="cluster_rows")
+        cols = st.number_input("Cols per page", min_value=1, max_value=10, value=4, key="cluster_cols")
+        per_page = rows * cols
+
+        # 2) Paths & CSV‐reset
+        images_dir = st.session_state.paths["unverified_images_path"]
+        cluster_csv_path = os.path.join(os.path.dirname(images_dir), "cluster.csv")
+
+        if st.button("❌ Delete CSV and reset cluster", key="cluster_delete_csv"):
+            pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+            st.session_state["predicted_indices"] = []
+            # clear all checkbox keys
+            for k in list(st.session_state):
+                if k.startswith("remove_"):
+                    del st.session_state[k]
+            st.success("cluster.csv deleted and session state reset.")
+            st.rerun()
+
+        # 3) Show/Hide toggle
+        action = st.radio(
+            "Clustered Objects:",
+            ("Display clustered objects", "Hide clustered objects"),
+            index=1,
+            key="cluster_show_hide",
+        )
+
+        if action == "Display clustered objects":
+            if not os.path.exists(cluster_csv_path):
+                st.info('No cluster.csv yet—run “Begin Clustering” to create it.')
+                st.stop()
+
+            try:
+                df = pd.read_csv(cluster_csv_path, header=None)
+                preds = df[0].tolist()
+            except pd.errors.EmptyDataError:
+                preds = []
+            st.session_state["predicted_indices"] = preds
+
+            if not preds:
+                st.info("cluster.csv is present but empty.")
+                st.stop()
+
+            # initialize page
+            if "cluster_page" not in st.session_state:
+                st.session_state.cluster_page = 1
+
+            total = len(preds)
+            pages = max(1, math.ceil(total / per_page))
+
+            # 4) Wrap nav+grid in a spinner so buttons only appear after thumbnails are ready
+            with st.spinner("Loading thumbnails…"):
+                # top nav
+                c1, c2, c3 = st.columns([1, 6, 1])
+                with c1:
+                    st.button("◀ Previous", key="cluster_prev", on_click=go_prev_cluster_page)
+                with c2:
+                    st.slider("", 1, pages, st.session_state.cluster_page,
+                            key="cluster_page", label_visibility="collapsed")
+                with c3:
+                    st.button("Next ▶", key="cluster_next", on_click=go_next_cluster_page)
+                st.divider()
+
+                # grid
+                page = st.session_state.cluster_page
+                start = (page - 1) * per_page
+                end = start + per_page
+                to_remove = render_checkbox_grid(preds[start:end],
+                                                thumb_width=150,
+                                                cols=cols)
+
+                st.divider()
+                # bottom nav
+                b1, b2, b3 = st.columns([1, 6, 1])
+                with b1:
+                    st.button("◀ Previous", key="bottom_cluster_prev", on_click=go_prev_cluster_page)
+                with b2:
+                    st.slider("", 1, pages, st.session_state.cluster_page,
+                            key="bottom_cluster_page", label_visibility="collapsed")
+                with b3:
+                    st.button("Next ▶", key="bottom_cluster_next", on_click=go_next_cluster_page)
+                st.divider()
+
+            # 5) Global action buttons (now outside spinner)
+            ca, cb, cc = st.columns(3)
+            with ca:
+                if st.button("Remove Selected", key="cluster_remove_selected"):
+                    remaining = [i for i in preds if i not in to_remove]
+                    pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
+                    st.session_state["predicted_indices"] = remaining
+                    st.success(f"Removed {len(to_remove)}; {len(remaining)} remain.")
+                    st.session_state.cluster_page = 1
+                    st.rerun()
+
+            with cb:
+                if st.button("Delete Unchecked Labels", key="cluster_delete_unchecked"):
+                    keep = to_remove
+                    # ... your delete‐labels logic on `keep` ...
+                    pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+                    st.session_state["predicted_indices"] = []
+                    st.success("Deleted unchecked labels and cleared CSV.")
+                    st.rerun()
+
+            with cc:
+                if st.button("Delete All Labels", key="cluster_delete_all"):
+                    # ... your delete‐all logic on all `preds` ...
+                    pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+                    st.session_state["predicted_indices"] = []
+                    st.success("Deleted all labels and cleared CSV.")
+                    st.rerun()
+                    
+    # with st.expander("Clustered Objects OLD"):
+        
+    #     # Compute cluster.csv path
+    #     images_dir = st.session_state.paths["unverified_images_path"]
+    #     cluster_csv_path = os.path.join(os.path.dirname(images_dir), "cluster.csv")
+
+    #     # Standalone “Delete CSV” button
+    #     if st.button("❌ Delete CSV and reset cluster", key="cluster_delete_csv"):
+    #         pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+    #         st.session_state["predicted_indices"] = []
+    #         st.session_state.cluster_selections = {}
+    #         st.success("cluster.csv deleted and session state reset.")
+    #         st.rerun()
+
+    #     # Show/Hide toggle
+    #     action = st.radio(
+    #         "Clustered Objects:",
+    #         ("Display clustered objects", "Hide clustered objects"),
+    #         index=1,  # default to Hide
+    #         key="cluster_show_hide",
+    #     )
+
+    #     if action == "Display clustered objects":
+    #         c1, c2 = st.columns(2)
+    #         with c1:
+    #             # allow user to pick rows & cols
+    #             rows = st.number_input(
+    #                 "Rows per page", min_value=1, max_value=16,
+    #                 value=2, key="cluster_rows"
+    #             )
+    #         with c2:
+    #             cols = st.number_input(
+    #                 "Columns per page", min_value=1, max_value=16,
+    #                 value=10, key="cluster_cols"
+    #             )
+    #         per_page = rows * cols
+                            
+    #         if os.path.exists(cluster_csv_path):
+    #             try:
+    #                 df = pd.read_csv(cluster_csv_path, header=None)
+    #                 preds = df[0].tolist()
+    #             except pd.errors.EmptyDataError:
+    #                 preds = []
+    #             st.session_state["predicted_indices"] = preds
+
+    #             if preds:
+    #                 # Initialize page
+    #                 if "cluster_page" not in st.session_state:
+    #                     st.session_state.cluster_page = 1
+
+    #                 if (
+    #                     "cluster_selections" not in st.session_state
+    #                     or set(st.session_state.cluster_selections.keys()) != set(preds)
+    #                 ):
+    #                     st.session_state.cluster_selections = {idx: False for idx in preds}
+
+    #                 total = len(preds)
+    #                 pages = max(1, math.ceil(total / per_page))
+
+    #                 col1, col2, col3 = st.columns([1, 6, 1])
+    #                 with col1:
+    #                     st.button("◀ Previous", key="cluster_prev", on_click=go_prev_cluster_page)
+    #                 with col2:
+    #                     st.slider(
+    #                         "TEMP",
+    #                         min_value=1,
+    #                         max_value=pages,
+    #                         value=st.session_state.cluster_page,
+    #                         key="cluster_page",
+    #                         label_visibility="collapsed"
+    #                     )
+    #                 with col3:
+    #                     st.button("Next ▶", key="cluster_next", on_click=go_next_cluster_page)
+                    
+    #                 st.divider()
+
+    #                 # Render this page’s thumbnails
+    #                 page = st.session_state.cluster_page
+    #                 start = (page - 1) * per_page
+    #                 end = start + per_page
+    #                 page_preds = preds[start:end]
+
+    #                 to_remove = render_checkbox_grid(page_preds, thumb_width=150, cols=10)
+
+    #                 st.divider()
+
+    #                 col1, col2, col3 = st.columns([1, 6, 1])
+    #                 with col1:
+    #                     st.button("◀ Previous", key="button_cluster_prev", on_click=go_prev_cluster_page)
+    #                 with col2:
+    #                     st.slider(
+    #                         "TEMP",
+    #                         min_value=1,
+    #                         max_value=pages,
+    #                         value=st.session_state.cluster_page,
+    #                         key="bottom_cluster_page",
+    #                         label_visibility="collapsed"
+    #                     )
+    #                 with col3:
+    #                     st.button("Next ▶", key="bottom_cluster_next", on_click=go_next_cluster_page)
+
+    #                 st.divider()
+
+    #                 # Action buttons
+    #                 col_a, col_b, col_c = st.columns(3)
+    #                 with col_a:
+    #                     if st.button("Remove Selected", key="cluster_remove_selected"):
+    #                         remaining = [i for i in preds if i not in to_remove]
+    #                         pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
+    #                         st.session_state["predicted_indices"] = remaining
+    #                         st.success(f"Removed {len(to_remove)}; {len(remaining)} remain.")
+    #                         st.rerun()
+    #                 with col_b:
+    #                     if st.button("Delete Unchecked Labels", key="cluster_delete_unchecked"):
+    #                         idxs = [i for i in preds if i not in to_remove]
+    #                         file_map = {}
+    #                         for idx in idxs:
+    #                             obj = get_object_by_global_index(idx)
+    #                             if not obj:
+    #                                 continue
+    #                             file_map.setdefault(obj["label_path"], []).append(obj["local_index"])
+    #                         for path, local_indices in file_map.items():
+    #                             with open(path, "r") as f:
+    #                                 lines = f.readlines()
+    #                             for li in sorted(set(local_indices), reverse=True):
+    #                                 if 0 <= li < len(lines):
+    #                                     del lines[li]
+    #                             with open(path, "w") as f:
+    #                                 f.writelines(lines)
+    #                         pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+    #                         st.session_state["predicted_indices"] = []
+    #                         st.success("Deleted unchecked clustered objects and cleared CSV.")
+    #                         st.rerun()
+    #                 with col_c:
+    #                     if st.button("Delete All Labels", key="cluster_delete_all"):
+    #                         file_map = {}
+    #                         for idx in preds:
+    #                             obj = get_object_by_global_index(idx)
+    #                             if not obj:
+    #                                 continue
+    #                             file_map.setdefault(obj["label_path"], []).append(obj["local_index"])
+    #                         for path, local_indices in file_map.items():
+    #                             with open(path, "r") as f:
+    #                                 lines = f.readlines()
+    #                             for li in sorted(set(local_indices), reverse=True):
+    #                                 if 0 <= li < len(lines):
+    #                                     del lines[li]
+    #                             with open(path, "w") as f:
+    #                                 f.writelines(lines)
+    #                         pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
+    #                         st.session_state["predicted_indices"] = []
+    #                         st.success("Deleted all clustered objects and cleared CSV.")
+    #                         st.rerun()
+    #             else:
+    #                 st.info("cluster.csv is present but empty.")
+    #         else:
+    #             st.info('No cluster.csv yet—run “Begin Clustering” to create it.')
+                            
+    with st.expander("Cluster Object Settings"):
+
+        st.subheader("Virtual Environment")
+        path_navigator("venv_path", radio_button_prefix="cluster_")
+
+        st.subheader("Script")
+        path_navigator("cluster_script_path")
+        python_code_editor("cluster_script_path")
+
+    with st.expander("Cluster Objects"):
+    
+        st.session_state.cluster_threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.7, 0.1)
+        
+        # 2) Show tmux controls for running the clustering script
+        c0, c1, c2 = st.columns([1,1,4], gap="small")
+        with c0:
+            output = check_gpu_status("cluster_check_gpu")
+        with c1:
+            gpu = st.selectbox(
+                "GPU", 
+                options=list(range(len(st.session_state.gpu_list))),
+                format_func=lambda x: f"GPU {x}",
+                key="cluster_gpu_select"
+            )
+
+        with c2:
+            # Begin / Refresh / Clear / Kill buttons
+            btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4, gap="small")
+            with btn_col1:
+                if st.button("▶ Begin Clustering", key="cluster_begin"):
+                    if reference_indices is not None:
+                        # Save index list to CSV (no header, one index per line)
+                        pd.DataFrame(reference_indices).to_csv(
+                            cluster_csv_path,
+                            index=False,
+                            header=False
+                        )
+
+                    run_in_tmux(
+                        session_key="cluster",
+                        script_path=st.session_state.paths["cluster_script_path"],
+                        venv_path=st.session_state.paths["venv_path"],
+                        args={
+                            "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ "),
+                            "cluster_csv": cluster_csv_path.replace(" ", "\\ "),
+                            "threshold": st.session_state.cluster_threshold,
+                            "gpu": st.session_state.cluster_gpu_select
+                        }
+                    )
+
+                    time.sleep(3)
+                    output = update_tmux_terminal("cluster")
+
+            with btn_col2:
+                if st.button("🔄 Refresh", key="cluster_refresh"):
+                    output = update_tmux_terminal("cluster")
+            with btn_col3:
+                if st.button("🧹 Clear", key="cluster_clear"):
+                    output = None
+            with btn_col4:
+                if st.button("❌ Kill", key="cluster_kill"):
+                    output = kill_tmux_session("cluster")
+
+elif action_option == "🎥🖼️ Frame by Frame Review":
+        
+    with st.expander("Settings"):
+        
+        st.write("### Images Path")
+        st.write("The path to the images.")
+        path_navigator("unverified_images_path", radio_button_prefix="frame_")
+
+        st.write("### Label Names YAML Path")
+        st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
+        path_navigator("unverified_names_yaml_path", radio_button_prefix="frame_")
+        
+        st.write("### Image Scale")
+        st.write("Scale the image to fit the screen. This is useful for large images.")
+        st.number_input(
+            "Image Scale", 
+            value=st.session_state.unverified_image_scale,
+            step=0.25,
+            key="frame_unverified_image_scale_input",
+            on_change=set_scale
+        )
+
+        if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+            st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+            st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+            update_unverified_data_path()
+
+            if st.session_state.max_images > 0:
+                update_unverified_frame()
+                
+            st.rerun()
+        
+        yaml_editor("unverified_names_yaml_path")
+
+    with st.expander("Subset Selection"):
+        st.write("Select only a small subset of images to review or manually label.")
+        if handle_image_list_update(prefix="subset_"):
+            # --- CSV Path Selection ---
+            st.subheader("Choose CSV Path for Subset")
+            
+            path_option = st.radio("Please Choose:", ["Default", "Custom"], key="frame_default_subset", label_visibility="collapsed")
+            if path_option == "Default":
+                st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
+            else:
+                path_navigator("unverified_subset_csv_path", radio_button_prefix="frame_")
+
+            csv_file = st.session_state.paths["unverified_subset_csv_path"]
+            if os.path.exists(csv_file):
+                # Reload the subset frames from the CSV file
+                st.session_state.subset_frames = load_subset_frames(csv_file)
+
+                st.subheader("Modify/View Subset")
+
+                # Add/Remove Frames
+                if st.session_state.max_images > 0:
+                    c1, c2, c3 = st.columns([10, 10, 10])
+                    with c1:
+                        st.number_input(
+                            "Add Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="frame_subset_add_frame",
+                            on_change=add_frame_callback,
+                            args=("subset_add_frame",)
+                        )
+
+                    with c2:
+                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_subset_view_frames_in_subset")
+
+                    with c3:
+                        st.number_input(
+                            "Remove Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="frame_subset_remove_frame",
+                            on_change=remove_frame_callback,
+                            args=("subset_remove_frame",)
+                        )
+                else:
+                    st.warning("No images available.")
+
+                # --- Copy CSV to a New File ---
+                base, ext = os.path.splitext(csv_file)
+                default_copy_path = base + "_copy" + ext
+                new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
+                if st.button("Copy CSV to new file"):
+                    if new_save_path:
+                        try:
+                            st.session_state["skip_label_update"] = True
+                            save_subset_csv(new_save_path, st.session_state.subset_frames)
+                            st.success(f"Subset CSV copied to {new_save_path}")
+                        except Exception as e:
+                            st.error(f"Error copying file: {e}")
+                    else:
+                        st.error("Please enter a valid new file path.")
+            
+                # ---  Bulk Operations ---
+                st.markdown("---")
+                st.subheader("Bulk Subset Operations")
+
+                if st.button("Clear Subset Selection", key="frame_clear_subset_selection", help="Clears all frames from the subset selection list."):
+                    st.session_state.subset_frames = []
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success("Cleared all frames from subset selection.")
+                    st.rerun()
+
+                if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
+                    st.session_state["skip_label_update"] = True
+                    labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
+                    for i in labeled:
+                        if i not in st.session_state.subset_frames:
+                            st.session_state.subset_frames.append(i)
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Added {len(labeled)} labeled frames.")
+            
+                if st.button("Remove ALL Labeled Frames", help="Removes every frame containing labels from the subset."):
+                    st.session_state["skip_label_update"] = True
+                    before = set(st.session_state.subset_frames)
+                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    removed = len(before) - len(st.session_state.subset_frames)
+                    st.success(f"Removed {removed} frames.")
+
+                if st.button("Add ALL Unlabeled Frames", help="Adds every frame with no labels to the subset."):
+                    st.session_state["skip_label_update"] = True
+                    unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
+                    for i in unlabeled:
+                        if i not in st.session_state.subset_frames:
+                            st.session_state.subset_frames.append(i)
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Added {len(unlabeled)} unlabeled frames.")
+                
+                if st.button("Remove ALL Unlabeled Frames", help="Removes every frame with no labels from the subset."):
+                    st.session_state["skip_label_update"] = True
+                    before = set(st.session_state.subset_frames)
+                    st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    removed = len(before) - len(st.session_state.subset_frames)
+                    st.success(f"Removed {removed} frames.")
+
+                if st.button("Invert Subset Selection", help="Selects all frames not currently in the subset and deselects those that are."):
+                    st.session_state["skip_label_update"] = True
+                    # all frame indices 0 … max_images-1
+                    all_frames = list(range(st.session_state.max_images))
+                    # keep only those not already in subset
+                    new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
+                    st.session_state.subset_frames = new_subset
+                    # persist to CSV
+                    save_subset_csv(csv_file, st.session_state.subset_frames)
+                    st.success(f"Inverted subset: {len(new_subset)} frames selected.")
+                    st.rerun()
+
+                if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
+                    st.session_state["skip_label_update"] = True
+                    for idx in st.session_state.subset_frames:
+                        # construct label path
+                        if st.session_state.image_pattern:
+                            img = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            img = st.session_state.image_list[idx]
+                        lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                        open(lbl, "w").close()
+                    st.success("Cleared all label files for frames in subset.")
+
+                st.markdown("---")
+                # --- Save subset to directory ---
+                st.subheader("Save Subset to New Directory")
+                save_dir = path_navigator("subset_save_path", radio_button_prefix="frame_save_subset")
+                if st.button("Save images & labels here"):
+                    st.session_state["skip_label_update"] = True
+                    out_imgs = os.path.join(save_dir, "images")
+                    out_lbls = os.path.join(save_dir, "labels")
+                    os.makedirs(out_imgs, exist_ok=True, mode=0o777)
+                    os.makedirs(out_lbls, exist_ok=True, mode=0o777)
+
+                    for idx in st.session_state.subset_frames:
+                        # resolve source image
+                        if st.session_state.image_pattern:
+                            src = os.path.join(
+                                st.session_state.images_dir,
+                                st.session_state.image_pattern.format(idx)
+                            )
+                        else:
+                            src = st.session_state.image_list[idx]
+                        # copy image
+                        shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
+                        # copy or touch label
+                        lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
+                        dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
+                        if os.path.exists(lbl):
+                            shutil.copy2(lbl, dst_lbl)
+                        else:
+                            open(dst_lbl, "w").close()
+                    st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
+            
+            else:
+                st.info("No CSV found. Create or upload a CSV to begin using a subset.")
+
+    with st.expander("Frame by Frame Label Review"):
+        st.write( "Review the labels in a frame by frame sequence.")
+        if handle_image_list_update(prefix="frame_by_frame_"):
+            loading = st.session_state.get("detection_running", False)
+
+            if st.session_state.max_images > 0:
+                if st.session_state.max_images > 1:
+                    # --- Top Navigation (Prev / Next) ---
+                    col_prev, _, col_next = st.columns([4, 5, 4])
+                    with col_prev:
+                        st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
+                    with col_next:
+                        st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
+
+                    col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
+                    with col_copy_prev:
+                        st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
+                    with col_copy_next:
+                        st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
+
+                # --- Read and Display Current Frame ---
+                update_unverified_frame()
+
+                st.write(f"Current File Path: {st.session_state.image_path}")
+
+                # Annotate with detection()
+                det_container = st.container()
+                with det_container:
+                    if not loading:
+                        with st.spinner("Processing..."):
+                            out = detection(**st.session_state.detection_config)
+                    else:
+                        out = detection(**st.session_state.detection_config)
+
+                st.session_state.out = out
+
+                # Update labels if changed
+                update_labels_from_detection()
+
+                c1, c2 = st.columns([10, 90])
+                with c1:
+                    st.markdown(
+                        """
+                        <style>
+                        .stCheckbox input[type="checkbox"] {
+                            transform: scale(1.5);
+                        }
+                        .stCheckbox label {
+                            font-size: 24px;
+                            font-weight: bold;
+                        }
+                        </style>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    use_subset_val = st.checkbox(
+                        "Use Subset",
+                        value=st.session_state.use_subset,
+                        key="manual_label_subset_btn",
+                        on_change=manual_label_subset_checkbox_callback,
+                        disabled=not len(st.session_state.subset_frames) > 1
+                    )
+                    if st.session_state.use_subset_changed:
+                        st.session_state.use_subset_changed = False
+                        st.rerun()
+    
+                with c2:
+                    c12, c22, c32 = st.columns([10, 10, 10])
+                    with c12:
+                        st.number_input(
+                            "Add Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="frame_by_frame_add_frame",
+                            on_change=add_frame_callback,
+                            args=("frame_by_frame_add_frame",)
+                        )
+
+                    with c22:
+                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
+
+                    with c32:
+                        st.number_input(
+                            "Remove Frame Index",
+                            min_value=0,
+                            max_value=st.session_state.max_images - 1,
+                            value=None,
+                            step=1,
+                            key="frame_by_frame_remove_frame",
+                            on_change=remove_frame_callback,
+                            args=("frame_by_frame_remove_frame",)
+                        )
+
+                if not len(st.session_state.subset_frames) > 1:
+                        st.warning("Subset needs to be two or larger.")
+                
+                if st.session_state.max_images > 1:
+                    # Additional navigation (jump, slider, second Prev/Next)
+                    st.number_input(
+                        "Current Frame",
+                        min_value=0,
+                        max_value=st.session_state.max_images-1,
+                        value=st.session_state.frame_index,
+                        step=10,
+                        key="jump_page",
+                        on_change=jump_frame_frame_by_frame_callback
+                    )
+                    col_prev, col_slider, col_next = st.columns([2, 10, 4])
+                    with col_prev:
+                        st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
+                    with col_slider:
+                        st.slider(
+                            f"Subset Index: {st.session_state.frame_index}  Frame Index: {st.session_state.actual_frame_index}"
+                            if st.session_state.use_subset else f"Frame Index: {st.session_state.actual_frame_index}",
+                            0,
+                            st.session_state.max_images - 1 if not st.session_state.use_subset
+                            else len(st.session_state.subset_frames) - 1,
+                            st.session_state.frame_index,
+                            key="slider_det",
+                            on_change=frame_slider_frame_by_frame_callback,
+                            label_visibility="collapsed"
+                        )
+                    with col_next:
+                        st.button("Next Frame", key="next_btn", on_click=next_callback)
+            else:
+                st.warning("Data Path is empty...")
+    
+        else:
+            if st.button("Refresh", key="refresh_empty"):
+                update_unverified_data_path()
+                st.rerun()
+    
+    with st.expander("Zoomed‑in Bounding Box Regions"):
+        # Safely pull values (defaults to empty or None)
+        image    = st.session_state.get("image", None)
+        bboxes   = st.session_state.get("bboxes_xyxy", [])
+        labels   = st.session_state.get("labels", [])
+        bbox_ids = st.session_state.get("bbox_ids", [])
+
+        # If there's no image or no boxes, show a message
+        if image is None or not bboxes:
+            st.warning("No bounding boxes in current frame.")
+        else:
+            # Update frame if needed
+            update_unverified_frame()
+
+            # Render each crop + controls
+            for i, (x, y, w, h) in enumerate(bboxes):
+                # Compute coordinates
+                x1, y1 = max(x, 0.0), max(y, 0.0)
+                x2, y2 = x1 + w,      y1 + h
+
+                # Sanity check
+                if x2 <= x1 or y2 <= y1:
+                    st.session_state.labels.pop(i)
+                    st.session_state.bboxes_xyxy.pop(i)
+                    st.session_state.bbox_ids.pop(i)
+                    st.rerun()
+
+                # Crop & caption
+                cropped = image.crop((x1, y1, x2, y2))
+                if i < len(labels):
+                    idx = labels[i]
+                    try:
+                        label_name = st.session_state.label_list[idx]
+                    except Exception:
+                        label_name = f"Label {idx}"
+                else:
+                    label_name = "Unknown"
+                caption = (
+                    f"ID: {bbox_ids[i]}, "
+                    f"Label: {label_name}, "
+                    f"BBox: ({x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f})"
+                )
+
+                key_x = f"bbox_{bbox_ids[i]}_cx"
+                key_y = f"bbox_{bbox_ids[i]}_cy"
+                key_w = f"bbox_{bbox_ids[i]}_w"
+                key_h = f"bbox_{bbox_ids[i]}_h"
+
+                st.markdown(f"#### Edit Bounding Box {i} Parameters")
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.image(cropped, caption=caption)
+
+                # Default center coords
+                center_x = x + w / 2
+                center_y = y + h / 2
+
+                with col2:
+                    st.number_input(
+                        f"Center X for bbox {i}",
+                        min_value=0.0,
+                        max_value=float(st.session_state.image_width),
+                        value=center_x,
+                        key=key_x,
+                        step=1.0,
+                        on_change=lambda i=i: zoom_edit_callback(i),
+                    )
+                    st.number_input(
+                        f"Center Y for bbox {i}",
+                        min_value=0.0,
+                        max_value=float(st.session_state.image_height),
+                        value=center_y,
+                        key=key_y,
+                        step=1.0,
+                        on_change=lambda i=i: zoom_edit_callback(i),
+                    )
+                    st.number_input(
+                        f"Width for bbox {i}",
+                        min_value=1.0,
+                        max_value=float(st.session_state.image_width),
+                        value=w,
+                        key=key_w,
+                        step=1.0,
+                        on_change=lambda i=i: zoom_edit_callback(i),
+                    )
+                    st.number_input(
+                        f"Height for bbox {i}",
+                        min_value=1.0,
+                        max_value=float(st.session_state.image_height),
+                        value=h,
+                        key=key_h,
+                        step=1.0,
+                        on_change=lambda i=i: zoom_edit_callback(i),
+                )
+                    
+elif action_option == "🚚📁 Move Directory":
+    # SETTINGS
+    with st.expander("Move Directory Settings"):
+        st.subheader("Source Directory")
+        path_navigator("move_src_path")
+        st.subheader("Destination Directory")
+        path_navigator("move_dest_path", must_exist=False)
+
+        # Swap paths button
+        if st.button("🔄 Swap Source and Destination", key="swap_move_paths_btn"):
+            src = st.session_state.paths.get("move_src_path", "")
+            dst = st.session_state.paths.get("move_dest_path", "")
+            st.session_state.paths["move_src_path"], st.session_state.paths["move_dest_path"] = dst, src
+            st.rerun()
+
+    # VENV
+    with st.expander("Virtual Environment Path"):
+        st.write("Path to the virtual environment for the move script.")
+        path_navigator("venv_path", radio_button_prefix="move_dir")
+
+    # SCRIPT
+    with st.expander("Move Script"):
+        st.write("Your `move_dir.py` (must accept `--src_dir` and `--dst_dir`).")
+        path_navigator("move_dir_script_path")
+        python_code_editor("move_dir_script_path")
+
+    # ACTIONS
+    with st.expander("Execute Move"):
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+        with c1:
+            if st.button("▶ Begin Move", key="begin_move_dir_btn"):
+                run_in_tmux(
+                    session_key="move_dir",
+                    script_path=st.session_state.paths["move_dir_script_path"],
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ "),
+                        "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ "),
+                    },
+                    script_type="python"
+                )
+                time.sleep(3)
+                output = update_tmux_terminal("move_dir")
+        with c2:
+            if st.button("🔄 Refresh Terminal", key="refresh_move_dir_btn"):
+                output = update_tmux_terminal("move_dir")
+        with c3:
+            if st.button("🧹 Clear Output", key="clear_move_dir_btn"):
+                output = None
+        with c4:
+            if st.button("❌ Kill Session", key="kill_move_dir_btn"):
+                output = kill_tmux_session("move_dir")
+        
+elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Objects":
+    with st.expander("Dataset Settings"):
+        c1, c2 = st.columns(2)
+        with c1:
+            st.subheader("Dataset To Be Split")
+            st.write("The path to the dataset to be split.")
+            path_navigator("split_data_path")
+        with c2:
+            st.subheader("Save Path")
+            st.write("The path to save to on the server.")
+            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
+            key = "split_data_save_path"
+            if save_path_option == "Default":
+                st.session_state.paths[key] = st.session_state.paths["split_data_path"]
+                st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
             else:
                 path_navigator(key)
 
-            st.subheader("New Video Path Save Path")
-            st.write("The base folder to move the original video after conversion.")
-            key = "convert_video_copy_path"
-            save_path_option = st.radio("Choose save path option:", ["Default", "Custom"],
-                                        key="convert_video_copy_radio", label_visibility="collapsed")
-            if save_path_option == "Default":
-                if os.path.isdir(video_path):
-                    if "to_be_converted" in video_path:
-                        default_copy_dir = video_path.replace("to_be_converted", "converted")
-                    else:
-                        default_copy_dir = video_path.rstrip(os.sep) + "/converted_videos"
-                    st.session_state.paths[key] = default_copy_dir
-                else:
-                    st.session_state.paths[key] = os.path.dirname(
-                        video_path.replace("to_be_converted", "converted")
-                    )
-                st.write(f"**Current New Video Path Save Path:** {st.session_state.paths[key]}")
-            else:
-                path_navigator(key, radio_button_prefix="change_after_conversion_")
-        
-        with st.expander("Virtual Environment Path"):
-            st.write("Provide the path to the virtual environment containing the required packages.")
-            path_navigator("venv_path", radio_button_prefix="convert_mp4")
-        
-        with st.expander("Script"):
-            path_navigator("convert_video_script_path")
-            python_code_editor("convert_video_script_path")
-        
-        with st.expander("Convert Video to Frames"):
-            st.write(
-                "Click **Begin Converting** to start processing your video file(s) in a background tmux session.\n\n"
-                "• For directories, a single tmux session will be launched that loops over each video internally, so the GUI doesn't wait for each conversion.")
-            st.write(
-                "• Once conversion completes, each video file is automatically moved to the new location."
-            )
-
-            output = None
-            c1_conv, c2, c3, c4 = st.columns(4, gap="small")
-            session_key = "convert_video_background"
-            with c1_conv:
-
-                if st.button("▶ Begin Converting", key="begin_converting_data_btn"):
-                    video_path = st.session_state.paths.get('convert_video_path', '')
-                    # Launch the conversion script as a single background task,
-                    # passing the "copy_destination" so the script can move each video when done.
-                    
-                    run_in_tmux(
-                        session_key=session_key,
-                        script_path=st.session_state.paths["convert_video_script_path"],
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "video_path": video_path.replace(" ", "\ "),
-                            "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\ "),
-                            "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\ ")
-                        }
-                    )
-                    st.success("Conversion started in the background. Check tmux for progress.")
-                    converted = True
-
-            with c2:
-                if st.button("🔄 Refresh Terminal", key="check_convert_video_btn"):
-                    output = update_tmux_terminal(session_key)
-
-            with c3:
-                if st.button("🧹 Clear Output", key="convert_video_terminal_btn"):
-                    output = None
-
-            with c4:
-                if st.button("❌ Kill Session", key="convert_video_kill_tmux_session_btn"):
-                    output = kill_tmux_session(session_key)
-
-    elif action_option == "Rotate Image Dataset":
-        with st.expander("Settings"):
-            st.subheader("Image Path")
-            st.write("The path to the image datasets. If subdirectories are found, each subdirectory will be treated as an individual dataset.")
-            image_directory = path_navigator("rotate_images_path")
-
-            enable_option = st.radio(
-                "Choose save path option:", 
-                [
-                    "Disable Preview (Better Performance)",
-                    "Preview Datasets and Set Rotations", 
-                ],
-                key=f"enable_radio",
-                label_visibility="collapsed"
-            )
-
-            if enable_option == "Preview Datasets and Set Rotations":
-                datasets_list = []  # New list to collect each dataset's info.
-                if image_directory and os.path.isdir(image_directory):
-                    subdirs = [os.path.join(image_directory, d, "images") for d in os.listdir(image_directory)
-                            if os.path.isdir(os.path.join(image_directory, d))]
-                    datasets = subdirs if subdirs else [image_directory]
-
-                    for dataset in datasets:
-                        st.markdown(f"#### Dataset: {dataset}")
-                        random_img_path = get_random_image(dataset)
-
-                        if random_img_path:
-                            c1, c2, c3 = st.columns([.37, .16, .37])
-                            
-                            with c1:
-                                st.image(random_img_path, caption="Randomly Sampled Image")
-                            
-                            with c2:
-                                if st.button("Randomize Image Path", key=f"randomize_{dataset}"):
-                                    st.rerun()
-
-                                rotation_option = st.radio(
-                                    "Choose Rotation:", 
-                                    ["None", "CW", "CCW", "180"],
-                                    key=f"rotate_images_radio_{dataset}",
-                                    label_visibility="collapsed"
-                                )
-                            
-                            with c3:
-                                image = Image.open(random_img_path)
-                                if rotation_option == "CW":
-                                    rotated_image = image.rotate(-90, expand=True)
-                                elif rotation_option == "CCW":
-                                    rotated_image = image.rotate(90, expand=True)
-                                elif rotation_option == "180":
-                                    rotated_image = image.rotate(180, expand=True)
-                                else:
-                                    rotated_image = image
-                                st.image(rotated_image, caption=f"Rotated Image ({rotation_option})")
-                            
-                            datasets_list.append({
-                                "directory": dataset.replace("\ ", " "),
-                                "rotation": rotation_option
-                            })
-                        else:
-                            st.warning(f"No valid image found in dataset: {os.path.basename(dataset)}")
-                else:
-                    st.error("Please select a valid image dataset directory.")
-                
-        with st.expander("Virtual Environment Path"):
-            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
-            path_navigator("venv_path", radio_button_prefix="rotate_images")
-        
-        with st.expander("Script"):
-            path_navigator("rotate_images_script_path")
-            python_code_editor("rotate_images_script_path")
-        
-        with st.expander("Rotate Images"):
-            st.write("Press 'Begin Rotating Images' to perform the desired action on the images.")
-            output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-            
-            with c1:
-                if st.button("▶ Begin Rotating Images", key="begin_rotating_data_btn"):
-                    # Filter the datasets_list to include only entries with a rotation other than "None"
-                    filtered_datasets = [entry for entry in datasets_list if entry["rotation"] != "None"]
-
-                    if filtered_datasets:
-                        # Write the filtered datasets list to a temporary JSON file.
-                        with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".json") as tf:
-                            json.dump(filtered_datasets, tf)
-                            temp_json_path = tf.name
-                        
-                        # Build command-line arguments by passing the JSON file path.
-                        # Use shlex.quote to ensure the path is safely escaped.
-                        cmd_args = f'--json_file {shlex.quote(temp_json_path)}'
-                        
-                        # Launch the tmux command with the --json_file argument.
-                        run_in_tmux(
-                            session_key="rotate_images", 
-                            script_path=st.session_state.paths["rotate_images_script_path"], 
-                            venv_path=st.session_state.paths["venv_path"],
-                            args=cmd_args
-                        )
-                        time.sleep(3)
-                        output = update_tmux_terminal("rotate_images")
-                    else:
-                        st.warning("No rotations required as all settings are None.")
-            
-            with c2:
-                if st.button("🔄 Refresh Terminal", key="check_rotate_images_btn"):
-                    output = update_tmux_terminal("rotate_images")
-            
-            with c3:
-                if st.button("🧹 Clear Output", key="rotate_images_clear_terminal_btn"):
-                    output = None
-                    st.text("Terminal output cleared.")
-            
-            with c4:
-                if st.button("❌ Kill Session", key="rotate_images_kill_tmux_session_btn"):
-                    output = kill_tmux_session("rotate_images")
-                    st.text(output)
-
-    elif action_option == "Auto Label":
-        with st.expander("Auto Label Settings"):
-            st.subheader("Model Weights Path")
-            st.write("The path to the model weights.")
-            path_navigator("auto_label_model_weight_path")
-
-            st.subheader("Images Path")
-            st.write("The path to the images.")
-            path_navigator("auto_label_data_path")
-            
-            # Check whether the provided images path is a directory.
-            images_path = st.session_state.paths.get("auto_label_data_path", "")
-            if os.path.isdir(images_path):
-                # Build a dictionary with counts of images per directory.
-                dir_image_counts = {}
-                base_dir = os.path.abspath(images_path)
-                for root, dirs, files in os.walk(images_path):
-                    count = sum(1 for f in files if f.lower().endswith(('.png', '.jpg', '.jpeg')))
-                    if count > 0:
-                        rel_dir = os.path.relpath(root, base_dir)
-                        # If the relative directory is just ".", show "Base Directory".
-                        key_name = "Base Directory" if rel_dir == "." else rel_dir
-                        dir_image_counts[key_name] = count
-
-                if not dir_image_counts:
-                    st.warning("No images (PNG/JPG/JPEG) found in the selected directory.")
-                else:
-                    # Build a sorted list of options like "FolderName (N images)"
-                    options = sorted([f"{k} ({v} images)" for k, v in dir_image_counts.items()])
-                    st.selectbox("Found Image Directories", options=options,
-                                key="found_autolabel_images", label_visibility="collapsed")
-            else:
-                st.write("**Single image file selected** (if this is not intended, please choose a directory).")
-
-            st.subheader("Label Save Path Replacement")
-            st.write("Instead of specifying a full path, enter the folder name that will replace the last folder in the images path. For example, use 'labels' to automatically replace the 'images' folder.")
-            # Provide a radio button to choose between the default replacement and a custom value.
-            key = "auto_label_replacement"
-            replacement_option = st.radio("Choose label replacement option:", ["Default", "Custom"],
-                                        key="autolabel_replacement_radio", label_visibility="collapsed")
-            if replacement_option == "Default":
-                st.session_state.paths[key] = "labels"
-            else:
-                st.session_state.paths[key] = st.text_input("Enter custom label replacement", value="labels")
-            st.write(f"**Label Replacement:** {st.session_state.paths[key]}")
-
-        with st.expander("Virtual Environment Path"):
-            st.subheader("Venv Path")
-            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
-            path_navigator("venv_path", radio_button_prefix="auto_label")
-
-        with st.expander("Script"):
-            path_navigator("auto_label_script_path")
-            python_code_editor("auto_label_script_path")
-
-        with st.expander("Auto Label Data"):
-            st.write("Click the 'Begin Auto Labeling Data' button to start the auto-labeling process.")
-            output = None
-            c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
-
-            with c1:
-                output = check_gpu_status("auto_label_check_gpu_status_button")
-
-            with c2:
-                try:
-                    if st.session_state.gpu_list:
-                        selected_gpu = st.selectbox("Select GPU", options=list(range(len(st.session_state.gpu_list))),
-                                                    format_func=lambda x: f"GPU {x}", label_visibility="collapsed")
-                        st.session_state.auto_label_gpu = int(selected_gpu)
-                        st.write(f"Selected GPU: GPU {st.session_state.auto_label_gpu}")
-                    else:
-                        st.warning("No GPUs found, defaulting to CPU")
-                        st.session_state.auto_label_gpu = -1
-                except Exception as e:
-                    st.error(f"Error checking GPUs: {e}")
-                    st.session_state.auto_label_gpu = -1
-
-            with c3:
-                if st.button("▶ Begin Auto Labeling Data", key="begin_auto_labeling_data_btn"):
-                    run_in_tmux(
-                        session_key="auto_label_data", 
-                        script_path=st.session_state.paths["auto_label_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\ "),
-                            "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\ "),
-                            "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\ "),
-                            "gpu_number": st.session_state.auto_label_gpu
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("auto_label_data")
-
-            with c4:
-                if st.button("🔄 Refresh Terminal", key="check_auto_labeling_data_btn"):
-                    output = update_tmux_terminal("auto_label_data")
-
-            with c5:
-                if st.button("🧹 Clear Output", key="auto_labeling_clear_terminal_btn"):
-                    output = None
-
-            with c6:
-                if st.button("❌ Kill Session", key="auto_labeling_kill_tmux_session_btn"):
-                    output = kill_tmux_session("auto_label_data")
-
-            terminal_output = st.empty()
-            if output is not None:
-                terminal_output.text(output)
-
-    elif action_option == "Generate Labeled Video":
-        # — defaults
-        st.session_state.paths.setdefault(
-            "gen_vid_input_path", 
-            st.session_state.paths["unverified_images_path"]
-        )
-        default_out = os.path.join(
-            st.session_state.paths["gen_vid_input_path"],
-            "videos_with_labels"
-        )
-        st.session_state.paths.setdefault("gen_vid_output_path", default_out)
-        st.session_state.paths.setdefault("gen_vid_script_path", "generate_video.py")
-
-        # — SETTINGS —
-        with st.expander("Settings"):
-            st.subheader("Input Path")
-            st.write("Parent folder containing one or more subdirs with `images/` + `labels/`.")
-            path_navigator("gen_vid_input_path", radio_button_prefix="gen_vid")
-
-            input_root = st.session_state.paths.get("gen_vid_input_path", "")
-            valid_dirs = []
-            if os.path.isdir(input_root):
-                for entry in sorted(os.listdir(input_root)):
-                    imgs = os.path.join(input_root, entry, "images")
-                    lbls = os.path.join(input_root, entry, "labels")
-                    if os.path.isdir(imgs) and os.path.isdir(lbls):
-                        valid_dirs.append(entry)
-
-            st.selectbox(
-                "Found subfolders with both `images/` and `labels/` (selection does nothing)",
-                options=valid_dirs,
-                index=0 if valid_dirs else None,
-            )
-
-            st.subheader("FPS")
-            st.session_state.paths["gen_vid_fps"] = st.number_input(
-                "Frames per second", 
-                min_value=1.0, 
-                value=float(st.session_state.paths.get("gen_vid_fps", 5.0)),
-                step=1.0,
-                key="gen_vid_fps_input"    
-            )
-
-            st.subheader("Mode")
-            st.session_state.paths["gen_vid_mode"] = st.radio(
-                "Which video(s) to generate?",
-                options=["Frame by Frame", "Object by Object", "Both"],
-                index=["Frame by Frame","Object by Object","Both"]
-                    .index(st.session_state.paths.get("gen_vid_mode","Both")),
-                key="gen_vid_mode_radio"
-            )
-
-        # — VIRTUAL ENV —
-        with st.expander("Virtual Environment"):
-            st.write("Path to the venv containing Python + dependencies.")
-            path_navigator("venv_path", radio_button_prefix="gen_vid")
-
-        # — SCRIPT —
-        with st.expander("Script"):
-            st.write("Your `generate_video.py` (must accept --input_path, --output_path, --fps, --mode).")
-            path_navigator("gen_vid_script_path", radio_button_prefix="gen_vid")
-            python_code_editor("gen_vid_script_path")
-
-        # — ACTIONS —
-        with st.expander("Generate Videos"):
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-            with c1:
-                
-                if st.button("▶ Start Generating", key="begin_gen_vid_btn"):
-                    output = run_in_tmux(
-                        session_key="gen_vid",
-                        script_path=st.session_state.paths["gen_vid_script_path"],
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\ "),
-                            "fps":           st.session_state.paths["gen_vid_fps"],
-                            "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\ ")
-                        },
-                        script_type="python"
-                    )
-            with c2:
-                if st.button("🔄 Refresh Terminal", key="update_gen_vid_btn"):
-                    output = update_tmux_terminal("gen_vid")
-            with c3:
-                if st.button("🧹 Clear Output", key="clear_gen_vid_btn"):
-                    output = None
-            with c4:
-                if st.button("❌ Kill Session", key="kill_gen_vid_btn"):
-                    output = kill_tmux_session("gen_vid")
-        
-    elif action_option == "Video Review":
-
-        with st.expander("Settings"):
-            
-            st.write("### Images Path")
-            st.write("The path to the images.")
-            path_navigator("unverified_images_path", radio_button_prefix="video_review")
-
-            if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
-                st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
-                st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
-                update_unverified_data_path()
-
-                if st.session_state.max_images > 0:
-                    update_unverified_frame()
-                    
-                st.rerun()
-            
-        with st.expander("Subset Selection"):
-            st.write("Select only a small subset of images to review or manually label.")
-            if handle_image_list_update(prefix="subset_"):
-                # --- CSV Path Selection ---
-                st.subheader("Choose CSV Path for Subset")
-                
-                path_option = st.radio("Please Choose:", ["Default", "Custom"], key="default_subset", label_visibility="collapsed")
-                if path_option == "Default":
-                    st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
-                else:
-                    path_navigator("unverified_subset_csv_path", radio_button_prefix="video_review")
-
-                csv_file = st.session_state.paths["unverified_subset_csv_path"]
-                if os.path.exists(csv_file):
-                    # Reload the subset frames from the CSV file
-                    st.session_state.subset_frames = load_subset_frames(csv_file)
-
-                    st.subheader("Modify/View Subset")
-
-                    # Add/Remove Frames
-                    if st.session_state.max_images > 0:
-                        c1, c2, c3 = st.columns([10, 10, 10])
-                        with c1:
-                            st.number_input(
-                                "Add Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="video_review_subset_add_frame",
-                                on_change=add_frame_callback,
-                                args=("subset_add_frame",)
-                            )
-
-                        with c2:
-                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="video_review_subset_view_frames_in_subset")
-
-                        with c3:
-                            st.number_input(
-                                "Remove Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="video_review_subset_remove_frame",
-                                on_change=remove_frame_callback,
-                                args=("subset_remove_frame",)
-                            )
-                    else:
-                        st.warning("No images available.")
-
-                    # --- Copy CSV to a New File ---
-                    base, ext = os.path.splitext(csv_file)
-                    default_copy_path = base + "_copy" + ext
-                    new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
-                    if st.button("Copy CSV to new file"):
-                        if new_save_path:
-                            try:
-                                st.session_state["skip_label_update"] = True
-                                save_subset_csv(new_save_path, st.session_state.subset_frames)
-                                st.success(f"Subset CSV copied to {new_save_path}")
-                            except Exception as e:
-                                st.error(f"Error copying file: {e}")
-                        else:
-                            st.error("Please enter a valid new file path.")
-                
-                    # ---  Bulk Operations ---
-                    st.markdown("---")
-                    st.subheader("Bulk Subset Operations")
-
-                    if st.button("Clear Subset Selection", key="video_review_clear_subset_selection", help="Clears all frames from the subset selection list."):
-                        st.session_state.subset_frames = []
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success("Cleared all frames from subset selection.")
-                        st.rerun()
-
-                    if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
-                        st.session_state["skip_label_update"] = True
-                        labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
-                        for i in labeled:
-                            if i not in st.session_state.subset_frames:
-                                st.session_state.subset_frames.append(i)
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success(f"Added {len(labeled)} labeled frames.")
-                
-                    if st.button("Remove ALL Labeled Frames", help="Removes every frame containing labels from the subset."):
-                        st.session_state["skip_label_update"] = True
-                        before = set(st.session_state.subset_frames)
-                        st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        removed = len(before) - len(st.session_state.subset_frames)
-                        st.success(f"Removed {removed} frames.")
-
-                    if st.button("Add ALL Unlabeled Frames", help="Adds every frame with no labels to the subset."):
-                        st.session_state["skip_label_update"] = True
-                        unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
-                        for i in unlabeled:
-                            if i not in st.session_state.subset_frames:
-                                st.session_state.subset_frames.append(i)
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success(f"Added {len(unlabeled)} unlabeled frames.")
-                    
-                    if st.button("Remove ALL Unlabeled Frames", help="Removes every frame with no labels from the subset."):
-                        st.session_state["skip_label_update"] = True
-                        before = set(st.session_state.subset_frames)
-                        st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        removed = len(before) - len(st.session_state.subset_frames)
-                        st.success(f"Removed {removed} frames.")
-
-                    if st.button("Invert Subset Selection", help="Selects all frames not currently in the subset and deselects those that are."):
-                        st.session_state["skip_label_update"] = True
-                        # all frame indices 0 … max_images-1
-                        all_frames = list(range(st.session_state.max_images))
-                        # keep only those not already in subset
-                        new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
-                        st.session_state.subset_frames = new_subset
-                        # persist to CSV
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success(f"Inverted subset: {len(new_subset)} frames selected.")
-                        st.rerun()
-
-                    if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
-                        st.session_state["skip_label_update"] = True
-                        for idx in st.session_state.subset_frames:
-                            # construct label path
-                            if st.session_state.image_pattern:
-                                img = os.path.join(
-                                    st.session_state.images_dir,
-                                    st.session_state.image_pattern.format(idx)
-                                )
-                            else:
-                                img = st.session_state.image_list[idx]
-                            lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
-                            open(lbl, "w").close()
-                        st.success("Cleared all label files for frames in subset.")
-
-                    st.markdown("---")
-                    # --- Save subset to directory ---
-                    st.subheader("Save Subset to New Directory")
-                    save_dir = path_navigator("subset_save_path", radio_button_prefix="video_review_save_subset")
-                    if st.button("Save images & labels here"):
-                        st.session_state["skip_label_update"] = True
-                        out_imgs = os.path.join(save_dir, "images")
-                        out_lbls = os.path.join(save_dir, "labels")
-                        os.makedirs(out_imgs, exist_ok=True, mode=0o777)
-                        os.makedirs(out_lbls, exist_ok=True, mode=0o777)
-
-                        for idx in st.session_state.subset_frames:
-                            # resolve source image
-                            if st.session_state.image_pattern:
-                                src = os.path.join(
-                                    st.session_state.images_dir,
-                                    st.session_state.image_pattern.format(idx)
-                                )
-                            else:
-                                src = st.session_state.image_list[idx]
-                            # copy image
-                            shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
-                            # copy or touch label
-                            lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
-                            dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
-                            if os.path.exists(lbl):
-                                shutil.copy2(lbl, dst_lbl)
-                            else:
-                                open(dst_lbl, "w").close()
-                        st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
-                
-                else:
-                    st.info("No CSV found. Create or upload a CSV to begin using a subset.")
-
-        with st.expander("Video Label Review"):
-            update_unverified_data_path()
-            if handle_image_list_update(prefix="video_"):
-                video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
-                if os.path.exists(video_base_path):
-                        
-                    video_paths = os.listdir(video_base_path)
-
-                    for i in range(len(video_paths) + 1):
-                        video_path = video_paths[i-1]
-
-                        if i > 0:
-                            if "frame_by_frame" in video_path or "object_by_object" in video_path:
-                                st.video(os.path.join(video_base_path, video_path), start_time=0, format="video/mp4")
-
-                        # Add/Remove Frames (single)
-                        if st.session_state.max_images > 0:
-                                c1, c2, c3 = st.columns([10, 10, 10])
-                                with c1:
-                                    st.number_input(
-                                        "Add Frame Index",
-                                        min_value=0,
-                                        max_value=st.session_state.max_images - 1,
-                                        value=None,
-                                        step=1,
-                                        key=f"{i}_video_subset_add_frame",
-                                        on_change=add_frame_callback,
-                                        args=(f"{i}_video_subset_add_frame",),
-                                        label_visibility="visible"     
-                                    )
-                                with c2:
-                                    st.selectbox(
-                                        "View Frames in Subset (selection does nothing)",
-                                        options=sorted(st.session_state.subset_frames),
-                                        key=f"{i}_video_subset_view_frames_in_subset",
-                                        label_visibility="visible"     
-                                    )
-                                with c3:
-                                    st.number_input(
-                                        "Remove Frame Index",
-                                        min_value=0,
-                                        max_value=st.session_state.max_images - 1,
-                                        value=None,
-                                        step=1,
-                                        key=f"{i}_video_subset_remove_frame",
-                                        on_change=remove_frame_callback,
-                                        args=(f"{i}_video_subset_remove_frame",),
-                                        label_visibility="visible"     
-                                    )
-
-                                # Add/Remove Frames (range)
-                                max_idx = st.session_state.max_images - 1
-                                r1, r2, r3, r4 = st.columns([8, 8, 4, 4])
-                                with r1:
-                                    range_start = st.number_input(
-                                        "Range Start",
-                                        min_value=0,
-                                        max_value=max_idx,
-                                        value=0,
-                                        key=f"{i}_video_subset_range_start",
-                                        label_visibility="visible"     
-                                    )
-                                with r2:
-                                    range_end = st.number_input(
-                                        "Range End",
-                                        min_value=0,
-                                        max_value=max_idx,
-                                        value=max_idx,
-                                        key=f"{i}_video_subset_range_end",
-                                        label_visibility="visible"     
-                                    )
-                                with r3:
-                                    if st.button("Add Range", key=f"{i}_add_range_btn"):
-                                        lo, hi = sorted((range_start, range_end))
-                                        for i in range(lo, hi + 1):
-                                            if i not in st.session_state.subset_frames:
-                                                st.session_state.subset_frames.append(i)
-                                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                                        st.success(f"Added frames {lo}–{hi}")
-                                with r4:
-                                    if st.button("Remove Range", key=f"{i}_remove_range_btn"):
-                                        lo, hi = sorted((range_start, range_end))
-                                        before = set(st.session_state.subset_frames)
-                                        st.session_state.subset_frames = [
-                                            i for i in st.session_state.subset_frames if not (lo <= i <= hi)
-                                        ]
-                                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                                        removed = len(before) - len(st.session_state.subset_frames)
-                                        st.success(f"Removed {removed} frames")
-                
-                else:
-                    st.warning("No videos generated please go to Generate Data Tab.")
-
-    elif action_option == "Object by Object Review":
-
-        with st.expander("Settings"):
-            
-            st.write("### Images Path")
-            st.write("The path to the images.")
-            path_navigator("unverified_images_path", radio_button_prefix="object_")
-
-            if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
-                st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
-                st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
-                update_unverified_data_path()
-
-                if st.session_state.max_images > 0:
-                    update_unverified_frame()
-                    
-                st.rerun()
-            
-        with st.expander("Object by Object Label Review"):
-            st.write( "Review the labels in an object by object sequence.")
-
-            # Call the helper function to ensure image list/naming pattern is up-to-date.
-            if handle_image_list_update(prefix="object_by_object_"):
-                object_running = st.session_state.get("object_running", False)
-
-                current_obj = get_object_by_global_index(st.session_state.global_object_index)
-                if current_obj is None:
-                    st.session_state.global_object_index = 0
-                    current_obj = get_object_by_global_index(st.session_state.global_object_index)
-                    if current_obj is None:
-                        st.info("No objects found in the dataset.")
-                    else:
-                        st.rerun()
-                else:
-                    img = current_obj["img"]
-                    bbox = current_obj["bbox"]
-                    obj_label = current_obj["label"]
-                    image_path = current_obj["image_path"]
-                    label_path = current_obj["label_path"]
-                    st.session_state.global_object_count = current_obj["num_labels"]
-
-
-                    x, y, w, h = bbox
-                    center_x = x + w / 2
-                    center_y = y + h / 2
-
-                    mode = st.radio(
-                        "Display Mode",
-                        options=["Cropped Object", "Full Image with BBox"],
-                        key=f"object_display_mode_{current_obj['global_index']}",
-                        disabled=object_running
-                    )
-
-                    if mode == "Cropped Object":
-                        display_img = img.crop((x, y, x + w, y + h))
-                        caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Cropped)"
-                    else:
-                        full_img = img.copy()
-                        draw = ImageDraw.Draw(full_img)
-                        draw.rectangle((x, y, x + w, y + h), outline="red", width=2)
-                        display_img = full_img
-                        caption = f"{os.path.basename(image_path)} | Object {current_obj['global_index']}: Label {obj_label} (Full Image)"
-
-                    col_img, col_ctrl = st.columns(2)
-                    with col_img:
-                        st.markdown("<div style='text-align: center;'>", unsafe_allow_html=True)
-                        st.image(display_img, caption=caption, use_container_width=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-                    with col_ctrl:
-                        st.number_input(
-                            f"Center X for object {current_obj['global_index']}",
-                            min_value=0.0,
-                            max_value=float(img.width),
-                            value=center_x,
-                            key=f"object_{current_obj['global_index']}_center_x",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback,
-                            disabled=object_running
-                        )
-                        st.number_input(
-                            f"Center Y for object {current_obj['global_index']}",
-                            min_value=0.0,
-                            max_value=float(img.height),
-                            value=center_y,
-                            key=f"object_{current_obj['global_index']}_center_y",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback,
-                            disabled=object_running
-                        )
-                        st.number_input(
-                            f"Width for object {current_obj['global_index']}",
-                            min_value=1.0,
-                            max_value=float(img.width),
-                            value=w,
-                            key=f"object_{current_obj['global_index']}_w",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback,
-                            disabled=object_running
-                        )
-                        st.number_input(
-                            f"Height for object {current_obj['global_index']}",
-                            min_value=1.0,
-                            max_value=float(img.height),
-                            value=h,
-                            key=f"object_{current_obj['global_index']}_h",
-                            step=1.0,
-                            on_change=object_by_object_edit_callback,
-                            disabled=object_running
-                        )
-
-                        col_input1, col_input2 = st.columns(2)
-                        with col_input1:
-                            num_labels = current_obj["num_labels"]
-                            new_global_index = st.number_input(
-                                f"Set Global Object Index (0-{num_labels-1})",
-                                min_value=0,
-                                value=st.session_state.global_object_index,
-                                key="global_obj_index_input",
-                                disabled=object_running
-                            )
-                            if new_global_index != st.session_state.global_object_index:
-                                st.session_state.global_object_index = int(new_global_index)
-                                st.rerun()
-
-                        with col_input2:
-
-                            try:
-                                jump_frame = st.number_input(
-                                    f"Jump to Frame Number (0-{st.session_state.max_images-1})",
-                                    min_value=0,
-                                    value=st.session_state.frame_index,
-                                    max_value=st.session_state.max_images,
-                                    key="jump_to_frame_input",
-                                    on_change=jump_frame_object_by_object_callback,
-                                    disabled=object_running
-                                )
-                            except:
-                                pass
-
-                            if st.session_state.object_by_object_jump_warning is None:     
-                                if st.session_state.object_by_object_jump_valid:
-                                    st.session_state.object_by_object_jump_valid = False                         
-                                    st.rerun()
-                            else: 
-                                st.warning(st.session_state.object_by_object_jump_warning)
-                                st.session_state.object_by_object_jump_warning = None  # Reset flag.
-
-                        col_nav1, col_nav2, col_nav3 = st.columns(3)
-                        with col_nav1:
-                            if st.button("Previous Object", key="prev_global_obj", disabled=object_running):
-                                if st.session_state.global_object_index - 1 < 0:
-                                    st.session_state.global_object_index = current_obj["num_labels"] - 1
-                                else:
-                                    st.session_state.global_object_index -= 1
-                                st.rerun()
-                        with col_nav2:
-                            if st.button("Next Object", key="next_global_obj", disabled=object_running):
-                                if st.session_state.global_object_index >= current_obj["num_labels"]:
-                                    st.session_state.global_object_index = 0
-                                else:
-                                    st.session_state.global_object_index += 1
-                                st.rerun()
-                        with col_nav3:
-                            if st.button("Delete Object", key="delete_global_obj", disabled=object_running):
-                                try:
-                                    with open(label_path, "r") as f:
-                                        lines = f.readlines()
-                                    local_idx = current_obj["local_index"]
-                                    if local_idx < len(lines):
-                                        del lines[local_idx]
-                                        with open(label_path, "w") as f:
-                                            f.writelines(lines)
-                                        st.success("Object deleted.")
-                                    else:
-                                        st.error("Local object index out of range in label file.")
-                                except Exception as e:
-                                    st.error(f"Error deleting object: {e}")
-                                st.rerun()
-
-                        # Reference selector (no default)
-                    reference_indices = st.multiselect(
-                        "Select reference object(s) for clustering",
-                        options=list(range(st.session_state.global_object_count)),
-                        default=[],
-                        key="cluster_refs",
-                        disabled=object_running
-                    )
-
-        with st.expander("Clustered Objects"):
-            # 1) Compute cluster.csv path
-            images_dir = st.session_state.paths["unverified_images_path"]
-            cluster_csv_path = os.path.join(os.path.dirname(images_dir), "cluster.csv")
-
-            # 2) Load existing predictions (if any), handling empty files
-            if os.path.exists(cluster_csv_path):
-                
-                try:
-                    # If the file is empty, this will raise EmptyDataError
-                    df = pd.read_csv(cluster_csv_path, header=None)
-                    preds = df[0].tolist()
-                except pd.errors.EmptyDataError:
-                    preds = []  # treat empty file as no predictions
-
-                st.session_state["predicted_indices"] = preds
-                if preds:
-                    with st.spinner("Loading clustered objects…"):
-                        to_remove = render_checkbox_grid(preds, thumb_width=150, cols=4)
-
-                    if st.button("Remove Selected Objects from Cluster", key="cluster_remove_selected"):
-                        remaining = [i for i in preds if i not in to_remove]
-                        # Update session state and CSV
-                        st.session_state.predicted_indices = remaining
-                        import pandas as pd
-                        cluster_csv_path = os.path.join(os.path.dirname(st.session_state.paths["unverified_images_path"]), "cluster.csv")
-                        pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
-                        st.success(f"Removed {len(to_remove)} objects; {len(remaining)} remain.")
-                        st.rerun()
-
-                    if st.button("Delete Unchecked Objects in Cluster from Labels", key="cluster_delete_unchecked"):
-                        indices = [i for i in st.session_state.predicted_indices.copy() if i not in to_remove]
-                        file_map = {}
-                        file_map = {}
-                        for idx in indices:
-                            obj = get_object_by_global_index(idx)
-                            if obj is None:
-                                continue
-                            path = obj["label_path"]
-                            file_map.setdefault(path, []).append(obj["local_index"])
-
-                        # remove lines in each label file
-                        for path, local_indices in file_map.items():
-                            try:
-                                with open(path, "r") as f:
-                                    lines = f.readlines()
-                                for li in sorted(set(local_indices), reverse=True):
-                                    if 0 <= li < len(lines):
-                                        del lines[li]
-                                with open(path, "w") as f:
-                                    f.writelines(lines)
-                            except Exception as e:
-                                st.error(f"Error updating {path}: {e}")
-                        # clear cluster.csv and UI state
-                        pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
-                        st.session_state.predicted_indices = []
-                        st.success("Deleted all unchecked clustered objects from their label files and cleared cluster.csv.")
-                        st.rerun()
-
-                    if st.button("Delete All Clustered Objects From Labels", key="cluster_delete_all"):
-                        indices = st.session_state.predicted_indices.copy()
-                        file_map = {}
-                        for idx in indices:
-                            obj = get_object_by_global_index(idx)
-                            if obj is None:
-                                continue
-                            path = obj["label_path"]
-                            file_map.setdefault(path, []).append(obj["local_index"])
-                        # remove lines in each label file
-                        for path, local_indices in file_map.items():
-                            try:
-                                with open(path, "r") as f:
-                                    lines = f.readlines()
-                                for li in sorted(set(local_indices), reverse=True):
-                                    if 0 <= li < len(lines):
-                                        del lines[li]
-                                with open(path, "w") as f:
-                                    f.writelines(lines)
-                            except Exception as e:
-                                st.error(f"Error updating {path}: {e}")
-                        # clear cluster.csv and UI state
-                        pd.DataFrame([]).to_csv(cluster_csv_path, index=False, header=False)
-                        st.session_state.predicted_indices = []
-                        st.success("Deleted all clustered objects from their label files and cleared cluster.csv.")
-                        st.rerun()
-
-                else:
-                    st.info("cluster.csv is present but empty.")
-            else:
-                st.info("No cluster.csv yet—run “Begin Clustering” to create it.")
-
-        with st.expander("Cluster Object Settings"):
-
-            st.subheader("Virtual Environment")
-            path_navigator("venv_path", radio_button_prefix="cluster_")
-
-            st.subheader("Script")
-            path_navigator("cluster_script_path")
-            python_code_editor("cluster_script_path")
-
-        with st.expander("Cluster Objects"):
-        
-            st.session_state.cluster_threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.7, 0.1)
-            
-            # 2) Show tmux controls for running the clustering script
-            c0, c1, c2 = st.columns([1,1,4], gap="small")
-            with c0:
-                output = check_gpu_status("cluster_check_gpu")
-            with c1:
-                gpu = st.selectbox(
-                    "GPU", 
-                    options=list(range(len(st.session_state.gpu_list))),
-                    format_func=lambda x: f"GPU {x}",
-                    key="cluster_gpu_select"
+    with st.expander("Virtual Environment Path"):
+        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+        path_navigator("venv_path", radio_button_prefix="split_data")
+
+    with st.expander("Script"):
+        path_navigator("split_data_script_path")
+        python_code_editor("split_data_script_path")
+
+    with st.expander("Split Data"):
+        st.write("Press 'Begin Splitting Data' to split the images in the dataset into a group of images with objects and those without.")
+        output = None
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+
+        with c1:
+            if st.button("▶ Begin Splitting Data", key="begin_split_data_btn"):
+                run_in_tmux(
+                    session_key="split_data", 
+                    script_path=st.session_state.paths["split_data_script_path"], 
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\ "),
+                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\ "),
+                    }
                 )
+                time.sleep(3)
+                output = update_tmux_terminal("split_data")
 
+        with c2:
+            if st.button("🔄 Refresh Terminal", key="check_split_data_btn"):
+                output = update_tmux_terminal("split_data")
+
+        with c3:
+            if st.button("🧹 Clear Output", key="split_data_clear_terminal_btn"):
+                output = None
+
+        with c4:
+            if st.button("❌ Kill Session", key="split_data_kill_tmux_session_btn"):
+                output = kill_tmux_session("split_data")
+
+elif action_option == "🔗📂 Combine YOLO Datasets":
+    # Combine YOLO Datasets
+    with st.expander("Dataset Settings"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.subheader("Dataset 1")
+            st.write("The path to the first dataset.")
+            path_navigator("combine_dataset_1_path")
+        with c2:
+            st.subheader("Dataset 2")
+            st.write("The path to the second dataset.")
+            path_navigator("combine_dataset_2_path")
+        with c3:
+            st.subheader("Save Path")
+            st.write("The path to save to on the server.")
+            path_navigator("combine_dataset_save_path")
+
+    with st.expander("Virtual Environment Path"):
+        path_navigator("venv_path", radio_button_prefix="combine_data")
+
+    with st.expander("Script"):
+        path_navigator("combine_dataset_script_path")
+        python_code_editor("combine_dataset_script_path")
+
+    with st.expander("Combine Data"):
+        st.write("Press 'Begin Combining Data' to combine the two datasets into one.")
+        output = None
+        c1, c2, c3, c4 = st.columns(4, gap="small")
+
+        with c1:
+            if st.button("▶ Begin Combining Data", key="begin_combine_dataset_btn"):
+                run_in_tmux(
+                    session_key="combine_dataset", 
+                    script_path=st.session_state.paths["combine_dataset_script_path"], 
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "dataset1" : st.session_state.paths["combine_dataset_1_path"].replace(" ", "\ "),
+                        "dataset2" : st.session_state.paths["combine_dataset_2_path"].replace(" ", "\ "),
+                        "dst_dir" : st.session_state.paths["combine_dataset_save_path"].replace(" ", "\ ")
+                    }
+                )
+                time.sleep(3)
+                output = update_tmux_terminal("combine_dataset")
+
+        with c2:
+            if st.button("🔄 Refresh Terminal", key="check_combine_dataset_btn"):
+                output = update_tmux_terminal("combine_dataset")
+
+        with c3:
+            if st.button("🧹 Clear Output", key="combine_dataset_clear_terminal_btn"):
+                output = None
+
+        with c4:
+            if st.button("❌ Kill Session", key="combine_dataset_kill_tmux_session_btn"):
+                output = kill_tmux_session("combine_dataset")
+
+elif action_option == "📈📊 Dataset Statistics":
+    with st.expander("📈📊 Dataset Statistics"):
+        st.subheader("Dataset Figures")
+        st.write("The path to the formated dataset (with images and labels folders).")
+
+        path_navigator("dataset_path")
+
+        dataset_path = st.session_state.paths.get("dataset_path", "")
+        if dataset_path:
+            images_path = os.path.join(dataset_path, "images")
+            labels_path = os.path.join(dataset_path, "labels")
+
+            # Two columns for generating figures and clearing buttons
+            c1, c2 = st.columns([1,1])
+            with c1:
+                if st.button("Generate Figures", key="generate_figs_btn"):
+                    st.session_state["show_figs"] = True
             with c2:
-                # Begin / Refresh / Clear / Kill buttons
-                btn_col1, btn_col2, btn_col3, btn_col4 = st.columns(4, gap="small")
-                with btn_col1:
-                    if st.button("▶ Begin Clustering", key="cluster_begin"):
-                        if reference_indices is not None:
-                            # Save index list to CSV (no header, one index per line)
-                            pd.DataFrame(reference_indices).to_csv(
-                                cluster_csv_path,
-                                index=False,
-                                header=False
-                            )
+                if st.button("Clear Figures", key="clear_figs_btn"):
+                    st.session_state["show_figs"] = False
 
-                        run_in_tmux(
-                            session_key="cluster",
-                            script_path=st.session_state.paths["cluster_script_path"],
-                            venv_path=st.session_state.paths["venv_path"],
-                            args={
-                                "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ "),
-                                "cluster_csv": cluster_csv_path.replace(" ", "\\ "),
-                                "threshold": st.session_state.cluster_threshold,
-                                "gpu": st.session_state.cluster_gpu_select
-                            }
-                        )
+            # Show figs only if toggled on
+            if st.session_state.get("show_figs", False):
+                class_counts, x_vals, y_vals, w_vals, h_vals = parse_label_data(labels_path)
 
-                        time.sleep(3)
-                        output = update_tmux_terminal("cluster")
+                st.markdown("### Sample Labeled Images")
+                display_images(images_path, labels_path)
 
-                with btn_col2:
-                    if st.button("🔄 Refresh", key="cluster_refresh"):
-                        output = update_tmux_terminal("cluster")
-                with btn_col3:
-                    if st.button("🧹 Clear", key="cluster_clear"):
-                        output = None
-                with btn_col4:
-                    if st.button("❌ Kill", key="cluster_kill"):
-                        output = kill_tmux_session("cluster")
+                st.markdown("### Bounding Box Location, Size, and Class Distribution")
+                st.write("These figures will help see where the bounding boxes are commonly located"
+                " on the images (0.0 y-axis is the top of the image), the size, and the distribution"
+                " of the classes (unlabeled are the number of images that do not have any labels).")
+                generate_label_plots(class_counts, x_vals, y_vals, w_vals, h_vals)
 
-    elif action_option == "Frame by Frame Review":
-            
-        with st.expander("Settings"):
-            
-            st.write("### Images Path")
-            st.write("The path to the images.")
-            path_navigator("unverified_images_path", radio_button_prefix="frame_")
-
-            st.write("### Label Names YAML Path")
-            st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
-            path_navigator("unverified_names_yaml_path", radio_button_prefix="frame_")
-            
-            st.write("### Image Scale")
-            st.write("Scale the image to fit the screen. This is useful for large images.")
-            st.number_input(
-                "Image Scale", 
-                value=st.session_state.unverified_image_scale,
-                step=0.25,
-                key="frame_unverified_image_scale_input",
-                on_change=set_scale
-            )
-
-            if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
-                st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
-                st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
-                update_unverified_data_path()
-
-                if st.session_state.max_images > 0:
-                    update_unverified_frame()
-                    
-                st.rerun()
-            
-            yaml_editor("unverified_names_yaml_path")
-
-        with st.expander("Subset Selection"):
-            st.write("Select only a small subset of images to review or manually label.")
-            if handle_image_list_update(prefix="subset_"):
-                # --- CSV Path Selection ---
-                st.subheader("Choose CSV Path for Subset")
-                
-                path_option = st.radio("Please Choose:", ["Default", "Custom"], key="frame_default_subset", label_visibility="collapsed")
-                if path_option == "Default":
-                    st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
-                else:
-                    path_navigator("unverified_subset_csv_path", radio_button_prefix="frame_")
-
-                csv_file = st.session_state.paths["unverified_subset_csv_path"]
-                if os.path.exists(csv_file):
-                    # Reload the subset frames from the CSV file
-                    st.session_state.subset_frames = load_subset_frames(csv_file)
-
-                    st.subheader("Modify/View Subset")
-
-                    # Add/Remove Frames
-                    if st.session_state.max_images > 0:
-                        c1, c2, c3 = st.columns([10, 10, 10])
-                        with c1:
-                            st.number_input(
-                                "Add Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="frame_subset_add_frame",
-                                on_change=add_frame_callback,
-                                args=("subset_add_frame",)
-                            )
-
-                        with c2:
-                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_subset_view_frames_in_subset")
-
-                        with c3:
-                            st.number_input(
-                                "Remove Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="frame_subset_remove_frame",
-                                on_change=remove_frame_callback,
-                                args=("subset_remove_frame",)
-                            )
-                    else:
-                        st.warning("No images available.")
-
-                    # --- Copy CSV to a New File ---
-                    base, ext = os.path.splitext(csv_file)
-                    default_copy_path = base + "_copy" + ext
-                    new_save_path = st.text_input("Enter path for new CSV copy", value=default_copy_path)
-                    if st.button("Copy CSV to new file"):
-                        if new_save_path:
-                            try:
-                                st.session_state["skip_label_update"] = True
-                                save_subset_csv(new_save_path, st.session_state.subset_frames)
-                                st.success(f"Subset CSV copied to {new_save_path}")
-                            except Exception as e:
-                                st.error(f"Error copying file: {e}")
-                        else:
-                            st.error("Please enter a valid new file path.")
-                
-                    # ---  Bulk Operations ---
-                    st.markdown("---")
-                    st.subheader("Bulk Subset Operations")
-
-                    if st.button("Clear Subset Selection", key="frame_clear_subset_selection", help="Clears all frames from the subset selection list."):
-                        st.session_state.subset_frames = []
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success("Cleared all frames from subset selection.")
-                        st.rerun()
-
-                    if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
-                        st.session_state["skip_label_update"] = True
-                        labeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)>0]
-                        for i in labeled:
-                            if i not in st.session_state.subset_frames:
-                                st.session_state.subset_frames.append(i)
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success(f"Added {len(labeled)} labeled frames.")
-                
-                    if st.button("Remove ALL Labeled Frames", help="Removes every frame containing labels from the subset."):
-                        st.session_state["skip_label_update"] = True
-                        before = set(st.session_state.subset_frames)
-                        st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)==0]
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        removed = len(before) - len(st.session_state.subset_frames)
-                        st.success(f"Removed {removed} frames.")
-
-                    if st.button("Add ALL Unlabeled Frames", help="Adds every frame with no labels to the subset."):
-                        st.session_state["skip_label_update"] = True
-                        unlabeled = [i for i in range(st.session_state.max_images) if _frame_label_count(i)==0]
-                        for i in unlabeled:
-                            if i not in st.session_state.subset_frames:
-                                st.session_state.subset_frames.append(i)
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success(f"Added {len(unlabeled)} unlabeled frames.")
-                    
-                    if st.button("Remove ALL Unlabeled Frames", help="Removes every frame with no labels from the subset."):
-                        st.session_state["skip_label_update"] = True
-                        before = set(st.session_state.subset_frames)
-                        st.session_state.subset_frames = [i for i in st.session_state.subset_frames if _frame_label_count(i)>0]
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        removed = len(before) - len(st.session_state.subset_frames)
-                        st.success(f"Removed {removed} frames.")
-
-                    if st.button("Invert Subset Selection", help="Selects all frames not currently in the subset and deselects those that are."):
-                        st.session_state["skip_label_update"] = True
-                        # all frame indices 0 … max_images-1
-                        all_frames = list(range(st.session_state.max_images))
-                        # keep only those not already in subset
-                        new_subset = [i for i in all_frames if i not in st.session_state.subset_frames]
-                        st.session_state.subset_frames = new_subset
-                        # persist to CSV
-                        save_subset_csv(csv_file, st.session_state.subset_frames)
-                        st.success(f"Inverted subset: {len(new_subset)} frames selected.")
-                        st.rerun()
-
-                    if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
-                        st.session_state["skip_label_update"] = True
-                        for idx in st.session_state.subset_frames:
-                            # construct label path
-                            if st.session_state.image_pattern:
-                                img = os.path.join(
-                                    st.session_state.images_dir,
-                                    st.session_state.image_pattern.format(idx)
-                                )
-                            else:
-                                img = st.session_state.image_list[idx]
-                            lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
-                            open(lbl, "w").close()
-                        st.success("Cleared all label files for frames in subset.")
-
-                    st.markdown("---")
-                    # --- Save subset to directory ---
-                    st.subheader("Save Subset to New Directory")
-                    save_dir = path_navigator("subset_save_path", radio_button_prefix="frame_save_subset")
-                    if st.button("Save images & labels here"):
-                        st.session_state["skip_label_update"] = True
-                        out_imgs = os.path.join(save_dir, "images")
-                        out_lbls = os.path.join(save_dir, "labels")
-                        os.makedirs(out_imgs, exist_ok=True, mode=0o777)
-                        os.makedirs(out_lbls, exist_ok=True, mode=0o777)
-
-                        for idx in st.session_state.subset_frames:
-                            # resolve source image
-                            if st.session_state.image_pattern:
-                                src = os.path.join(
-                                    st.session_state.images_dir,
-                                    st.session_state.image_pattern.format(idx)
-                                )
-                            else:
-                                src = st.session_state.image_list[idx]
-                            # copy image
-                            shutil.copy2(src, os.path.join(out_imgs, os.path.basename(src)))
-                            # copy or touch label
-                            lbl = src.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
-                            dst_lbl = os.path.join(out_lbls, os.path.basename(lbl))
-                            if os.path.exists(lbl):
-                                shutil.copy2(lbl, dst_lbl)
-                            else:
-                                open(dst_lbl, "w").close()
-                        st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
-                
-                else:
-                    st.info("No CSV found. Create or upload a CSV to begin using a subset.")
-
-        with st.expander("Frame by Frame Label Review"):
-            st.write( "Review the labels in a frame by frame sequence.")
-            if handle_image_list_update(prefix="frame_by_frame_"):
-                loading = st.session_state.get("detection_running", False)
-
-                if st.session_state.max_images > 0:
-                    if st.session_state.max_images > 1:
-                        # --- Top Navigation (Prev / Next) ---
-                        col_prev, _, col_next = st.columns([4, 5, 4])
-                        with col_prev:
-                            st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
-                        with col_next:
-                            st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
-
-                        col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
-                        with col_copy_prev:
-                            st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
-                        with col_copy_next:
-                            st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
-
-                    # --- Read and Display Current Frame ---
-                    update_unverified_frame()
-
-                    st.write(f"Current File Path: {st.session_state.image_path}")
-
-                    # Annotate with detection()
-                    det_container = st.container()
-                    with det_container:
-                        if not loading:
-                            with st.spinner("Processing..."):
-                                out = detection(**st.session_state.detection_config)
-                        else:
-                            out = detection(**st.session_state.detection_config)
-
-                    st.session_state.out = out
-
-                    # Update labels if changed
-                    update_labels_from_detection()
-
-                    c1, c2 = st.columns([10, 90])
-                    with c1:
-                        st.markdown(
-                            """
-                            <style>
-                            .stCheckbox input[type="checkbox"] {
-                                transform: scale(1.5);
-                            }
-                            .stCheckbox label {
-                                font-size: 24px;
-                                font-weight: bold;
-                            }
-                            </style>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                        use_subset_val = st.checkbox(
-                            "Use Subset",
-                            value=st.session_state.use_subset,
-                            key="manual_label_subset_btn",
-                            on_change=manual_label_subset_checkbox_callback,
-                            disabled=not len(st.session_state.subset_frames) > 1
-                        )
-                        if st.session_state.use_subset_changed:
-                            st.session_state.use_subset_changed = False
-                            st.rerun()
-       
-                    with c2:
-                        c12, c22, c32 = st.columns([10, 10, 10])
-                        with c12:
-                            st.number_input(
-                                "Add Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="frame_by_frame_add_frame",
-                                on_change=add_frame_callback,
-                                args=("frame_by_frame_add_frame",)
-                            )
-
-                        with c22:
-                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
-
-                        with c32:
-                            st.number_input(
-                                "Remove Frame Index",
-                                min_value=0,
-                                max_value=st.session_state.max_images - 1,
-                                value=None,
-                                step=1,
-                                key="frame_by_frame_remove_frame",
-                                on_change=remove_frame_callback,
-                                args=("frame_by_frame_remove_frame",)
-                            )
-
-                    if not len(st.session_state.subset_frames) > 1:
-                            st.warning("Subset needs to be two or larger.")
-                    
-                    if st.session_state.max_images > 1:
-                        # Additional navigation (jump, slider, second Prev/Next)
-                        st.number_input(
-                            "Current Frame",
-                            min_value=0,
-                            max_value=st.session_state.max_images-1,
-                            value=st.session_state.frame_index,
-                            step=10,
-                            key="jump_page",
-                            on_change=jump_frame_frame_by_frame_callback
-                        )
-                        col_prev, col_slider, col_next = st.columns([2, 10, 4])
-                        with col_prev:
-                            st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
-                        with col_slider:
-                            st.slider(
-                                f"Subset Index: {st.session_state.frame_index}  Frame Index: {st.session_state.actual_frame_index}"
-                                if st.session_state.use_subset else f"Frame Index: {st.session_state.actual_frame_index}",
-                                0,
-                                st.session_state.max_images - 1 if not st.session_state.use_subset
-                                else len(st.session_state.subset_frames) - 1,
-                                st.session_state.frame_index,
-                                key="slider_det",
-                                on_change=frame_slider_frame_by_frame_callback,
-                                label_visibility="collapsed"
-                            )
-                        with col_next:
-                            st.button("Next Frame", key="next_btn", on_click=next_callback)
-                else:
-                    st.warning("Data Path is empty...")
-        
             else:
-                if st.button("Refresh", key="refresh_empty"):
-                    update_unverified_data_path()
-                    st.rerun()
-        
-        with st.expander("Zoomed‑in Bounding Box Regions"):
-            # Safely pull values (defaults to empty or None)
-            image    = st.session_state.get("image", None)
-            bboxes   = st.session_state.get("bboxes_xyxy", [])
-            labels   = st.session_state.get("labels", [])
-            bbox_ids = st.session_state.get("bbox_ids", [])
+                st.info("Figures are cleared. Click 'Generate Figures' to display them.")
 
-            # If there's no image or no boxes, show a message
-            if image is None or not bboxes:
-                st.warning("No bounding boxes in current frame.")
-            else:
-                # Update frame if needed
-                update_unverified_frame()
-
-                # Render each crop + controls
-                for i, (x, y, w, h) in enumerate(bboxes):
-                    # Compute coordinates
-                    x1, y1 = max(x, 0.0), max(y, 0.0)
-                    x2, y2 = x1 + w,      y1 + h
-
-                    # Sanity check
-                    if x2 <= x1 or y2 <= y1:
-                        st.session_state.labels.pop(i)
-                        st.session_state.bboxes_xyxy.pop(i)
-                        st.session_state.bbox_ids.pop(i)
-                        st.rerun()
-
-                    # Crop & caption
-                    cropped = image.crop((x1, y1, x2, y2))
-                    if i < len(labels):
-                        idx = labels[i]
-                        try:
-                            label_name = st.session_state.label_list[idx]
-                        except Exception:
-                            label_name = f"Label {idx}"
-                    else:
-                        label_name = "Unknown"
-                    caption = (
-                        f"ID: {bbox_ids[i]}, "
-                        f"Label: {label_name}, "
-                        f"BBox: ({x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f})"
-                    )
-
-                    key_x = f"bbox_{bbox_ids[i]}_cx"
-                    key_y = f"bbox_{bbox_ids[i]}_cy"
-                    key_w = f"bbox_{bbox_ids[i]}_w"
-                    key_h = f"bbox_{bbox_ids[i]}_h"
-
-                    st.markdown(f"#### Edit Bounding Box {i} Parameters")
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        st.image(cropped, caption=caption)
-
-                    # Default center coords
-                    center_x = x + w / 2
-                    center_y = y + h / 2
-
-                    with col2:
-                        st.number_input(
-                            f"Center X for bbox {i}",
-                            min_value=0.0,
-                            max_value=float(st.session_state.image_width),
-                            value=center_x,
-                            key=key_x,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                        )
-                        st.number_input(
-                            f"Center Y for bbox {i}",
-                            min_value=0.0,
-                            max_value=float(st.session_state.image_height),
-                            value=center_y,
-                            key=key_y,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                        )
-                        st.number_input(
-                            f"Width for bbox {i}",
-                            min_value=1.0,
-                            max_value=float(st.session_state.image_width),
-                            value=w,
-                            key=key_w,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                        )
-                        st.number_input(
-                            f"Height for bbox {i}",
-                            min_value=1.0,
-                            max_value=float(st.session_state.image_height),
-                            value=h,
-                            key=key_h,
-                            step=1.0,
-                            on_change=lambda i=i: zoom_edit_callback(i),
-                    )
-                        
-    elif action_option == "Move Directory":
-        # SETTINGS
-        with st.expander("Move Directory Settings"):
-            st.subheader("Source Directory")
-            path_navigator("move_src_path")
-            st.subheader("Destination Directory")
-            path_navigator("move_dest_path", must_exist=False)
-
-            # Swap paths button
-            if st.button("🔄 Swap Source and Destination", key="swap_move_paths_btn"):
-                src = st.session_state.paths.get("move_src_path", "")
-                dst = st.session_state.paths.get("move_dest_path", "")
-                st.session_state.paths["move_src_path"], st.session_state.paths["move_dest_path"] = dst, src
-                st.rerun()
-
-        # VENV
-        with st.expander("Virtual Environment Path"):
-            st.write("Path to the virtual environment for the move script.")
-            path_navigator("venv_path", radio_button_prefix="move_dir")
-
-        # SCRIPT
-        with st.expander("Move Script"):
-            st.write("Your `move_dir.py` (must accept `--src_dir` and `--dst_dir`).")
-            path_navigator("move_dir_script_path")
-            python_code_editor("move_dir_script_path")
-
-        # ACTIONS
-        with st.expander("Execute Move"):
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-            with c1:
-                if st.button("▶ Begin Move", key="begin_move_dir_btn"):
-                    run_in_tmux(
-                        session_key="move_dir",
-                        script_path=st.session_state.paths["move_dir_script_path"],
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ "),
-                            "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ "),
-                        },
-                        script_type="python"
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("move_dir")
-            with c2:
-                if st.button("🔄 Refresh Terminal", key="refresh_move_dir_btn"):
-                    output = update_tmux_terminal("move_dir")
-            with c3:
-                if st.button("🧹 Clear Output", key="clear_move_dir_btn"):
-                    output = None
-            with c4:
-                if st.button("❌ Kill Session", key="kill_move_dir_btn"):
-                    output = kill_tmux_session("move_dir")
-          
-    elif action_option == "Split YOLO Dataset into Objects / No Objects":
-        with st.expander("Dataset Settings"):
-            c1, c2 = st.columns(2)
-            with c1:
-                st.subheader("Dataset To Be Split")
-                st.write("The path to the dataset to be split.")
-                path_navigator("split_data_path")
-            with c2:
-                st.subheader("Save Path")
-                st.write("The path to save to on the server.")
-                save_path_option = st.radio("Choose save path option:", ["Default", "Custom"], key=f"split_save_radio", label_visibility="collapsed")
-                key = "split_data_save_path"
-                if save_path_option == "Default":
-                    st.session_state.paths[key] = st.session_state.paths["split_data_path"]
-                    st.write(f"**Current {' '.join(word.capitalize() for word in key.split('_'))}:** {st.session_state.paths[key]}")
-                else:
-                    path_navigator(key)
-
-        with st.expander("Virtual Environment Path"):
-            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
-            path_navigator("venv_path", radio_button_prefix="split_data")
-
-        with st.expander("Script"):
-            path_navigator("split_data_script_path")
-            python_code_editor("split_data_script_path")
-
-        with st.expander("Split Data"):
-            st.write("Press 'Begin Splitting Data' to split the images in the dataset into a group of images with objects and those without.")
-            output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-
-            with c1:
-                if st.button("▶ Begin Splitting Data", key="begin_split_data_btn"):
-                    run_in_tmux(
-                        session_key="split_data", 
-                        script_path=st.session_state.paths["split_data_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\ "),
-                            "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\ "),
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("split_data")
-
-            with c2:
-                if st.button("🔄 Refresh Terminal", key="check_split_data_btn"):
-                    output = update_tmux_terminal("split_data")
-
-            with c3:
-                if st.button("🧹 Clear Output", key="split_data_clear_terminal_btn"):
-                    output = None
-
-            with c4:
-                if st.button("❌ Kill Session", key="split_data_kill_tmux_session_btn"):
-                    output = kill_tmux_session("split_data")
-    
-    elif action_option == "Combine YOLO Datasets":
-        # Combine YOLO Datasets
-        with st.expander("Dataset Settings"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                st.subheader("Dataset 1")
-                st.write("The path to the first dataset.")
-                path_navigator("combine_dataset_1_path")
-            with c2:
-                st.subheader("Dataset 2")
-                st.write("The path to the second dataset.")
-                path_navigator("combine_dataset_2_path")
-            with c3:
-                st.subheader("Save Path")
-                st.write("The path to save to on the server.")
-                path_navigator("combine_dataset_save_path")
-
-        with st.expander("Virtual Environment Path"):
-            path_navigator("venv_path", radio_button_prefix="combine_data")
-
-        with st.expander("Script"):
-            path_navigator("combine_dataset_script_path")
-            python_code_editor("combine_dataset_script_path")
-
-        with st.expander("Combine Data"):
-            st.write("Press 'Begin Combining Data' to combine the two datasets into one.")
-            output = None
-            c1, c2, c3, c4 = st.columns(4, gap="small")
-
-            with c1:
-                if st.button("▶ Begin Combining Data", key="begin_combine_dataset_btn"):
-                    run_in_tmux(
-                        session_key="combine_dataset", 
-                        script_path=st.session_state.paths["combine_dataset_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "dataset1" : st.session_state.paths["combine_dataset_1_path"].replace(" ", "\ "),
-                            "dataset2" : st.session_state.paths["combine_dataset_2_path"].replace(" ", "\ "),
-                            "dst_dir" : st.session_state.paths["combine_dataset_save_path"].replace(" ", "\ ")
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("combine_dataset")
-
-            with c2:
-                if st.button("🔄 Refresh Terminal", key="check_combine_dataset_btn"):
-                    output = update_tmux_terminal("combine_dataset")
-
-            with c3:
-                if st.button("🧹 Clear Output", key="combine_dataset_clear_terminal_btn"):
-                    output = None
-
-            with c4:
-                if st.button("❌ Kill Session", key="combine_dataset_kill_tmux_session_btn"):
-                    output = kill_tmux_session("combine_dataset")
-    
-    elif action_option == "Dataset Statistics":
-        with st.expander("Dataset Statistics"):
-            st.subheader("Dataset Figures")
-            st.write("The path to the formated dataset (with images and labels folders).")
-
-            path_navigator("dataset_path")
-
-            dataset_path = st.session_state.paths.get("dataset_path", "")
-            if dataset_path:
-                images_path = os.path.join(dataset_path, "images")
-                labels_path = os.path.join(dataset_path, "labels")
-
-                # Two columns for generating figures and clearing buttons
-                c1, c2 = st.columns([1,1])
-                with c1:
-                    if st.button("Generate Figures", key="generate_figs_btn"):
-                        st.session_state["show_figs"] = True
-                with c2:
-                    if st.button("Clear Figures", key="clear_figs_btn"):
-                        st.session_state["show_figs"] = False
-
-                # Show figs only if toggled on
-                if st.session_state.get("show_figs", False):
-                    class_counts, x_vals, y_vals, w_vals, h_vals = parse_label_data(labels_path)
-
-                    st.markdown("### Sample Labeled Images")
-                    display_images(images_path, labels_path)
-
-                    st.markdown("### Bounding Box Location, Size, and Class Distribution")
-                    st.write("These figures will help see where the bounding boxes are commonly located"
-                    " on the images (0.0 y-axis is the top of the image), the size, and the distribution"
-                    " of the classes (unlabeled are the number of images that do not have any labels).")
-                    generate_label_plots(class_counts, x_vals, y_vals, w_vals, h_vals)
-
-                else:
-                    st.info("Figures are cleared. Click 'Generate Figures' to display them.")
-
-    else:
-        with st.expander("Data YAML"):
-            st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
-            path_navigator("train_data_yaml_path")
-            yaml_editor("train_data_yaml_path")
-        
-        with st.expander("Model YAML"):
-            st.write("The path to the model YAML file. This file contains the model architecture and layers.")
-            path_navigator("train_model_yaml_path")
-            yaml_editor("train_model_yaml_path")
-            
-        with st.expander("Train YAML Path"):
-            st.write("The path to the train YAML file. This file contains all model hyperparameters.")
-            path_navigator("train_train_yaml_path")
-            yaml_editor("train_train_yaml_path")
-
-        with st.expander("Venv Path"):
-            st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
-            path_navigator("venv_path", radio_button_prefix="train")
-
-        with st.expander("Script"):
-            path_navigator("train_script_path")
-            python_code_editor("train_script_path")
-
-        with st.expander("Finetune Model"):
-            st.write("Click the 'Begin Training' button to start the training process.")
-            output = None
-            c1, c2, c3, c4, c5 = st.columns(5, gap="small")
-
-            with c1:
-                output = check_gpu_status("train_check_gpu_status_button")
-
-            with c2:
-                if st.button("▶ Begin Training", key="begin_train_btn"):
-                    output = run_in_tmux(
-                        session_key="auto_label_trainer", 
-                        script_path=st.session_state.paths["train_script_path"], 
-                        venv_path=st.session_state.paths["venv_path"],
-                        args={
-                            "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\ "),
-                            "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\ "),
-                            "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\ ")
-                        }
-                    )
-                    time.sleep(3)
-                    output = update_tmux_terminal("auto_label_trainer")
-
-            with c3:
-                if st.button("Check Training", key="check_train_btn"):
-                    output = update_tmux_terminal("auto_label_trainer")
-
-            with c4:
-                if st.button("🧹 Clear Output", key="clear_terminal_btn"):
-                    output = None
-
-            with c5:
-                if st.button("❌ Kill Session", key="kill_tmux_session_btn"):
-                    output = kill_tmux_session("auto_label_trainer")
-
-            terminal_output = st.empty()
-            if output is not None:
-                terminal_output.text(output)
-
-    terminal_output = st.empty()
-    if output is not None:
-        display_terminal_output(output)
-
-# ----------------------- Linux Terminal Tab -----------------------
-with tabs[1]:
+elif action_option == "🐧⌨️ Linux Terminal":
     # Initialize accumulated terminal output in session state.
     if "terminal_text" not in st.session_state:
         st.session_state.terminal_text = ""
@@ -4148,37 +4393,6 @@ with tabs[1]:
     # Single placeholder for the accumulated output
     output_placeholder = st.empty()
 
-    def run_command_and_accumulate(command):
-        """
-        Executes a shell command and appends its output to st.session_state.terminal_text,
-        updating output_placeholder in real time in a single code block.
-        """
-        try:
-            process = subprocess.Popen(
-                command, shell=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, bufsize=1
-            )
-            for line in process.stdout:
-                st.session_state.terminal_text += line
-                output_placeholder.code(st.session_state.terminal_text, language="bash")
-            for line in process.stderr:
-                st.session_state.terminal_text += line
-                output_placeholder.code(st.session_state.terminal_text, language="bash")
-        except Exception as e:
-            st.session_state.terminal_text += f"Error executing command: {e}\n"
-            output_placeholder.code(st.session_state.terminal_text, language="bash")
-
-    def local_run_callback():
-        command = st.session_state.command_input
-        if command.strip():
-            # Clear previous output on each new enter, then add the command prompt.
-            st.session_state.terminal_text = f"$ {command}\n"
-            output_placeholder.code(st.session_state.terminal_text, language="bash")
-            run_command_and_accumulate(command)
-        else:
-            output_placeholder.warning("Please enter a valid command.")
-
     # Render the text input at the top.
     with text_input_container:
         st.text_input("Enter a Linux command:", "", key="command_input", on_change=local_run_callback)
@@ -4186,16 +4400,12 @@ with tabs[1]:
     # Display the accumulated terminal output
     output_placeholder.code(st.session_state.terminal_text, language="bash")
 
-# ----------------------- Unrestrict Tab -----------------------
-with tabs[2]:
+elif action_option == "🔓⚙️ Unrestrict Workspace":
     st.subheader("Open Workspace")
     st.write("Pick a folder to keep with fully unrestricted (777) permissions on every rerun.")
     path_navigator("open_workspace", must_exist=True)
 
-    
     ow = st.session_state.paths["open_workspace"]
-
-
     enable_option = st.radio(
         "Choose option:",
         ["Disable", "Enable"],
@@ -4223,3 +4433,71 @@ with tabs[2]:
             st.info(f"Currently disabled. Workspace is set to `{ow}`. Once enabled, permissions will be set to 777 on each rerun.")
         else:
             st.info("Currently disabled and no valid open workspace set yet.")
+
+else:
+    with st.expander("Data YAML"):
+        st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
+        path_navigator("train_data_yaml_path")
+        yaml_editor("train_data_yaml_path")
+    
+    with st.expander("Model YAML"):
+        st.write("The path to the model YAML file. This file contains the model architecture and layers.")
+        path_navigator("train_model_yaml_path")
+        yaml_editor("train_model_yaml_path")
+        
+    with st.expander("Train YAML Path"):
+        st.write("The path to the train YAML file. This file contains all model hyperparameters.")
+        path_navigator("train_train_yaml_path")
+        yaml_editor("train_train_yaml_path")
+
+    with st.expander("Venv Path"):
+        st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
+        path_navigator("venv_path", radio_button_prefix="train")
+
+    with st.expander("Script"):
+        path_navigator("train_script_path")
+        python_code_editor("train_script_path")
+
+    with st.expander("Finetune Model"):
+        st.write("Click the 'Begin Training' button to start the training process.")
+        output = None
+        c1, c2, c3, c4, c5 = st.columns(5, gap="small")
+
+        with c1:
+            output = check_gpu_status("train_check_gpu_status_button")
+
+        with c2:
+            if st.button("▶ Begin Training", key="begin_train_btn"):
+                output = run_in_tmux(
+                    session_key="auto_label_trainer", 
+                    script_path=st.session_state.paths["train_script_path"], 
+                    venv_path=st.session_state.paths["venv_path"],
+                    args={
+                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\ "),
+                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\ "),
+                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\ ")
+                    }
+                )
+                time.sleep(3)
+                output = update_tmux_terminal("auto_label_trainer")
+
+        with c3:
+            if st.button("Check Training", key="check_train_btn"):
+                output = update_tmux_terminal("auto_label_trainer")
+
+        with c4:
+            if st.button("🧹 Clear Output", key="clear_terminal_btn"):
+                output = None
+
+        with c5:
+            if st.button("❌ Kill Session", key="kill_tmux_session_btn"):
+                output = kill_tmux_session("auto_label_trainer")
+
+        terminal_output = st.empty()
+        if output is not None:
+            terminal_output.text(output)
+
+terminal_output = st.empty()
+if output is not None:
+    display_terminal_output(output)
+
