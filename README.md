@@ -9,7 +9,7 @@ The **Auto Label Engine** is a Streamlit-based GUI that lets you upload or conve
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/YourOrg/AutoLabelEngine.git
+git clone https://github.com/RowanMAVRC/AutoLabelEngine.git
 cd AutoLabelEngine
 
 # 2. (Optional) create the project virtual-env
