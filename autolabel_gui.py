@@ -2274,54 +2274,54 @@ if "session_running" not in st.session_state:
     st.session_state.paths = {
 
         "venv_path" : "../envs/auto-label-engine/",
-        "generate_venv_script_path": "setup_venv.sh",
+        "generate_venv_script_path": "scripts/setup_venv.sh",
 
         "prev_unverified_images_path" : "example_data/images",
         "unverified_images_path" : "example_data/images",
         "prev_unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
         "unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
 
-        "upload_save_path": "",
+        "upload_save_path": ".",
 
-        "convert_video_path" : "",
-        "convert_video_save_path" : "",
-        "convert_video_script_path" : "convert_mp4_2_png.py",
-        "convert_video_copy_path" : "",
+        "convert_video_path" : ".",
+        "convert_video_save_path" : ".",
+        "convert_video_script_path" : "scripts/convert_mp4_2_png.py",
+        "convert_video_copy_path" : ".",
 
         "rotate_images_path":  "example_data",
-        "rotate_images_script_path" : "rotate_images.py",
+        "rotate_images_script_path" : "scripts/rotate_images.py",
 
         "split_data_path" : "example_data",
         "split_data_save_path" : "",
-        "split_data_script_path" : "split_yolo_data_by_object.py",
+        "split_data_script_path" : "scripts/split_yolo_data_by_object.py",
 
         "auto_label_save_path" : "example_data/labels/",
         "auto_label_model_weight_path" : "weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
         "auto_label_data_path" :  "example_data/images/",
-        "auto_label_script_path" : "inference.py",
+        "auto_label_script_path" : "scripts/inference.py",
      
         "combine_dataset_1_path": "example_data/",
         "combine_dataset_2_path": "example_data/",
         "combine_dataset_save_path": "example_data_combined/",
-        "combine_dataset_script_path" : "combine_yolo_dirs.py",
+        "combine_dataset_script_path" : "scripts/combine_yolo_dirs.py",
 
         "train_data_yaml_path": "cfgs/yolo/data/default.yaml",
         "train_model_yaml_path": "cfgs/yolo/model/default.yaml",
         "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
-        "train_script_path" : "train_yolo.py",
+        "train_script_path" : "scripts/train_yolo.py",
 
         "unverified_subset_csv_path" : "cfgs/gui/subset/default.csv",
         "subset_save_path": "cfgs/gui/subset/new_subset.csv",
 
         "video_file_path": "generated_videos/current.mp4",
 
-        "move_src_path": "",
-        "move_dest_path": "",
-        "move_dir_script_path": "move_dir.py",
+        "move_src_path": ".",
+        "move_dest_path": ".",
+        "move_dir_script_path": "scripts/move_dir.py",
 
         "open_workspace": ".",
 
-        "cluster_script_path": "cluster_objects.py",
+        "cluster_script_path": "scripts/cluster_objects.py",
 
     }
     st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
@@ -2344,7 +2344,6 @@ if "session_running" not in st.session_state:
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
 
 save_session_state()
-
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -2419,12 +2418,28 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-## Define the title bar and brief description
-with open("style.css") as css:
-    st.html(f"<style>{css.read()}</style>")
+st.markdown(
+    """
+    <style>
+    header.stAppHeader {
+        background: rgba(0, 0, 0, 0);
+    }
+
+    div.stMainBlockContainer {
+        padding-top: 0.2rem;
+    }
+
+    /* Center and style the title in your container */
+    div.st-key-app_title div.stHeading {
+        text-align: center;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
 with st.container(key="app_title"):
-    # st.title("Auto Label Engine")
 
     st.title("Auto-Label → Review → Learn → Repeat")
 
@@ -2437,17 +2452,10 @@ st.markdown(
         width: 110px;  /* Adjust the width as desired */
         height: 110px;  /* Adjust the height as desired */
     }
-
-    .stLogo > img { /* CSS selector for the icon image */
-        width: 25px;  /* Adjust the width as desired */
-        height: 25px;  /* Adjust the height as desired */
-    }
     </style>
     """,
     unsafe_allow_html=True,
 )
-
-st.logo(image="figures/icon_image.png", icon_image="figures/icon_image.png", size='large')
 
 # Sidebar Settings
 st.markdown(
@@ -2455,7 +2463,7 @@ st.markdown(
     <style>
     /* target the sidebar container */
     [data-testid="stSidebar"] > div:first-child {
-        background-color: white !important;
+        background-color: #FFF9C4 !important;
     }
     </style>
     """,
@@ -2485,30 +2493,37 @@ action_option = st.sidebar.selectbox(
     key="generate_data_dropdown",
 )
 
+blank = Image.new("RGBA", (300, 425), (255, 255, 255, 0))
+st.sidebar.image(blank, use_container_width=True)
+st.sidebar.image("figures/icon_settings_transparent.png", use_container_width=True)
+
 # Main Screen
 output = None
 
 if action_option == "🎓📘 Tutorials":
     
-    with st.expander("Recommended Auto Label Engine Workflow"):
+    with st.expander("🔃 Workflow Diagram"):
         st.write(
             "Below is a diagram of the Auto Label Engine workflow. Components are color-coded into human interaction, files and folders, and "
             "processes"
         )
-        
-        center_image_transparent("figures/ale_workflow.png", 600)
-
+        st.divider()
+        center_image_transparent("figures/ale_workflow.png", 800)
+        st.divider()
         st.write("See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for more information.")
 
 elif action_option == "📤🗄️ Upload Data":
-    with st.expander("Upload Data"):
-        st.write("### Save Path")
-        st.write("The path to upload image data on the server.")
-        path_navigator("upload_save_path")
-        upload_to_dir(st.session_state.paths["upload_save_path"])
+    
+    st.subheader("Save Path")
+    st.write("The path to upload image data on the server.")
+    path_navigator("upload_save_path")
+    st.divider()
+    st.subheader("Upload Data")
+    upload_to_dir(st.session_state.paths["upload_save_path"])
+    st.divider()
 
 elif action_option == "🎞️🖼️ Convert Video to Frames":
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         st.subheader("Video Path")
         st.write("Enter the path to an MP4/MOV video file **or directory** containing video files (all subdirectories will be scanned).")
         path_navigator("convert_video_path")
@@ -2573,11 +2588,11 @@ elif action_option == "🎞️🖼️ Convert Video to Frames":
         else:
             path_navigator(key, radio_button_prefix="change_after_conversion_")
     
-    with st.expander("Virtual Environment Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.write("Provide the path to the virtual environment containing the required packages.")
         path_navigator("venv_path", radio_button_prefix="convert_mp4")
     
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         path_navigator("convert_video_script_path")
         python_code_editor("convert_video_script_path")
     
@@ -2625,7 +2640,7 @@ elif action_option == "🎞️🖼️ Convert Video to Frames":
                 output = kill_tmux_session(session_key)
 
 elif action_option == "🔄🖼️ Rotate Image Dataset":
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         st.subheader("Image Path")
         st.write("The path to the image datasets. If subdirectories are found, each subdirectory will be treated as an individual dataset.")
         image_directory = path_navigator("rotate_images_path")
@@ -2689,15 +2704,15 @@ elif action_option == "🔄🖼️ Rotate Image Dataset":
             else:
                 st.error("Please select a valid image dataset directory.")
             
-    with st.expander("Virtual Environment Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
         path_navigator("venv_path", radio_button_prefix="rotate_images")
     
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         path_navigator("rotate_images_script_path")
         python_code_editor("rotate_images_script_path")
     
-    with st.expander("Rotate Images"):
+    with st.expander("🔄🖼️ Rotate Images"):
         st.write("Press 'Begin Rotating Images' to perform the desired action on the images.")
         output = None
         c1, c2, c3, c4 = st.columns(4, gap="small")
@@ -2789,16 +2804,16 @@ elif action_option == "🤖🏷️ Auto Label":
             st.session_state.paths[key] = st.text_input("Enter custom label replacement", value="labels")
         st.write(f"**Label Replacement:** {st.session_state.paths[key]}")
 
-    with st.expander("Virtual Environment Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.subheader("Venv Path")
         st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
         path_navigator("venv_path", radio_button_prefix="auto_label")
 
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         path_navigator("auto_label_script_path")
         python_code_editor("auto_label_script_path")
 
-    with st.expander("Auto Label Data"):
+    with st.expander("🤖🏷️ Auto Label Data"):
         st.write("Click the 'Begin Auto Labeling Data' button to start the auto-labeling process.")
         output = None
         c1, c2, c3, c4, c5, c6 = st.columns(6, gap="small")
@@ -2863,10 +2878,10 @@ elif action_option == "📹✏️ Generate Labeled Video":
         "videos_with_labels"
     )
     st.session_state.paths.setdefault("gen_vid_output_path", default_out)
-    st.session_state.paths.setdefault("gen_vid_script_path", "generate_video.py")
+    st.session_state.paths.setdefault("gen_vid_script_path", "scripts/generate_video.py")
 
     # — SETTINGS —
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         st.subheader("Input Path")
         st.write("Parent folder containing one or more subdirs with `images/` + `labels/`.")
         path_navigator("gen_vid_input_path", radio_button_prefix="gen_vid")
@@ -2905,18 +2920,18 @@ elif action_option == "📹✏️ Generate Labeled Video":
         )
 
     # — VIRTUAL ENV —
-    with st.expander("Virtual Environment"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.write("Path to the venv containing Python + dependencies.")
         path_navigator("venv_path", radio_button_prefix="gen_vid")
 
     # — SCRIPT —
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         st.write("Your `generate_video.py` (must accept --input_path, --output_path, --fps, --mode).")
         path_navigator("gen_vid_script_path", radio_button_prefix="gen_vid")
         python_code_editor("gen_vid_script_path")
 
     # — ACTIONS —
-    with st.expander("Generate Videos"):
+    with st.expander("📹✏️ Generate Labeled Videos"):
         c1, c2, c3, c4 = st.columns(4, gap="small")
         with c1:
             
@@ -2944,7 +2959,7 @@ elif action_option == "📹✏️ Generate Labeled Video":
     
 elif action_option == "📹🏷️ Labeled Video Review":
 
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         
         st.write("### Images Path")
         st.write("The path to the images.")
@@ -2960,7 +2975,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
                 
             st.rerun()
         
-    with st.expander("Subset Selection"):
+    with st.expander("🔽 Subset Selection"):
         st.write("Select only a small subset of images to review or manually label.")
         if handle_image_list_update(prefix="subset_"):
             # --- CSV Path Selection ---
@@ -3131,7 +3146,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
             else:
                 st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
-    with st.expander("Video Label Review"):
+    with st.expander("📹🏷️ Labeled Video Review"):
         update_unverified_data_path()
         if handle_image_list_update(prefix="video_"):
             video_base_path = st.session_state.paths["unverified_images_path"].replace("/images", "/videos_with_labels")
@@ -3226,7 +3241,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
 
 elif action_option == "🔍🧩 Object by Object Review":
 
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         
         st.write("### Images Path")
         st.write("The path to the images.")
@@ -3242,7 +3257,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                 
             st.rerun()
         
-    with st.expander("Object by Object Label Review"):
+    with st.expander("🔍🧩 Object by Object Label Review"):
         st.write( "Review the labels in an object by object sequence.")
 
         # Call the helper function to ensure image list/naming pattern is up-to-date.
@@ -3412,8 +3427,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     disabled=object_running
                 )
 
-
-    with st.expander("Clustered Objects"):
+    with st.expander("🔍📦 View Clustered Objects"):
         # 1) Rows/Cols controls
         rows = st.number_input("Rows per page", min_value=1, max_value=10, value=2, key="cluster_rows")
         cols = st.number_input("Cols per page", min_value=1, max_value=10, value=4, key="cluster_cols")
@@ -3525,7 +3539,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     st.success("Deleted all labels and cleared CSV.")
                     st.rerun()
                     
-    # with st.expander("Clustered Objects OLD"):
+    # with st.expander("📦 Clustered Objects OLD"):
         
     #     # Compute cluster.csv path
     #     images_dir = st.session_state.paths["unverified_images_path"]
@@ -3683,16 +3697,16 @@ elif action_option == "🔍🧩 Object by Object Review":
     #         else:
     #             st.info('No cluster.csv yet—run “Begin Clustering” to create it.')
                             
-    with st.expander("Cluster Object Settings"):
+    with st.expander("📦⚙️ Cluster Object Settings"):
 
         st.subheader("Virtual Environment")
         path_navigator("venv_path", radio_button_prefix="cluster_")
 
-        st.subheader("Script")
+        st.subheader("📜 Script")
         path_navigator("cluster_script_path")
         python_code_editor("cluster_script_path")
 
-    with st.expander("Cluster Objects"):
+    with st.expander("📦 Cluster Objects"):
     
         st.session_state.cluster_threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.7, 0.1)
         
@@ -3748,7 +3762,7 @@ elif action_option == "🔍🧩 Object by Object Review":
 
 elif action_option == "🎥🖼️ Frame by Frame Review":
         
-    with st.expander("Settings"):
+    with st.expander("⚙️ Settings"):
         
         st.write("### Images Path")
         st.write("The path to the images.")
@@ -3780,7 +3794,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
         
         yaml_editor("unverified_names_yaml_path")
 
-    with st.expander("Subset Selection"):
+    with st.expander("🔽 Subset Selection"):
         st.write("Select only a small subset of images to review or manually label.")
         if handle_image_list_update(prefix="subset_"):
             # --- CSV Path Selection ---
@@ -3951,7 +3965,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
             else:
                 st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
-    with st.expander("Frame by Frame Label Review"):
+    with st.expander("🎥🖼️ Frame by Frame Label Review"):
         st.write( "Review the labels in a frame by frame sequence.")
         if handle_image_list_update(prefix="frame_by_frame_"):
             loading = st.session_state.get("detection_running", False)
@@ -4085,7 +4099,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                 update_unverified_data_path()
                 st.rerun()
     
-    with st.expander("Zoomed‑in Bounding Box Regions"):
+    with st.expander("🔭🖼️ Zoomed‑in Bounding Box Regions"):
         # Safely pull values (defaults to empty or None)
         image    = st.session_state.get("image", None)
         bboxes   = st.session_state.get("bboxes_xyxy", [])
@@ -4182,7 +4196,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                     
 elif action_option == "🚚📁 Move Directory":
     # SETTINGS
-    with st.expander("Move Directory Settings"):
+    with st.expander("⚙️ Settings"):
         st.subheader("Source Directory")
         path_navigator("move_src_path")
         st.subheader("Destination Directory")
@@ -4196,18 +4210,18 @@ elif action_option == "🚚📁 Move Directory":
             st.rerun()
 
     # VENV
-    with st.expander("Virtual Environment Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.write("Path to the virtual environment for the move script.")
         path_navigator("venv_path", radio_button_prefix="move_dir")
 
     # SCRIPT
-    with st.expander("Move Script"):
+    with st.expander("📜 Script"):
         st.write("Your `move_dir.py` (must accept `--src_dir` and `--dst_dir`).")
         path_navigator("move_dir_script_path")
         python_code_editor("move_dir_script_path")
 
     # ACTIONS
-    with st.expander("Execute Move"):
+    with st.expander("🚚📁 Execute Move"):
         c1, c2, c3, c4 = st.columns(4, gap="small")
         with c1:
             if st.button("▶ Begin Move", key="begin_move_dir_btn"):
@@ -4234,7 +4248,7 @@ elif action_option == "🚚📁 Move Directory":
                 output = kill_tmux_session("move_dir")
         
 elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Objects":
-    with st.expander("Dataset Settings"):
+    with st.expander("⚙️ Settings"):
         c1, c2 = st.columns(2)
         with c1:
             st.subheader("Dataset To Be Split")
@@ -4251,15 +4265,15 @@ elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Object
             else:
                 path_navigator(key)
 
-    with st.expander("Virtual Environment Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
         path_navigator("venv_path", radio_button_prefix="split_data")
 
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         path_navigator("split_data_script_path")
         python_code_editor("split_data_script_path")
 
-    with st.expander("Split Data"):
+    with st.expander("🗂️✂️ Split Data"):
         st.write("Press 'Begin Splitting Data' to split the images in the dataset into a group of images with objects and those without.")
         output = None
         c1, c2, c3, c4 = st.columns(4, gap="small")
@@ -4292,7 +4306,7 @@ elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Object
 
 elif action_option == "🔗📂 Combine YOLO Datasets":
     # Combine YOLO Datasets
-    with st.expander("Dataset Settings"):
+    with st.expander("⚙️ Settings"):
         c1, c2, c3 = st.columns(3)
         with c1:
             st.subheader("Dataset 1")
@@ -4307,14 +4321,14 @@ elif action_option == "🔗📂 Combine YOLO Datasets":
             st.write("The path to save to on the server.")
             path_navigator("combine_dataset_save_path")
 
-    with st.expander("Virtual Environment Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         path_navigator("venv_path", radio_button_prefix="combine_data")
 
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         path_navigator("combine_dataset_script_path")
         python_code_editor("combine_dataset_script_path")
 
-    with st.expander("Combine Data"):
+    with st.expander("🔗📂 Combine Data"):
         st.write("Press 'Begin Combining Data' to combine the two datasets into one.")
         output = None
         c1, c2, c3, c4 = st.columns(4, gap="small")
@@ -4435,30 +4449,30 @@ elif action_option == "🔓⚙️ Unrestrict Workspace":
             st.info("Currently disabled and no valid open workspace set yet.")
 
 else:
-    with st.expander("Data YAML"):
+    with st.expander("📄📊 Data YAML"):
         st.write("The path to the data YAML file. This file contains the paths to the train, test, and validation datasets as well as the class names.")
         path_navigator("train_data_yaml_path")
         yaml_editor("train_data_yaml_path")
     
-    with st.expander("Model YAML"):
+    with st.expander("📄🤖 Model YAML"):
         st.write("The path to the model YAML file. This file contains the model architecture and layers.")
         path_navigator("train_model_yaml_path")
         yaml_editor("train_model_yaml_path")
         
-    with st.expander("Train YAML Path"):
+    with st.expander("📄🏋️‍♂️ Train YAML Path"):
         st.write("The path to the train YAML file. This file contains all model hyperparameters.")
         path_navigator("train_train_yaml_path")
         yaml_editor("train_train_yaml_path")
 
-    with st.expander("Venv Path"):
+    with st.expander("🌐 Virtual Environment Path"):
         st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
         path_navigator("venv_path", radio_button_prefix="train")
 
-    with st.expander("Script"):
+    with st.expander("📜 Script"):
         path_navigator("train_script_path")
         python_code_editor("train_script_path")
 
-    with st.expander("Finetune Model"):
+    with st.expander("🔧🤖 Finetune Model"):
         st.write("Click the 'Begin Training' button to start the training process.")
         output = None
         c1, c2, c3, c4, c5 = st.columns(5, gap="small")

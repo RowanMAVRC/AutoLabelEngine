@@ -13,7 +13,7 @@ git clone https://github.com/RowanMAVRC/AutoLabelEngine.git
 cd AutoLabelEngine
 
 # 2. (Optional) create the project virtual-env
-bash setup_venv.sh                     # creates ./envs/auto-label-engine
+bash scripts/setup_venv.sh                     # creates ./envs/auto-label-engine
 
 # 3. Launch the full GUI & helpers
 bash run_autolabel_engine.sh           # <— main entry-point
