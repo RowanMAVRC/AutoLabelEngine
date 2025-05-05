@@ -515,6 +515,7 @@ def save_subset_csv(csv_path, frames):
 ## TMUX Terminal Commands
 
 def update_tmux_terminal(session_key):
+    session_key = prefix_key(session_key)
     try:
         capture_cmd = f"tmux capture-pane -pt {session_key}:0.0"
         output = subprocess.check_output(capture_cmd, shell=True)
@@ -532,6 +533,7 @@ def kill_tmux_session(session_key):
     Args:
         session_key (str): The tmux session name.
     """
+    session_key = prefix_key(session_key)
     kill_cmd = f"tmux kill-session -t {session_key}"
     subprocess.call(kill_cmd, shell=True)
     st.success(f"tmux session '{session_key}' has been killed.")
@@ -555,7 +557,8 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
     Returns:
         str or None: The decoded terminal output if successful; otherwise, None.
     """
-    
+    session_key = prefix_key(session_key)
+
     # If a session with the given key already exists, kill it.
     try:
         subprocess.check_call(f"tmux kill-session -t {session_key}", shell=True)
@@ -1820,6 +1823,31 @@ def ensure_package(pkg_spec: str):
     except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_spec])
 
+def prefix_key(key: str) -> str:
+    p = st.session_state["user_prefix"].strip()
+    return f"{p}_{key}" if p else key
+
+def prefix_path(path: str) -> str:
+    """Prepend the user prefix to filenames for shared resources."""
+    d, fn = os.path.split(path)
+    p = st.session_state["user_prefix"].strip()
+    return os.path.join(d, f"{p}_{fn}") if p else path
+
+def commit_prefix():
+    raw = st.session_state.user_prefix_input.strip()
+    snake = re.sub(r'[^A-Za-z0-9]+', '_', raw).strip('_').lower()
+    st.session_state.user_prefix = snake
+    st.session_state.edit_prefix = False
+
+    # signal that we need to apply the prefix now
+    st.session_state.prefix_changed = True
+
+def start_edit():
+    # restore display name into input for re-editing
+    display = " ".join(w.capitalize() for w in st.session_state.user_prefix.split('_'))
+    st.session_state.user_prefix_input = display
+    st.session_state.edit_prefix = True
+
 ## Image / Video Processing & Creation
 
 def remove_white_background(img: Image.Image, threshold=240):
@@ -2299,11 +2327,13 @@ if "session_running" not in st.session_state:
         "move_dest_path": ".",
         "move_dir_script_path": "scripts/move_dir.py",
 
-        "open_workspace": ".",
+        "open_workspace": "/data/TGSSE/AutoLabelEngine/",
 
         "cluster_script_path": "scripts/cluster_objects.py",
 
+        "session_state_path": "cfgs/gui/session_state/default.yaml"
     }
+
     st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
     st.session_state.global_object_index = 0
 
@@ -2320,8 +2350,27 @@ if "session_running" not in st.session_state:
 
     st.session_state.setdefault("auto_label_threshold", 0.25)
 
+    st.session_state.user_prefix = ""
+    st.session_state.edit_prefix = True
+    st.session_state.user_prefix_input = ""
+
+    PREFIX_KEYS = [
+        "prev_unverified_names_yaml_path",
+        "unverified_names_yaml_path",
+        "train_data_yaml_path",
+        "train_model_yaml_path",
+        "train_train_yaml_path",
+        "unverified_subset_csv_path",
+        "session_state_path"
+    ]
+
+    if "default_prefix_paths" not in st.session_state:
+        st.session_state.default_prefix_paths = {
+            k: st.session_state.paths[k] for k in PREFIX_KEYS
+        }
+
     # Load previous state (overwrite defaults)
-    load_session_state()
+    load_session_state(st.session_state.paths['session_state_path'])
     
     st.session_state.cluster_enable_view = "Disabled"
     
@@ -2330,7 +2379,7 @@ if "session_running" not in st.session_state:
     gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
 
-save_session_state()
+save_session_state(st.session_state.paths['session_state_path'])
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -2390,7 +2439,7 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
-## Main 
+# Title
 st.markdown(
     """
     <style>
@@ -2432,24 +2481,10 @@ st.markdown(
 )
 
 with st.container(key="app_title"):
-
     st.title("Auto-Label → Review → Learn → Repeat")
-
     st.divider()
 
-st.markdown(
-    """
-    <style>
-    .stLogo { /* CSS selector for the main logo */
-        width: 110px;  /* Adjust the width as desired */
-        height: 110px;  /* Adjust the height as desired */
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-# Sidebar Settings
+# Sidebar Background Color
 st.markdown(
     """
     <style>
@@ -2462,6 +2497,54 @@ st.markdown(
     unsafe_allow_html=True
 )
 
+# User ID Input / Display
+if st.session_state.edit_prefix:
+    # Show text input and commit on Enter (snake_case enforced)
+    _, uid, _ = st.columns([0.4,0.2,0.4])
+    uid.text_input(
+        label="👤 Please Enter Your Name",
+        placeholder="e.g. John Jacob",
+        key="user_prefix_input",
+        label_visibility="visible",
+        on_change=commit_prefix,
+    )
+    st.stop()
+    
+else:
+    # Display greeting and edit button
+    display_name = " ".join(w.capitalize() for w in st.session_state.user_prefix.split('_'))
+    col1, col2, _ = st.sidebar.columns([0.2, 0.7, 0.1])
+    col1.button(
+        "✏️",
+        key="change_prefix",
+        help="Change name",
+        on_click=start_edit,
+    )
+    col2.markdown(f"### 👋 Hello, **{display_name}**")
+    
+    navigation_menu_margin = 375
+
+if not st.session_state.edit_prefix and st.session_state.get("prefix_changed", False):
+    for key, orig_path in st.session_state.default_prefix_paths.items():
+        new_path = prefix_path(orig_path)
+        # only copy if the prefixed path doesn't already exist
+        if not os.path.exists(new_path):
+            # make sure parent dir exists
+            os.makedirs(os.path.dirname(new_path), exist_ok=True, mode=0o777)
+            if os.path.isdir(orig_path):
+                shutil.copytree(orig_path, new_path, dirs_exist_ok=True)
+            else:
+                shutil.copy2(orig_path, new_path)
+        # always update the session so downstream widgets use the new path
+        st.session_state.paths[key] = new_path
+
+    # clear the flag and refresh
+    st.session_state.prefix_changed = False
+    load_session_state(st.session_state.paths['session_state_path'])
+    st.rerun()
+
+# Action Selection
+st.sidebar.subheader("🕹️ Action Selection")
 action_option = st.sidebar.selectbox(
     "Select Action to Perform:",
     [
@@ -2487,7 +2570,21 @@ action_option = st.sidebar.selectbox(
     label_visibility="collapsed"
 )
 
-blank = Image.new("RGBA", (300, 425), (255, 255, 255, 0))
+# Navigation Menu Image
+st.markdown(
+    """
+    <style>
+    .stLogo { /* CSS selector for the main logo */
+        width: 110px;  /* Adjust the width as desired */
+        height: 110px;  /* Adjust the height as desired */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# Navigation Menu Image(s)
+blank = Image.new("RGBA", (300, navigation_menu_margin), (255, 255, 255, 0))
 st.sidebar.image(blank, use_container_width=True)
 st.sidebar.image("figures/icon_settings_transparent.png", use_container_width=True)
 
