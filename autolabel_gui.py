@@ -1809,6 +1809,17 @@ def input_local_run_callback():
     else:
         output_placeholder.warning("Please enter a valid command.")
 
+def ensure_package(pkg_spec: str):
+    """
+    Install the given package (e.g. "gdown==5.2.0") via pip
+    if it can’t be imported already.
+    """
+    name = pkg_spec.split("==", 1)[0]
+    try:
+        __import__(name)
+    except ImportError:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg_spec])
+
 ## Image / Video Processing & Creation
 
 def remove_white_background(img: Image.Image, threshold=240):
@@ -2536,6 +2547,7 @@ if action_option == "🎓📘 Tutorials":
         st.session_state.paths.setdefault("tutorial_videos_dir", "tutorial_videos")
 
         st.subheader("Local folder for tutorials")
+
         videos_dir = path_navigator(
             "tutorial_videos_dir",
             radio_button_prefix="tutorials",
@@ -2547,6 +2559,7 @@ if action_option == "🎓📘 Tutorials":
             if st.button("Download Tutorials from Drive", key="download_tutorials_btn"):
                 os.makedirs(videos_dir, exist_ok=True)
                 try:
+                    ensure_package("gdown==5.2.0")
                     subprocess.run([
                         "gdown",
                         "--folder",
