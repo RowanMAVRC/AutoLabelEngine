@@ -1,8 +1,10 @@
 #!/bin/bash
 # setup_venv.sh
 # This script creates a Python virtual environment at the given venv_path,
-# activates it, and installs requirements from a specified file or from
-# "requirements.txt" if available.
+# installs python3/python3-venv if missing, activates it, and installs
+# requirements from a specified file (default: requirements.txt).
+
+set -e
 
 if [ "$#" -lt 1 ]; then
     echo "Usage: $0 <venv_path> [requirements_file]"
@@ -10,29 +12,50 @@ if [ "$#" -lt 1 ]; then
 fi
 
 VENV_PATH=$1
+REQ_FILE=${2:-requirements.txt}
 
-# Create the virtual environment
-python3 -m venv "$VENV_PATH"
-if [ $? -ne 0 ]; then
-    echo "Failed to create virtual environment at $VENV_PATH"
-    exit 1
+install_pkg() {
+    PKG_NAME=$1
+    if command -v apt-get &> /dev/null; then
+        echo "Installing $PKG_NAME via apt-get..."
+        sudo apt-get update && sudo apt-get install -y "$PKG_NAME"
+    elif command -v yum &> /dev/null; then
+        echo "Installing $PKG_NAME via yum..."
+        sudo yum install -y "$PKG_NAME"
+    else
+        echo "Error: No supported package manager found (apt-get or yum)."
+        echo "Please install $PKG_NAME manually."
+        exit 1
+    fi
+}
+
+# 1) Ensure python3 is available (install if not)
+if ! command -v python3 &> /dev/null; then
+    echo "python3 not found. Attempting to install python3..."
+    install_pkg python3
 fi
 
-# Activate the virtual environment
+# 2) Ensure the venv module is available (install python3-venv if needed)
+if ! python3 -c "import venv" &> /dev/null; then
+    echo "Python venv module not found. Attempting to install python3-venv..."
+    install_pkg python3-venv
+fi
+
+# 3) Create the virtual environment
+python3 -m venv "$VENV_PATH"
+
+# 4) Activate it
+# shellcheck disable=SC1090
 source "$VENV_PATH/bin/activate"
 
-# Determine the requirements file to use
-if [ "$#" -ge 2 ]; then
-    REQUIREMENTS_FILE=$2
-elif [ -f requirements.txt ]; then
-    REQUIREMENTS_FILE=requirements.txt
+# 5) Upgrade pip
+pip install --upgrade pip
+
+# 6) Install requirements if the file exists
+if [ -f "$REQ_FILE" ]; then
+    pip install -r "$REQ_FILE"
 else
-    REQUIREMENTS_FILE=""
+    echo "Warning: Requirements file '$REQ_FILE' not found — skipping package installation."
 fi
 
-# Install requirements if a file was provided or found
-if [ -n "$REQUIREMENTS_FILE" ]; then
-    pip install -r "$REQUIREMENTS_FILE"
-fi
-
-echo "Virtual environment setup complete."
+echo "✅ Virtual environment ready at '$VENV_PATH'"
