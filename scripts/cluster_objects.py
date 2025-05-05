@@ -4,52 +4,40 @@
 import argparse
 import os
 import pandas as pd
-import torch
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
 
-def extract_features_tensor(img_crop):
+def compute_ahash_bits(img, hash_size=8):
     """
-    Compute a simple HSV‐H‐channel histogram as a torch tensor.
+    Compute an average-hash bit-vector of length hash_size*hash_size.
     """
-    hsv = np.array(img_crop.convert("HSV"), dtype=np.float32)
-    h = hsv[..., 0]
-    hist = np.histogram(h, bins=256, range=(0, 255))[0].astype(np.float32)
-    total = hist.sum()
-    if total > 0:
-        hist /= total
-    return torch.from_numpy(hist)
+    gray = img.convert("L")
+    small = gray.resize((hash_size, hash_size), Image.LANCZOS)
+    arr = np.asarray(small, dtype=np.uint8).flatten()
+    avg = arr.mean()
+    return (arr > avg).astype(np.uint8)  # 1D array, length hash_size^2
+
+def hamming_dist(a, b):
+    return int(np.count_nonzero(a != b))
 
 def load_cluster_csv(path):
-    """
-    Load a list of reference global indices from cluster_csv.
-    Returns an empty list if file is missing or empty.
-    """
     if not os.path.exists(path):
         return []
     try:
         df = pd.read_csv(path, header=None)
-        return df[0].tolist()
+        return df[0].astype(int).tolist()
     except pd.errors.EmptyDataError:
         return []
 
 def save_cluster_csv(path, indices):
-    """
-    Save the selected global indices back to cluster_csv.
-    """
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     pd.DataFrame(indices).to_csv(path, index=False, header=False)
 
 def build_mapping(images_dir):
-    """
-    Walk images_dir and its parallel labels/ folder to build a DataFrame
-    with columns: global_index, image_path, label_path, bbox_x, bbox_y, bbox_w, bbox_h.
-    """
     labels_dir = images_dir.replace(os.sep + "images", os.sep + "labels")
     rows = []
     idx = 0
-
     for img_name in tqdm(sorted(os.listdir(images_dir)), desc="Building mapping"):
         if not img_name.lower().endswith((".jpg", ".jpeg", ".png")):
             continue
@@ -67,10 +55,8 @@ def build_mapping(images_dir):
                 if len(parts) < 5:
                     continue
                 cls, xc, yc, wn, hn = map(float, parts[:5])
-                w = wn * W
-                h = hn * H
-                x = xc * W - w / 2
-                y = yc * H - h / 2
+                w = wn * W; h = hn * H
+                x = xc * W - w/2; y = yc * H - h/2
 
                 rows.append({
                     "global_index": idx,
@@ -88,79 +74,60 @@ def build_mapping(images_dir):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Cluster objects by cosine similarity (auto-mapping + clustering)"
+        description="Cluster objects by average-hash + Hamming distance"
     )
-    parser.add_argument(
-        "--images_dir", type=str, required=True,
-        help="Path to your images/ folder"
-    )
-    parser.add_argument(
-        "--cluster_csv", type=str, default="cluster.csv",
-        help="Path to load/save clustered indices"
-    )
-    parser.add_argument(
-        "--threshold", type=float, default=0.7,
-        help="Cosine similarity cutoff"
-    )
-    parser.add_argument(
-        "--gpu", type=int, default=-1,
-        help="GPU index (or -1 for CPU)"
-    )
+    parser.add_argument("--images_dir",   type=str, required=True,
+                        help="Path to your images/ folder")
+    parser.add_argument("--cluster_csv",  type=str, default="cluster.csv",
+                        help="Path to load/save clustered indices")
+    parser.add_argument("--threshold",    type=int, default=10,
+                        help="Max Hamming distance (0–64) allowed for similarity")
+    parser.add_argument("--gpu",          type=int, default=-1,
+                        help="GPU index (unused by this method)")
     args = parser.parse_args()
 
-    # 1) Build the object mapping on the fly
+    # 1) Build mapping
     mapping = build_mapping(args.images_dir)
-    num_objs = len(mapping)
-    device = torch.device(
-        f"cuda:{args.gpu}" if args.gpu >= 0 and torch.cuda.is_available() else "cpu"
-    )
-    print(f"[cluster] Mapped {num_objs} objects; using device {device}")
+    N = len(mapping)
+    print(f"[cluster] Mapped {N} objects")
 
-    # 2) Load existing reference indices (if any)
+    # 2) Load reference indices
     refs = load_cluster_csv(args.cluster_csv)
-    print(f"[cluster] Loaded {len(refs)} reference indices from {args.cluster_csv}")
+    R = len(refs)
+    print(f"[cluster] Loaded {R} reference indices from {args.cluster_csv}")
 
-    # 3) Extract features for reference objects
-    ref_feats = []
-    for idx in tqdm(refs, desc="Extracting reference features"):
-        row = mapping.iloc[idx]
-        img = Image.open(row.image_path)
-        crop = img.crop((
-            int(row.bbox_x), int(row.bbox_y),
-            int(row.bbox_x + row.bbox_w),
-            int(row.bbox_y + row.bbox_h)
-        ))
-        ref_feats.append(extract_features_tensor(crop).to(device))
-
-    if not ref_feats:
-        print("[cluster] No references → writing empty cluster_csv and exiting.")
+    if R == 0:
+        print("[cluster] No references → writing empty cluster_csv and exiting")
         save_cluster_csv(args.cluster_csv, [])
         return
 
-    ref_stack = torch.stack(ref_feats)  # R x D
-
-    # 4) Extract features for all objects
-    all_feats = []
-    for _, row in tqdm(mapping.iterrows(), total=len(mapping), desc="Extracting all features"):
-        img = Image.open(row.image_path)
+    # 3) Compute reference hashes
+    ref_hashes = []
+    for idx in tqdm(refs, desc="Hashing references"):
+        r = mapping.iloc[idx]
+        img = Image.open(r.image_path)
         crop = img.crop((
-            int(row.bbox_x), int(row.bbox_y),
-            int(row.bbox_x + row.bbox_w),
-            int(row.bbox_y + row.bbox_h)
+            int(r.bbox_x), int(r.bbox_y),
+            int(r.bbox_x + r.bbox_w),
+            int(r.bbox_y + r.bbox_h)
         ))
-        all_feats.append(extract_features_tensor(crop).to(device))
-    all_stack = torch.stack(all_feats)  # N x D
+        ref_hashes.append(compute_ahash_bits(crop))
 
-    # 5) Normalize and compute cosine similarities
-    ref_norm = ref_stack / ref_stack.norm(dim=1, keepdim=True)
-    all_norm = all_stack / all_stack.norm(dim=1, keepdim=True)
-    sims = all_norm @ ref_norm.t()  # N x R
-    max_sims, _ = sims.max(dim=1)
+    # 4) Hash all objects and apply threshold
+    selected = []
+    for i, r in tqdm(mapping.iterrows(), total=N, desc="Clustering by aHash"):
+        img = Image.open(r.image_path)
+        crop = img.crop((
+            int(r.bbox_x), int(r.bbox_y),
+            int(r.bbox_x + r.bbox_w),
+            int(r.bbox_y + r.bbox_h)
+        ))
+        h = compute_ahash_bits(crop)
+        min_dist = min(hamming_dist(h, rh) for rh in ref_hashes)
+        if min_dist <= args.threshold:
+            selected.append(i)
 
-    # 6) Apply threshold and save selected indices
-    keep_mask = (max_sims >= args.threshold).cpu().tolist()
-    selected = [i for i, keep in enumerate(keep_mask) if keep]
-    print(f"[cluster] {len(selected)} objects passed threshold {args.threshold}")
+    print(f"[cluster] {len(selected)} / {N} objects within Hamming ≤ {args.threshold}")
     save_cluster_csv(args.cluster_csv, selected)
     print(f"[cluster] Saved clustered indices to {args.cluster_csv}")
 

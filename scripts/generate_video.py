@@ -179,28 +179,29 @@ if __name__ == '__main__':
 
     root = args.input_path
     pairs = []
-    # single-folder case
-    imgs = os.path.join(root, 'images'); lbls = os.path.join(root, 'labels')
-    if os.path.isdir(imgs) and os.path.isdir(lbls):
-        name = os.path.basename(os.path.normpath(root))
-        pairs.append((name, imgs, lbls))
-    # subfolders
-    for entry in sorted(os.listdir(root)):
-        sub = os.path.join(root, entry)
-        imgs = os.path.join(sub, 'images'); lbls = os.path.join(sub, 'labels')
-        if os.path.isdir(imgs) and os.path.isdir(lbls):
-            pairs.append((entry, imgs, lbls))
+
+    # ─── RECURSIVELY find any dir under root with both `images/` and `labels/`
+    for dirpath, dirnames, filenames in os.walk(root):
+        if 'images' in dirnames and 'labels' in dirnames:
+            imgs = os.path.join(dirpath, 'images')
+            lbls = os.path.join(dirpath, 'labels')
+            # use only the last component for video filenames
+            name = os.path.basename(dirpath)
+            pairs.append((name, imgs, lbls))
 
     if not pairs:
-        print(f"⚠️ No image/label folder pairs found in {root}") 
+        print(f"⚠️ No image/label folder pairs found in {root}")
         exit(1)
 
+    # ─── generate videos
     for name, imgs, lbls in tqdm(pairs, desc=f"Generating {args.mode}", unit="set"):
         out_dir = os.path.join(os.path.dirname(imgs), 'videos_with_labels')
         os.makedirs(out_dir, exist_ok=True)
+
         if args.mode in ("Frame by Frame","Both"):
             ff = os.path.join(out_dir, f"{name}_frame_by_frame.mp4")
             make_frame_by_frame_video(imgs, lbls, ff, args.fps)
+
         if args.mode in ("Object by Object","Both"):
             obo = os.path.join(out_dir, f"{name}_object_by_object.mp4")
             make_object_by_object_video(imgs, lbls, obo, args.fps)
