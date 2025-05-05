@@ -80,3 +80,4 @@ generated_videos/*
 cfgs/gui/subset/default.csv
 cfgs/gui/session_state/default.yaml
 tutorial_videos/
+*_default*
