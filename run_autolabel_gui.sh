@@ -32,7 +32,7 @@ if [ ! -f "$VENV_PATH/bin/activate" ]; then
     done
 
     echo "Setting up virtual environment at '$VENV_PATH'..."
-    bash setup_venv.sh "$VENV_PATH"
+    bash scripts/setup_venv.sh "$VENV_PATH"
 fi
 
 # Activate the virtual environment
