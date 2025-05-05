@@ -2530,6 +2530,61 @@ if action_option == "🎓📘 Tutorials":
 
         st.write("See the [Auto Label Engine GitHub repo](https://github.com/RowanMAVRC/AutoLabelEngine) for information about backend processes.")
 
+    with st.expander("📹 Tutorial Videos"):
+
+        # Ensure there's a default path in session_state.paths
+        st.session_state.paths.setdefault("tutorial_videos_dir", "tutorial_videos")
+
+        st.subheader("Local folder for tutorials")
+        videos_dir = path_navigator(
+            "tutorial_videos_dir",
+            radio_button_prefix="tutorials",
+            must_exist=False
+        )
+
+        # If the folder doesn't exist yet, offer to download
+        if not os.path.isdir(videos_dir):
+            if st.button("Download Tutorials from Drive", key="download_tutorials_btn"):
+                os.makedirs(videos_dir, exist_ok=True)
+                try:
+                    subprocess.run([
+                        "gdown",
+                        "--folder",
+                        "https://drive.google.com/drive/folders/1A8uRf22H1_FMNLghjFDcl7AmbFb_xnZz?usp=sharing",
+                        "-O", videos_dir
+                    ], check=True)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Failed to download: {e}")
+            else:
+                st.info(f"Folder `{videos_dir}` not found. Click above to download tutorials.")
+        else:
+            # Discover all .mp4 files
+            mp4_files = [
+                f for f in os.listdir(videos_dir)
+                if f.lower().endswith(".mp4")
+            ]
+
+            if mp4_files:
+                # Sort by the leading number in the filename
+                def leading_num(fn):
+                    m = re.match(r"^(\d+)", fn)
+                    return int(m.group(1)) if m else float("inf")
+
+                mp4_files = sorted(mp4_files, key=leading_num)
+
+                st.write("**Display or hide individual videos:**")
+                for fname in mp4_files:
+                    # strip off the .mp4 extension for the label
+                    label = os.path.splitext(fname)[0]
+                    # sanitize a key for Streamlit
+                    key = re.sub(r"\W+", "_", f"show_{label}")
+                    show = st.checkbox(label, key=key, value=False)
+                    if show:
+                        st.video(os.path.join(videos_dir, fname))
+            else:
+                st.warning(f"No .mp4 files found in `{videos_dir}`.")
+                
     # Upload Data Tutorial
     with st.expander("📤🗄️ Upload Data Tutorial"):
         st.write("**How to Upload Data:**")
