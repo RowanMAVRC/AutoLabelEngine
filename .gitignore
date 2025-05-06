@@ -73,15 +73,18 @@ package-lock.json
 run_hololens_combined_v11/*
 *.pt
 *.code-workspace
-cfgs/gui/*
+cfgs/
 temp*
 example_data/*
 generated_videos/*
-cfgs/gui/subset/default.csv
-cfgs/gui/session_state/default.yaml
 tutorial_videos/
 *_default*
 
+<<<<<<< HEAD
 all_in_one.py
 combine_all_files.py
 example_batch/
+=======
+results/
+wandb/
+>>>>>>> 25f9fc41c22d9f76a6a931908131ce25be94c224

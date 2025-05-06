@@ -644,15 +644,11 @@ def wait_for_conversion(session_key, check_interval=3):
 ## GPU Tools
 
 def check_gpu_status(button_key):
-    # Add the description for the user
-    st.write("Click the 'Check GPU Status' button to check the current status the gpus on the server. ")
-
     # Check if the gpustat command is available
     if st.button("Check GPU Status", key=button_key):
         try:
             # Run the gpustat command and capture its output
             output = subprocess.check_output(["gpustat"]).decode("utf-8")
-            st.write("NOTE: This output is not live. Please click again for an updated status.")
             return output
             
         except Exception as e:
@@ -2540,7 +2536,7 @@ if not st.session_state.edit_prefix and st.session_state.get("prefix_changed", F
 
     # clear the flag and refresh
     st.session_state.prefix_changed = False
-    load_session_state(st.session_state.paths['session_state_path'])
+    save_session_state(st.session_state.paths['session_state_path'])
     st.rerun()
 
 # Action Selection
@@ -2559,7 +2555,7 @@ action_option = st.sidebar.selectbox(
         "🎥🖼️ Frame by Frame Review",
         "🚚📁 Move Directory",
         "🗂️✂️ Split YOLO Dataset into Objects / No Objects",
-        "↩️✂️ Unsplit YOLO Dataset",
+        "↩️✂️ Unsplit YOLO Dataset from Objects / No Objects",
         "🔗📂 Combine YOLO Datasets",
         "📈📊 Dataset Statistics",
         "🔧🤖 Finetune Model",
@@ -2946,9 +2942,9 @@ elif action_option == "🎞️🖼️ Convert Video to Frames":
                     script_path=st.session_state.paths["convert_video_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "video_path": video_path.replace(" ", "\ "),
-                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\ "),
-                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\ ")
+                        "video_path": video_path.replace(" ", "\\ "),
+                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\\ "),
+                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\\ ")
                     }
                 )
                 st.success("Conversion started in the background. Check tmux for progress.")
@@ -3187,9 +3183,9 @@ elif action_option == "🤖🏷️ Auto Label":
                     script_path=st.session_state.paths["auto_label_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\ "),
-                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\ "),
-                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\ "),
+                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\\ "),
+                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\\ "),
+                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\\ "),
                         "gpu_number": st.session_state.auto_label_gpu,
                         "threshold":          st.session_state["auto_label_threshold"]
                     }
@@ -3296,9 +3292,9 @@ elif action_option == "📹✏️ Generate Labeled Video":
                     script_path=st.session_state.paths["gen_vid_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\ "),
+                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\\ "),
                         "fps":           st.session_state.paths["gen_vid_fps"],
-                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\ ")
+                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\\ ")
                     },
                     script_type="python"
                 )
@@ -4610,8 +4606,8 @@ elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Object
                     script_path=st.session_state.paths["split_data_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\ "),
-                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\ "),
+                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\\ "),
+                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\\ "),
                     }
                 )
                 time.sleep(5)
@@ -4629,7 +4625,7 @@ elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Object
             if st.button("❌ Kill Session", key="split_data_kill_tmux_session_btn"):
                 output = kill_tmux_session("split_data")
 
-elif action_option == "↩️✂️ Unsplit YOLO Dataset":
+elif action_option == "↩️✂️ Unsplit YOLO Dataset from Objects / No Objects":
     with st.expander("⚙️ Settings"):
         st.subheader("Directory to Un-Split")
         st.write("This should point at the folder you previously split (i.e. that contains your `objects/` and `no_objects/` subfolders).")
@@ -4675,19 +4671,59 @@ elif action_option == "↩️✂️ Unsplit YOLO Dataset":
 elif action_option == "🔗📂 Combine YOLO Datasets":
     # Combine YOLO Datasets
     with st.expander("⚙️ Settings"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            st.subheader("Dataset 1")
-            st.write("The path to the first dataset.")
-            path_navigator("combine_dataset_1_path")
-        with c2:
-            st.subheader("Dataset 2")
-            st.write("The path to the second dataset.")
-            path_navigator("combine_dataset_2_path")
-        with c3:
-            st.subheader("Save Path")
-            st.write("The path to save to on the server.")
-            path_navigator("combine_dataset_save_path")
+        st.subheader("YOLO Dataset Directories")
+        st.write("Add one YOLO dataset path at a time. The form will clear itself after you press Add.")
+
+        # ensure the list exists
+        if "combine_yolo_dirs" not in st.session_state:
+            st.session_state.combine_yolo_dirs = []
+
+        # a form that clears on submit
+        with st.form("add_dir_form", clear_on_submit=True):
+            c1, c2 = st.columns([0.8,0.2])
+            with c1:
+                new_dir = st.text_input(
+                    label="New dataset path",
+                    placeholder="/path/to/your/yolo_dataset",
+                    key="new_combine_dir_input",
+                    label_visibility="collapsed"
+                )
+            with c2:
+                add = st.form_submit_button("➕ Add")
+                if add and new_dir:
+                    if new_dir not in st.session_state.combine_yolo_dirs:
+                        st.session_state.combine_yolo_dirs.append(new_dir)
+
+        # show current list with remove buttons
+        for idx, d in enumerate(st.session_state.combine_yolo_dirs):
+            col_d, col_rem = st.columns([5,1])
+            with col_d:
+                st.code(d, language="bash")
+            with col_rem:
+                if st.button("❌", key=f"remove_combine_{idx}"):
+                    st.session_state.combine_yolo_dirs.pop(idx)
+                    st.experimental_rerun()
+
+        st.subheader("Save Path")
+        st.write("Where to save the combined dataset.")
+        path_navigator("combine_dataset_save_path")
+
+        st.subheader("Split Sizes")
+        st.write("How many images to reserve for validation and test:")
+        val_size = st.number_input(
+            "Validation Set Size",
+            min_value=0,
+            step=1,
+            value=5000,
+            key="combine_val_size"
+        )
+        test_size = st.number_input(
+            "Test Set Size",
+            min_value=0,
+            step=1,
+            value=1000,
+            key="combine_test_size"
+        )
 
     with st.expander("🌐 Virtual Environment Path"):
         path_navigator("venv_path", radio_button_prefix="combine_data")
@@ -4697,20 +4733,21 @@ elif action_option == "🔗📂 Combine YOLO Datasets":
         python_code_editor("combine_dataset_script_path")
 
     with st.expander("🔗📂 Combine Data"):
-        st.write("Press 'Begin Combining Data' to combine the two datasets into one.")
+        st.write("Press ▶ to kick off the merge & split.")
         output = None
         c1, c2, c3, c4 = st.columns(4, gap="small")
 
         with c1:
             if st.button("▶ Begin Combining Data", key="begin_combine_dataset_btn"):
                 run_in_tmux(
-                    session_key="combine_dataset", 
-                    script_path=st.session_state.paths["combine_dataset_script_path"], 
+                    session_key="combine_dataset",
+                    script_path=st.session_state.paths["combine_dataset_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "dataset1" : st.session_state.paths["combine_dataset_1_path"].replace(" ", "\ "),
-                        "dataset2" : st.session_state.paths["combine_dataset_2_path"].replace(" ", "\ "),
-                        "dst_dir" : st.session_state.paths["combine_dataset_save_path"].replace(" ", "\ ")
+                        "datasets": st.session_state.combine_yolo_dirs,
+                        "dst_dir": st.session_state.paths["combine_dataset_save_path"].replace(" ", r"\ "),
+                        "val_size": st.session_state.combine_val_size,
+                        "test_size": st.session_state.combine_test_size
                     }
                 )
                 time.sleep(3)
@@ -4855,9 +4892,9 @@ elif action_option == "🔧🤖 Finetune Model":
                     script_path=st.session_state.paths["train_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\ "),
-                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\ "),
-                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\ ")
+                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\\ "),
+                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\\ "),
+                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\\ ")
                     }
                 )
                 time.sleep(3)
