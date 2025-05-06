@@ -81,3 +81,7 @@ cfgs/gui/subset/default.csv
 cfgs/gui/session_state/default.yaml
 tutorial_videos/
 *_default*
+
+all_in_one.py
+combine_all_files.py
+example_batch/
