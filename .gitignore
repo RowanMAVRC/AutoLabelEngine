@@ -81,3 +81,7 @@ cfgs/gui/subset/default.csv
 cfgs/gui/session_state/default.yaml
 tutorial_videos/
 *_default*
+
+cfgs/
+results/
+wandb/
