@@ -31,8 +31,11 @@ def parse_args():
 
 def main():
     args = parse_args()
-    src = os.path.abspath(args.src_dir)
-    dst = os.path.abspath(args.dst_dir)
+    src_dir = args.src_dir
+    dst_dir = args.dst_dir
+
+    src = os.path.abspath(src_dir)
+    dst = os.path.abspath(dst_dir)
 
     # Check source exists and is a directory
     if not os.path.isdir(src):
