@@ -61,6 +61,8 @@ SELECTED_KEYS = [
     "cluster_enable_view",
     "cluster_rows",   
     "cluster_cols",
+    "grid_rows",   
+    "grid_cols",
     "auto_label_threshold"
 
 ]
@@ -1550,6 +1552,43 @@ def set_scale():
 
 ## Zoom & Object Edit Callbacks
 
+def zoom_apply(i):
+    """
+    Apply the edits for bbox i: recalc xywh, rewrite the YOLO .txt file,
+    and set the flag so downstream code won’t overwrite it.
+    """
+    # bounds check
+    if i < 0 or i >= len(st.session_state.bboxes_xyxy):
+        return
+
+    # read the edited values
+    cx = st.session_state[f"bbox_{i}_cx"]
+    cy_flipped = st.session_state[f"bbox_{i}_cy"]
+    img_h = st.session_state.image_height
+    cy = img_h - cy_flipped
+
+    w_new = st.session_state[f"bbox_{i}_w"]
+    h_new = st.session_state[f"bbox_{i}_h"]
+
+    # convert center/wh back to top-left xywh and clamp
+    x_new = max(0.0, min(cx - w_new/2, st.session_state.image_width - w_new))
+    y_new = max(0.0, min(cy - h_new/2, img_h - h_new))
+
+    # update the session state
+    st.session_state.bboxes_xyxy[i] = [x_new, y_new, w_new, h_new]
+
+    # rewrite the YOLO-format label file
+    label_path = st.session_state.label_path
+    img_w = st.session_state.image_width
+    with open(label_path, "w") as f:
+        for lbl, (bx, by, bw, bh) in zip(st.session_state.labels, st.session_state.bboxes_xyxy):
+            x_c = (bx + bw/2) / img_w
+            y_c = (by + bh/2) / img_h
+            f.write(f"{lbl} {x_c:.6f} {y_c:.6f} {bw/img_w:.6f} {bh/img_h:.6f}\n")
+
+    # prevent the frame-by-frame reviewer from immediately overwriting our manual edits
+    st.session_state.skip_label_update = True
+
 def zoom_edit_callback(i):
 
     # If the box at index i has been deleted, just return.
@@ -1737,6 +1776,9 @@ def object_by_object_edit_callback():
     finally:
         # always clear the “running” flag
         st.session_state["object_running"] = False
+
+def _on_view_change():
+    st.session_state["skip_label_update"] = True
 
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
@@ -2344,7 +2386,13 @@ if "session_running" not in st.session_state:
     st.session_state.cluster_rows = 2    
     st.session_state.cluster_cols = 10
 
+    st.session_state.grid_page = 1
+    st.session_state.grid_rows = 2
+    st.session_state.grid_cols = 10
+
     st.session_state.setdefault("auto_label_threshold", 0.25)
+
+    st.session_state["reset_grid"] = False
 
     st.session_state.user_prefix = ""
     st.session_state.edit_prefix = True
@@ -2536,7 +2584,8 @@ if not st.session_state.edit_prefix and st.session_state.get("prefix_changed", F
 
     # clear the flag and refresh
     st.session_state.prefix_changed = False
-    save_session_state(st.session_state.paths['session_state_path'])
+    load_session_state(st.session_state.paths['session_state_path'])
+    update_unverified_data_path()
     st.rerun()
 
 # Action Selection
@@ -2942,9 +2991,9 @@ elif action_option == "🎞️🖼️ Convert Video to Frames":
                     script_path=st.session_state.paths["convert_video_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "video_path": video_path.replace(" ", "\\ "),
-                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\\ "),
-                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\\ ")
+                        "video_path": video_path.replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
                     }
                 )
                 st.success("Conversion started in the background. Check tmux for progress.")
@@ -3183,9 +3232,9 @@ elif action_option == "🤖🏷️ Auto Label":
                     script_path=st.session_state.paths["auto_label_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\\ "),
-                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\\ "),
-                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\\ "),
+                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
                         "gpu_number": st.session_state.auto_label_gpu,
                         "threshold":          st.session_state["auto_label_threshold"]
                     }
@@ -3292,9 +3341,9 @@ elif action_option == "📹✏️ Generate Labeled Video":
                     script_path=st.session_state.paths["gen_vid_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\\ "),
+                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
                         "fps":           st.session_state.paths["gen_vid_fps"],
-                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\\ ")
+                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
                     },
                     script_type="python"
                 )
@@ -3593,7 +3642,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
 elif action_option == "🔍🧩 Object by Object Review":
 
     tabs = st.tabs([
-        "🔍🧩 Review",
+        "🔍🧩 Single Object Review",
         "📦 Cluster"
     ]) 
     
@@ -3640,7 +3689,6 @@ elif action_option == "🔍🧩 Object by Object Review":
                     image_path = current_obj["image_path"]
                     label_path = current_obj["label_path"]
                     st.session_state.global_object_count = current_obj["num_labels"]
-
 
                     x, y, w, h = bbox
                     center_x = x + w / 2
@@ -3788,6 +3836,307 @@ elif action_option == "🔍🧩 Object by Object Review":
                         disabled=object_running
                     )
     
+        with st.expander("▦ Grid View"):
+            # Toggle full rendering via radio (default Disabled)
+            grid_enable_view = st.radio(
+                "Grid View:",
+                ("Disabled", "Enabled"),
+                key="grid_enable_view",
+                label_visibility="visible"
+            )
+
+            if grid_enable_view == "Enabled":
+                # compute path for persisting selections
+                images_dir = st.session_state.paths["unverified_images_path"]
+                grid_csv = os.path.join(os.path.dirname(images_dir), "grid.csv")
+                
+                # Generate a unique key for this session to force re-rendering
+                # This helps prevent Streamlit's component caching
+                if "grid_session_id" not in st.session_state:
+                    st.session_state["grid_session_id"] = str(uuid.uuid4())
+               
+                # After delete operation, generate a new session ID to force full re-render
+                if st.session_state.get("reset_grid", False):
+                    st.session_state["grid_session_id"] = str(uuid.uuid4())
+                    st.session_state["reset_grid"] = False
+                    
+                    # Force deletion of any checkbox keys
+                    keys_to_delete = []
+                    for key in st.session_state.keys():
+                        if key.startswith("grid_sel_"):
+                            keys_to_delete.append(key)
+                    
+                    for key in keys_to_delete:
+                        del st.session_state[key]
+
+                session_id = st.session_state["grid_session_id"]
+                        
+                # load or initialize DataFrame
+                example = get_object_by_global_index(0)
+                total_objs = example["num_labels"] if example else 0
+                st.session_state.global_object_count = total_objs
+                if os.path.exists(grid_csv):
+                    df = pd.read_csv(grid_csv, header=None, names=["idx","selected"])
+                    # if the file is out of date (wrong length or missing indices)
+                    if len(df) != total_objs or set(df["idx"]) != set(range(total_objs)):
+                        df = pd.DataFrame({
+                            "idx": list(range(total_objs)),
+                            "selected": False
+                        })
+                else:
+                    df = pd.DataFrame({
+                        "idx": list(range(total_objs)),
+                        "selected": False
+                    })
+
+                if total_objs > 0:
+                    # page size controls
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        if st.session_state["grid_rows"] > total_objs:
+                            st.session_state["grid_rows"] = total_objs
+                            st.rerun() 
+
+                        # Use a static key so the value sticks
+                        rows = st.number_input(
+                            "Rows per page", 
+                            min_value=1, 
+                            value=st.session_state["grid_rows"], 
+                            key="grid_rows"
+                        )
+                        if rows != st.session_state["grid_rows"]:
+                            st.session_state["grid_rows"] = rows
+                            st.rerun()
+                    
+                    with c2:
+                        allowed_max_cols = max(1, total_objs // rows)   # at least one col
+                        allowed_max_cols = min(16, allowed_max_cols)  # cap at 16
+
+                        # If the *current* session_state value is now too big,
+                        #    delete it and rerun so the cols widget gets re-created
+                        if "grid_cols" in st.session_state and st.session_state.grid_cols > allowed_max_cols:
+                            del st.session_state.grid_cols
+                            st.rerun()
+                            
+                        cols = st.number_input(
+                            "Cols per page", 
+                            min_value=1, 
+                            value=st.session_state["grid_cols"], 
+                            key="grid_cols"
+                        )
+
+                        if cols != st.session_state["grid_cols"]:
+                            st.session_state["grid_cols"] = cols
+                            st.rerun()
+
+                    per_page = rows * cols
+                    pages = max(1, math.ceil(len(df)/per_page))
+                    
+                    # Remember the current page between refreshes
+                    if "grid_page" not in st.session_state:
+                        st.session_state["grid_page"] = 1
+                        
+                    page = st.number_input(
+                        "Page", 
+                        min_value=1, 
+                        max_value=pages, 
+                        value=st.session_state["grid_page"], 
+                        key=f"grid_page_{session_id}"
+                    )
+                    
+                    # Store current page for future reference
+                    st.session_state["grid_page"] = page
+
+                    # Top nav: Prev Page | Slider | Next Page
+                    if pages>1:
+                        n1, n2, n3 = st.columns([1, 8, 1])
+                        with n1:
+                            if st.button("Prev Page", key="grid_prev"):
+                                st.session_state["grid_page"] = page - 1 if page > 1 else pages
+                                st.rerun()
+                        with n2:
+                            new_page = st.slider(" ", 1, pages, page, key="grid_slider", label_visibility="collapsed")
+                            if new_page != st.session_state["grid_page"]:
+                                st.session_state["grid_page"] = new_page
+                                st.rerun()
+                        with n3:
+                            if st.button("Next Page", key="grid_next"):
+                                st.session_state["grid_page"] = page + 1 if page < pages else 1
+                                st.rerun()
+
+                    # Centered page indicator
+                    p1, p2, p3 = st.columns([1, 8, 1])
+                    p2.markdown(f"<p style='text-align:center'>Page {page} of {pages}</p>", unsafe_allow_html=True)
+                    
+                    if st.button("Refresh Grid", key="refresh grid"):
+                        st.rerun()
+
+                    st.divider()
+                    start = (page-1)*per_page
+                    end = min(start + per_page, len(df))
+                    page_df = df.iloc[start:end]
+
+                    # display grid of thumbnails + checkbox
+                    for i in range(rows):
+                        cols_cells = st.columns(cols)
+                        row_start = i*cols
+                        row_end = min((i+1)*cols, len(page_df))
+                        
+                        if row_start >= len(page_df):
+                            continue
+                            
+                        row_indices = page_df["idx"].tolist()[row_start:row_end]
+                        
+                        for j, (idx, cell) in enumerate(zip(row_indices, cols_cells)):
+                            if idx >= len(df):
+                                continue
+                                
+                            thumb = _get_thumbnail_b64(int(idx), 100)
+                            with cell:
+                                st.image(f"data:image/png;base64,{thumb}", width=100)
+                                st.markdown(f"<div style='text-align:center'>{idx}</div>", unsafe_allow_html=True)
+                                
+                                # Generate unique checkbox key with session ID to force refresh
+                                checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
+                                
+                                # Get current selection state from DataFrame
+                                is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
+                                
+                                # Create checkbox with unique key
+                                sel = st.checkbox("Delete", value=is_selected,
+                                                key=checkbox_key, label_visibility="collapsed")
+                                
+                                # Update DataFrame with new state
+                                df.loc[df.idx==idx, "selected"] = sel
+
+                    # persist selection
+                    df.to_csv(grid_csv, index=False, header=False)
+
+                    st.divider()
+                    # Bottom nav: Prev Page | Slider | Next Page
+                    if pages>1:
+                        n1, n2, n3 = st.columns([1, 8, 1])
+                        with n1:
+                            if st.button("Prev Page", key="bottom_grid_prev"):
+                                st.session_state["grid_page"] = page - 1 if page > 1 else pages
+                                st.rerun()
+                        with n2:
+                            new_page = st.slider(" ", 1, pages, page, key="bottom_grid_slider", label_visibility="collapsed")
+                            if new_page != st.session_state["grid_page"]:
+                                st.session_state["grid_page"] = new_page
+                                st.rerun()
+                        with n3:
+                            if st.button("Next Page", key="bottom_grid_next"):
+                                st.session_state["grid_page"] = page + 1 if page < pages else 1
+                                st.rerun()
+
+                    st.divider()
+                    b1, b2, b3, b4 = st.columns(4)
+                    with b1:
+                        if st.button("Select All Page", key=f"select_all_{session_id}"):
+                            for idx in page_df["idx"].tolist():
+                                df.loc[df.idx==idx, "selected"] = True
+                            df.to_csv(grid_csv, index=False, header=False)
+                            
+                            # Remember we want to stay on this page
+                            st.session_state["preserve_page"] = True
+                            
+                            # Force complete rerendering of the UI
+                            st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            st.rerun()
+                            
+                    with b2:
+                        if st.button("Deselect All Page", key=f"deselect_all_{session_id}"):
+                            for idx in page_df["idx"].tolist():
+                                df.loc[df.idx==idx, "selected"] = False
+                            df.to_csv(grid_csv, index=False, header=False)
+                            
+                            # Remember we want to stay on this page
+                            st.session_state["preserve_page"] = True
+                            
+                            # Force complete rerendering of the UI
+                            st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            st.rerun()
+                            
+                    with b3:
+                        if st.button("Clear All Selections", key=f"clear_all_{session_id}"):
+                            df["selected"] = False
+                            df.to_csv(grid_csv, index=False, header=False)
+                            
+                            # Remember we want to stay on this page
+                            st.session_state["preserve_page"] = True
+                            
+                            # Force complete rerendering of the UI
+                            st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            st.rerun()
+                            
+                    with b4:
+                        if st.button("Delete Selected Labels", key=f"delete_selected_{session_id}"):
+                            # 1) gather which global indices are checked
+                            to_delete = df.loc[df.selected, "idx"].astype(int).tolist()
+
+                            # 2) group by label file
+                            deletions = {}
+                            for gidx in to_delete:
+                                obj = get_object_by_global_index(gidx)
+                                if obj:
+                                    lp = obj["label_path"]
+                                    li = obj["local_index"]
+                                    deletions.setdefault(lp, []).append(li)
+
+                            # 3) delete only those lines (descending)
+                            total_removed = 0
+                            for lp, locs in deletions.items():
+                                try:
+                                    with open(lp, "r") as f:
+                                        lines = f.readlines()
+                                    for li in sorted(locs, reverse=True):
+                                        if 0 <= li < len(lines):
+                                            del lines[li]
+                                            total_removed += 1
+                                    with open(lp, "w") as f:
+                                        f.writelines(lines)
+                                except Exception as e:
+                                    st.error(f"Failed to update {lp}: {e}")
+
+                            # 4) recompute total objects
+                            example = get_object_by_global_index(0)
+                            new_total = example["num_labels"] if example else 0
+                            st.session_state.global_object_count = new_total
+
+                            # 5) rebuild & persist fresh CSV
+                            new_df = pd.DataFrame({"idx": list(range(new_total)), "selected": False})
+                            new_df.to_csv(grid_csv, index=False, header=False)
+
+                            # 6) clear caches
+                            try:
+                                extract_features.clear()
+                                _get_thumbnail_b64.clear()
+                            except:
+                                pass
+                            
+                            # 7) Create a fresh session ID - this forces all UI components to be recreated
+                            st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            st.session_state["reset_grid"] = True
+                            
+                            # For delete operations, we typically want to go back to page 1 since indices may change
+                            st.session_state["grid_page"] = 1
+                            st.session_state["preserve_page"] = False
+                            
+                            # Use JavaScript to force a complete refresh
+                            st.markdown(
+                                """
+                                <script>
+                                    setTimeout(function() {
+                                        window.location.reload();
+                                    }, 100);
+                                </script>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                            
+                            st.rerun()
+                        
     with tabs[1]:
         with st.expander("📦⚙️ Cluster Object Settings"):
 
@@ -3811,7 +4160,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                     "GPU", 
                     options=list(range(len(st.session_state.gpu_list))),
                     format_func=lambda x: f"GPU {x}",
-                    key="cluster_gpu_select"
+                    key="cluster_gpu_select",
+                    label_visibility="collapsed"
                 )
 
             with c2:
@@ -3832,8 +4182,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                             script_path=st.session_state.paths["cluster_script_path"],
                             venv_path=st.session_state.paths["venv_path"],
                             args={
-                                "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ "),
-                                "cluster_csv": cluster_csv_path.replace(" ", "\\ "),
+                                "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                                "cluster_csv": cluster_csv_path.replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
                                 "threshold": st.session_state.cluster_threshold,
                                 "gpu": st.session_state.cluster_gpu_select
                             }
@@ -4259,234 +4609,235 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                 st.info("No CSV found. Create or upload a CSV to begin using a subset.")
 
     with st.expander("🎥🖼️ Frame by Frame Label Review"):
-        st.write( "Review the labels in a frame by frame sequence.")
-        if handle_image_list_update(prefix="frame_by_frame_"):
-            loading = st.session_state.get("detection_running", False)
+        frame_by_frame_option = st.radio(
+            "Please Choose:",
+            ["🎥🖼️  Default View", "🔭🖼️ Zoomed-in Bounding Box Regions"],
+            key="frame_by_frame_default_view",
+            label_visibility="collapsed",
+            on_change=_on_view_change
+        )
+        
+        if frame_by_frame_option == "🎥🖼️  Default View":
+            st.write( "Review the labels in a frame by frame sequence.")
+            if handle_image_list_update(prefix="frame_by_frame_"):
+                loading = st.session_state.get("detection_running", False)
 
-            if st.session_state.max_images > 0:
-                if st.session_state.max_images > 1:
-                    # --- Top Navigation (Prev / Next) ---
-                    col_prev, _, col_next = st.columns([4, 5, 4])
-                    with col_prev:
-                        st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
-                    with col_next:
-                        st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
+                if st.session_state.max_images > 0:
+                    if st.session_state.max_images > 1:
+                        # --- Top Navigation (Prev / Next) ---
+                        col_prev, _, col_next = st.columns([4, 5, 4])
+                        with col_prev:
+                            st.button("Prev Frame", key="top_prev_btn", on_click=prev_callback, disabled=loading)
+                        with col_next:
+                            st.button("Next Frame", key="top_next_btn", on_click=next_callback, disabled=loading)
 
-                    col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
-                    with col_copy_prev:
-                        st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
-                    with col_copy_next:
-                        st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
+                        col_copy_prev, _, col_copy_next = st.columns([4, 5, 4])
+                        with col_copy_prev:
+                            st.button("Copy Labels from Prev Slide", key="copy_prev_btn", on_click=copy_prev_labels, disabled=loading)
+                        with col_copy_next:
+                            st.button("Copy Labels from Next Slide", key="copy_next_btn", on_click=copy_next_labels, disabled=loading)
 
-                # --- Read and Display Current Frame ---
-                update_unverified_frame()
+                    # --- Read and Display Current Frame ---
+                    update_unverified_frame()
 
-                st.write(f"Current File Path: {st.session_state.image_path}")
+                    st.write(f"Current File Path: {st.session_state.image_path}")
 
-                # Annotate with detection()
-                det_container = st.container()
-                with det_container:
-                    if not loading:
-                        with st.spinner("Processing..."):
+                    # Annotate with detection()
+                    det_container = st.container()
+                    with det_container:
+                        if not loading:
+                            with st.spinner("Processing..."):
+                                out = detection(**st.session_state.detection_config)
+                        else:
                             out = detection(**st.session_state.detection_config)
-                    else:
-                        out = detection(**st.session_state.detection_config)
 
-                st.session_state.out = out
+                    st.session_state.out = out
 
-                # Update labels if changed
-                update_labels_from_detection()
+                    # Update labels if changed
+                    update_labels_from_detection()
 
-                c1, c2 = st.columns([10, 90])
-                with c1:
-                    st.markdown(
-                        """
-                        <style>
-                        .stCheckbox input[type="checkbox"] {
-                            transform: scale(1.5);
-                        }
-                        .stCheckbox label {
-                            font-size: 24px;
-                            font-weight: bold;
-                        }
-                        </style>
-                        """,
-                        unsafe_allow_html=True,
-                    )
-                    use_subset_val = st.checkbox(
-                        "Use Subset",
-                        value=st.session_state.use_subset,
-                        key="manual_label_subset_btn",
-                        on_change=manual_label_subset_checkbox_callback,
-                        disabled=not len(st.session_state.subset_frames) > 1
-                    )
-                    if st.session_state.use_subset_changed:
-                        st.session_state.use_subset_changed = False
-                        st.rerun()
-    
-                with c2:
-                    c12, c22, c32 = st.columns([10, 10, 10])
-                    with c12:
-                        st.number_input(
-                            "Add Frame Index",
-                            min_value=0,
-                            max_value=st.session_state.max_images - 1,
-                            value=None,
-                            step=1,
-                            key="frame_by_frame_add_frame",
-                            on_change=add_frame_callback,
-                            args=("frame_by_frame_add_frame",)
+                    c1, c2 = st.columns([10, 90])
+                    with c1:
+                        st.markdown(
+                            """
+                            <style>
+                            .stCheckbox input[type="checkbox"] {
+                                transform: scale(1.5);
+                            }
+                            .stCheckbox label {
+                                font-size: 24px;
+                                font-weight: bold;
+                            }
+                            </style>
+                            """,
+                            unsafe_allow_html=True,
                         )
-
-                    with c22:
-                        st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
-
-                    with c32:
-                        st.number_input(
-                            "Remove Frame Index",
-                            min_value=0,
-                            max_value=st.session_state.max_images - 1,
-                            value=None,
-                            step=1,
-                            key="frame_by_frame_remove_frame",
-                            on_change=remove_frame_callback,
-                            args=("frame_by_frame_remove_frame",)
+                        use_subset_val = st.checkbox(
+                            "Use Subset",
+                            value=st.session_state.use_subset,
+                            key="manual_label_subset_btn",
+                            on_change=manual_label_subset_checkbox_callback,
+                            disabled=not len(st.session_state.subset_frames) > 1
                         )
+                        if st.session_state.use_subset_changed:
+                            st.session_state.use_subset_changed = False
+                            st.rerun()
+        
+                    with c2:
+                        c12, c22, c32 = st.columns([10, 10, 10])
+                        with c12:
+                            st.number_input(
+                                "Add Frame Index",
+                                min_value=0,
+                                max_value=st.session_state.max_images - 1,
+                                value=None,
+                                step=1,
+                                key="frame_by_frame_add_frame",
+                                on_change=add_frame_callback,
+                                args=("frame_by_frame_add_frame",)
+                            )
 
-                if not len(st.session_state.subset_frames) > 1:
-                        st.warning("Subset needs to be two or larger.")
-                
-                if st.session_state.max_images > 1:
-                    # Additional navigation (jump, slider, second Prev/Next)
-                    st.number_input(
-                        "Current Frame",
-                        min_value=0,
-                        max_value=st.session_state.max_images-1,
-                        value=st.session_state.frame_index,
-                        step=10,
-                        key="jump_page",
-                        on_change=jump_frame_frame_by_frame_callback
-                    )
-                    col_prev, col_slider, col_next = st.columns([2, 10, 4])
-                    with col_prev:
-                        st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
-                    with col_slider:
-                        st.slider(
-                            f"Subset Index: {st.session_state.frame_index}  Frame Index: {st.session_state.actual_frame_index}"
-                            if st.session_state.use_subset else f"Frame Index: {st.session_state.actual_frame_index}",
-                            0,
-                            st.session_state.max_images - 1 if not st.session_state.use_subset
-                            else len(st.session_state.subset_frames) - 1,
-                            st.session_state.frame_index,
-                            key="slider_det",
-                            on_change=frame_slider_frame_by_frame_callback,
-                            label_visibility="collapsed"
-                        )
-                    with col_next:
-                        st.button("Next Frame", key="next_btn", on_click=next_callback)
-            else:
-                st.warning("Data Path is empty...")
-    
-        else:
-            if st.button("Refresh", key="refresh_empty"):
-                update_unverified_data_path()
-                st.rerun()
-    
-    with st.expander("🔭🖼️ Zoomed‑in Bounding Box Regions"):
-        # Safely pull values (defaults to empty or None)
-        image    = st.session_state.get("image", None)
-        bboxes   = st.session_state.get("bboxes_xyxy", [])
-        labels   = st.session_state.get("labels", [])
-        bbox_ids = st.session_state.get("bbox_ids", [])
+                        with c22:
+                            st.selectbox("View Frames in Subset (Selection Does Nothing)", st.session_state.subset_frames, key="frame_by_frame_view_frames_in_subset")
 
-        # If there's no image or no boxes, show a message
-        if image is None or not bboxes:
-            st.warning("No bounding boxes in current frame.")
-        else:
-            # Update frame if needed
-            update_unverified_frame()
+                        with c32:
+                            st.number_input(
+                                "Remove Frame Index",
+                                min_value=0,
+                                max_value=st.session_state.max_images - 1,
+                                value=None,
+                                step=1,
+                                key="frame_by_frame_remove_frame",
+                                on_change=remove_frame_callback,
+                                args=("frame_by_frame_remove_frame",)
+                            )
 
-            # Render each crop + controls
-            for i, (x, y, w, h) in enumerate(bboxes):
-                # Compute coordinates
-                x1, y1 = max(x, 0.0), max(y, 0.0)
-                x2, y2 = x1 + w,      y1 + h
-
-                # Sanity check
-                if x2 <= x1 or y2 <= y1:
-                    st.session_state.labels.pop(i)
-                    st.session_state.bboxes_xyxy.pop(i)
-                    st.session_state.bbox_ids.pop(i)
-                    st.rerun()
-
-                # Crop & caption
-                cropped = image.crop((x1, y1, x2, y2))
-                if i < len(labels):
-                    idx = labels[i]
-                    try:
-                        label_name = st.session_state.label_list[idx]
-                    except Exception:
-                        label_name = f"Label {idx}"
-                else:
-                    label_name = "Unknown"
-                caption = (
-                    f"ID: {bbox_ids[i]}, "
-                    f"Label: {label_name}, "
-                    f"BBox: ({x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f})"
-                )
-
-                key_x = f"bbox_{bbox_ids[i]}_cx"
-                key_y = f"bbox_{bbox_ids[i]}_cy"
-                key_w = f"bbox_{bbox_ids[i]}_w"
-                key_h = f"bbox_{bbox_ids[i]}_h"
-
-                st.markdown(f"#### Edit Bounding Box {i} Parameters")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.image(cropped, caption=caption)
-
-                # Default center coords
-                center_x = x + w / 2
-                center_y = y + h / 2
-
-                with col2:
-                    st.number_input(
-                        f"Center X for bbox {i}",
-                        min_value=0.0,
-                        max_value=float(st.session_state.image_width),
-                        value=center_x,
-                        key=key_x,
-                        step=1.0,
-                        on_change=lambda i=i: zoom_edit_callback(i),
-                    )
-                    st.number_input(
-                        f"Center Y for bbox {i}",
-                        min_value=0.0,
-                        max_value=float(st.session_state.image_height),
-                        value=center_y,
-                        key=key_y,
-                        step=1.0,
-                        on_change=lambda i=i: zoom_edit_callback(i),
-                    )
-                    st.number_input(
-                        f"Width for bbox {i}",
-                        min_value=1.0,
-                        max_value=float(st.session_state.image_width),
-                        value=w,
-                        key=key_w,
-                        step=1.0,
-                        on_change=lambda i=i: zoom_edit_callback(i),
-                    )
-                    st.number_input(
-                        f"Height for bbox {i}",
-                        min_value=1.0,
-                        max_value=float(st.session_state.image_height),
-                        value=h,
-                        key=key_h,
-                        step=1.0,
-                        on_change=lambda i=i: zoom_edit_callback(i),
-                )
+                    if not len(st.session_state.subset_frames) > 1:
+                            st.warning("Subset needs to be two or larger.")
                     
+                    if st.session_state.max_images > 1:
+                        # Additional navigation (jump, slider, second Prev/Next)
+                        st.number_input(
+                            "Current Frame",
+                            min_value=0,
+                            max_value=st.session_state.max_images-1,
+                            value=st.session_state.frame_index,
+                            step=10,
+                            key="jump_page",
+                            on_change=jump_frame_frame_by_frame_callback
+                        )
+                        col_prev, col_slider, col_next = st.columns([2, 10, 4])
+                        with col_prev:
+                            st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
+                        with col_slider:
+                            st.slider(
+                                f"Subset Index: {st.session_state.frame_index}  Frame Index: {st.session_state.actual_frame_index}"
+                                if st.session_state.use_subset else f"Frame Index: {st.session_state.actual_frame_index}",
+                                0,
+                                st.session_state.max_images - 1 if not st.session_state.use_subset
+                                else len(st.session_state.subset_frames) - 1,
+                                st.session_state.frame_index,
+                                key="slider_det",
+                                on_change=frame_slider_frame_by_frame_callback,
+                                label_visibility="collapsed"
+                            )
+                        with col_next:
+                            st.button("Next Frame", key="next_btn", on_click=next_callback)
+                else:
+                    st.warning("Data Path is empty...")
+        
+            else:
+                if st.button("Refresh", key="refresh_empty"):
+                    update_unverified_data_path()
+                    st.rerun()
+        
+        else:
+            image  = st.session_state.get("image")
+            bboxes = st.session_state.get("bboxes_xyxy", [])
+            labels = st.session_state.get("labels", [])
+
+            if image is None or not bboxes:
+                st.warning("No bounding boxes in current frame.")
+            else:
+                # ensure we have a valid frame loaded
+                update_unverified_frame()
+                img_h = st.session_state.image_height
+                img_w = st.session_state.image_width
+
+                for i, (x, y, w, h) in enumerate(bboxes):
+                    # crop the region
+                    crop = image.crop((x, y, x + w, y + h))
+                    # get label name safely
+                    lbl_idx = labels[i]
+                    lbl_name = (
+                        st.session_state.label_list[lbl_idx]
+                        if lbl_idx < len(st.session_state.label_list)
+                        else f"Label {lbl_idx}"
+                    )
+
+                    st.markdown(f"#### Edit Bounding Box {i} (Label: {lbl_name})")
+                    col_img, col_ctrl = st.columns(2)
+                    with col_img:
+                        st.image(crop, caption=f"Crop of box {i}", use_container_width=True)
+
+                    # prepare session-state keys & default values
+                    key_cx = f"bbox_{i}_cx"
+                    key_cy = f"bbox_{i}_cy"
+                    key_w  = f"bbox_{i}_w"
+                    key_h  = f"bbox_{i}_h"
+                    default_cx = x + w/2
+                    default_cy = img_h - (y + h/2)
+
+                    # initialize if not already present
+                    st.session_state.setdefault(key_cx, default_cx)
+                    st.session_state.setdefault(key_cy, default_cy)
+                    st.session_state.setdefault(key_w,  w)
+                    st.session_state.setdefault(key_h,  h)
+
+                    with col_ctrl:
+                        st.number_input(
+                            "Center X",
+                            min_value=0.0,
+                            max_value=float(img_w),
+                            value=st.session_state[key_cx],
+                            key=key_cx,
+                            step=1.0,
+                            on_change=zoom_edit_callback,
+                            args=(i,),
+                        )
+                        st.number_input(
+                            "Center Y",
+                            min_value=0.0,
+                            max_value=float(img_h),
+                            value=st.session_state[key_cy],
+                            key=key_cy,
+                            step=1.0,
+                            on_change=zoom_edit_callback,
+                            args=(i,),
+                        )
+                        st.number_input(
+                            "Width",
+                            min_value=1.0,
+                            max_value=float(img_w),
+                            value=st.session_state[key_w],
+                            key=key_w,
+                            step=1.0,
+                            on_change=zoom_edit_callback,
+                            args=(i,),
+                        )
+                        st.number_input(
+                            "Height",
+                            min_value=1.0,
+                            max_value=float(img_h),
+                            value=st.session_state[key_h],
+                            key=key_h,
+                            step=1.0,
+                            on_change=zoom_edit_callback,
+                            args=(i,),
+                        )
+
+                    st.divider()
+
 elif action_option == "🚚📁 Move Directory":
     # SETTINGS
     with st.expander("⚙️ Settings"):
@@ -4523,8 +4874,8 @@ elif action_option == "🚚📁 Move Directory":
                     script_path=st.session_state.paths["move_dir_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ "),
-                        "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ "),
+                        "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
                     },
                     script_type="python"
                 )
@@ -4606,8 +4957,8 @@ elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Object
                     script_path=st.session_state.paths["split_data_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\\ "),
-                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\\ "),
+                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
                     }
                 )
                 time.sleep(5)
@@ -4652,8 +5003,8 @@ elif action_option == "↩️✂️ Unsplit YOLO Dataset from Objects / No Objec
                     script_path=st.session_state.paths["unsplit_data_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path": st.session_state.paths["split_data_save_path"].replace(" ", "\\ "),
-                        "split_path": st.session_state.paths["split_data_path"].replace(" ", "\\ ")
+                        "data_path": st.session_state.paths["split_data_save_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "split_path": st.session_state.paths["split_data_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
                     }
                 )
                 time.sleep(5)
@@ -4702,7 +5053,7 @@ elif action_option == "🔗📂 Combine YOLO Datasets":
             with col_rem:
                 if st.button("❌", key=f"remove_combine_{idx}"):
                     st.session_state.combine_yolo_dirs.pop(idx)
-                    st.experimental_rerun()
+                    st.rerun()
 
         st.subheader("Save Path")
         st.write("Where to save the combined dataset.")
@@ -4892,9 +5243,9 @@ elif action_option == "🔧🤖 Finetune Model":
                     script_path=st.session_state.paths["train_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\\ "),
-                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\\ "),
-                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\\ ")
+                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
                     }
                 )
                 time.sleep(3)
