@@ -2352,7 +2352,7 @@ if "session_running" not in st.session_state:
         "combine_dataset_script_path" : "scripts/combine_yolo_dirs.py",
 
         "train_data_yaml_path": "cfgs/yolo/data/default.yaml",
-        "train_model_yaml_path": "cfgs/yolo/model/default.yaml",
+        "train_model_pt_path": "yolo12x.pt",
         "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
         "train_script_path" : "scripts/train_yolo.py",
 
@@ -2402,7 +2402,6 @@ if "session_running" not in st.session_state:
         "prev_unverified_names_yaml_path",
         "unverified_names_yaml_path",
         "train_data_yaml_path",
-        "train_model_yaml_path",
         "train_train_yaml_path",
         "unverified_subset_csv_path",
         "session_state_path"
@@ -2574,6 +2573,7 @@ if not st.session_state.edit_prefix and st.session_state.get("prefix_changed", F
         # only copy if the prefixed path doesn't already exist
         if not os.path.exists(new_path):
             # make sure parent dir exists
+            print(key, orig_path,new_path)
             os.makedirs(os.path.dirname(new_path), exist_ok=True, mode=0o777)
             if os.path.isdir(orig_path):
                 shutil.copytree(orig_path, new_path, dirs_exist_ok=True)
@@ -2991,9 +2991,9 @@ elif action_option == "🎞️🖼️ Convert Video to Frames":
                     script_path=st.session_state.paths["convert_video_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "video_path": video_path.replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
+                        "video_path": video_path.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "output_folder": st.session_state.paths["convert_video_save_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "copy_destination": st.session_state.paths["convert_video_copy_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)")
                     }
                 )
                 st.success("Conversion started in the background. Check tmux for progress.")
@@ -3232,9 +3232,9 @@ elif action_option == "🤖🏷️ Auto Label":
                     script_path=st.session_state.paths["auto_label_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "model_weights_path": st.session_state.paths["auto_label_model_weight_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                         "gpu_number": st.session_state.auto_label_gpu,
                         "threshold":          st.session_state["auto_label_threshold"]
                     }
@@ -3341,9 +3341,9 @@ elif action_option == "📹✏️ Generate Labeled Video":
                     script_path=st.session_state.paths["gen_vid_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "input_path":    st.session_state.paths["gen_vid_input_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                         "fps":           st.session_state.paths["gen_vid_fps"],
-                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
+                        "mode":          st.session_state.paths["gen_vid_mode"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)")
                     },
                     script_type="python"
                 )
@@ -4182,8 +4182,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                             script_path=st.session_state.paths["cluster_script_path"],
                             venv_path=st.session_state.paths["venv_path"],
                             args={
-                                "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                                "cluster_csv": cluster_csv_path.replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                                "images_dir": st.session_state.paths["unverified_images_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                                "cluster_csv": cluster_csv_path.replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                                 "threshold": st.session_state.cluster_threshold,
                                 "gpu": st.session_state.cluster_gpu_select
                             }
@@ -4874,8 +4874,8 @@ elif action_option == "🚚📁 Move Directory":
                     script_path=st.session_state.paths["move_dir_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                     },
                     script_type="python"
                 )
@@ -4957,8 +4957,8 @@ elif action_option == "🗂️✂️ Split YOLO Dataset into Objects / No Object
                     script_path=st.session_state.paths["split_data_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
+                        "data_path" : st.session_state.paths["split_data_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "save_path" : st.session_state.paths["split_data_save_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                     }
                 )
                 time.sleep(5)
@@ -5003,8 +5003,8 @@ elif action_option == "↩️✂️ Unsplit YOLO Dataset from Objects / No Objec
                     script_path=st.session_state.paths["unsplit_data_script_path"],
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path": st.session_state.paths["split_data_save_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "split_path": st.session_state.paths["split_data_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
+                        "data_path": st.session_state.paths["split_data_save_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "split_path": st.session_state.paths["split_data_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)")
                     }
                 )
                 time.sleep(5)
@@ -5211,9 +5211,14 @@ elif action_option == "🔧🤖 Finetune Model":
         yaml_editor("train_data_yaml_path")
     
     with st.expander("📄🤖 Model Settings"):
-        st.write("The path to the model YAML file. This file contains the model architecture and layers.")
-        path_navigator("train_model_yaml_path")
-        yaml_editor("train_model_yaml_path")
+
+        st.write(
+            "The path to the model `.pt` file, which contains the model architecture, layers, and weights. "
+            "If the filename follows the pattern `yolov<V><S>.pt` (for example, `yolov8n.pt`, where `V` is the version "
+            "number and `S` is the size identifier, such as `n` for nano), the model will be automatically downloaded "
+            "from Ultralytics."
+        )
+        path_navigator("train_model_pt_path", must_exist=False)
         
     with st.expander("📄🏋️‍♂️ Train Settings"):
         st.write("The path to the train YAML file. This file contains all model hyperparameters.")
@@ -5243,9 +5248,9 @@ elif action_option == "🔧🤖 Finetune Model":
                     script_path=st.session_state.paths["train_script_path"], 
                     venv_path=st.session_state.paths["venv_path"],
                     args={
-                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)"),
-                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\\ ").replace("(", "\(").replace(")", "\)")
+                        "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "model_path": st.session_state.paths["train_model_pt_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)")
                     }
                 )
                 time.sleep(3)

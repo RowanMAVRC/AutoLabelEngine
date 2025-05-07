@@ -128,20 +128,27 @@ def main(dataset_dir, output_dir):
             print(f"Saved: {output_path}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Grab 5 images with bounding boxes for each label from a YOLO dataset."
-    )
-    parser.add_argument(
-        "--dataset_dir",
-        type=str,
-        required=True,
-        help="Path to the YOLO dataset directory containing 'images' and 'labels' folders."
-    )
-    parser.add_argument(
-        "--output_dir",
-        type=str,
-        required=True,
-        help="Directory to save the output images with bounding boxes."
-    )
-    args = parser.parse_args()
-    main(args.dataset_dir, args.output_dir)
+    # parser = argparse.ArgumentParser(
+    #     description="Grab 5 images with bounding boxes for each label from a YOLO dataset."
+    # )
+    # parser.add_argument(
+    #     "--dataset_dir",
+    #     type=str,
+    #     required=True,
+    #     help="Path to the YOLO dataset directory containing 'images' and 'labels' folders."
+    # )
+    # parser.add_argument(
+    #     "--output_dir",
+    #     type=str,
+    #     required=True,
+    #     help="Directory to save the output images with bounding boxes."
+    # )
+    # args = parser.parse_args()
+
+    # dataset_dir = args.dataset_dir 
+    # output_dir = args.output_dir
+
+    dataset_dir = "/data/TGSSE/hololens_drone_only/"
+    output_dir = "temp2/"
+
+    main(dataset_dir, output_dir)
