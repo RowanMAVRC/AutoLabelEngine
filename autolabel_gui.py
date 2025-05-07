@@ -4616,7 +4616,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
             label_visibility="collapsed",
             on_change=_on_view_change
         )
-        
+
         if frame_by_frame_option == "🎥🖼️  Default View":
             st.write( "Review the labels in a frame by frame sequence.")
             if handle_image_list_update(prefix="frame_by_frame_"):
