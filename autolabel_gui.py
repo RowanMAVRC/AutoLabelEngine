@@ -2310,7 +2310,7 @@ if "session_running" not in st.session_state:
         "combine_dataset_script_path" : "scripts/combine_yolo_dirs.py",
 
         "train_data_yaml_path": "cfgs/yolo/data/default.yaml",
-        "train_model_yaml_path": "cfgs/yolo/model/default.yaml",
+        "train_model_pt_path": "cfgs/yolo/model/default.yaml",
         "train_train_yaml_path": "cfgs/yolo/train/default.yaml",
         "train_script_path" : "scripts/train_yolo.py",
 
@@ -2354,7 +2354,7 @@ if "session_running" not in st.session_state:
         "prev_unverified_names_yaml_path",
         "unverified_names_yaml_path",
         "train_data_yaml_path",
-        "train_model_yaml_path",
+        "train_model_pt_path",
         "train_train_yaml_path",
         "unverified_subset_csv_path",
         "session_state_path"
@@ -4860,9 +4860,14 @@ elif action_option == "🔧🤖 Finetune Model":
         yaml_editor("train_data_yaml_path")
     
     with st.expander("📄🤖 Model Settings"):
-        st.write("The path to the model YAML file. This file contains the model architecture and layers.")
-        path_navigator("train_model_yaml_path")
-        yaml_editor("train_model_yaml_path")
+
+        st.write(
+            "The path to the model `.pt` file, which contains the model architecture, layers, and weights. "
+            "If the filename follows the pattern `yolov<V><S>.pt` (for example, `yolov8n.pt`, where `V` is the version "
+            "number and `S` is the size identifier, such as `n` for nano), the model will be automatically downloaded "
+            "from Ultralytics."
+        )
+        path_navigator("train_model_pt_path", must_exist=False)
         
     with st.expander("📄🏋️‍♂️ Train Settings"):
         st.write("The path to the train YAML file. This file contains all model hyperparameters.")
@@ -4893,7 +4898,7 @@ elif action_option == "🔧🤖 Finetune Model":
                     venv_path=st.session_state.paths["venv_path"],
                     args={
                         "data_path": st.session_state.paths["train_data_yaml_path"].replace(" ", "\\ "),
-                        "model_path": st.session_state.paths["train_model_yaml_path"].replace(" ", "\\ "),
+                        "model_path": st.session_state.paths["train_model_pt_path"].replace(" ", "\\ "),
                         "train_path" : st.session_state.paths["train_train_yaml_path"].replace(" ", "\\ ")
                     }
                 )
