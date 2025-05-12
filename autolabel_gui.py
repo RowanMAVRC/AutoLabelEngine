@@ -345,6 +345,7 @@ def path_navigator(
         if st.button("..", key=f"go_up_button_{radio_button_prefix}_{key}"):
             parent = os.path.dirname(current_path) if os.path.isdir(current_path) else os.path.dirname(os.path.dirname(current_path))
             st.session_state.paths[key] = os.path.normpath(parent)
+            save_session_state(st.session_state.paths['session_state_path'])
             st.rerun()
 
     if not os.path.exists(directory_to_list):
@@ -388,6 +389,7 @@ def path_navigator(
         path = options_mapping.get(sel)
         if path is not None:
             st.session_state.paths[key] = path
+            save_session_state(st.session_state.paths['session_state_path'])
 
     with col2:
         st.selectbox(
@@ -398,6 +400,8 @@ def path_navigator(
             on_change=on_change,
             label_visibility="collapsed",
         )
+
+
 
     st.write(f"**Current {' '.join(w.capitalize() for w in key.split('_'))}:** {st.session_state.paths[key]}")
     return st.session_state.paths[key]
