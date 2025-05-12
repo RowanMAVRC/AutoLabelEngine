@@ -15,6 +15,7 @@ import subprocess
 import zipfile
 import hashlib
 import uuid
+import sys
 import io
 
 ## Third-Party Libraries 
@@ -59,56 +60,74 @@ SELECTED_KEYS = [
     "global_object_index",
     "video_image_scale",
     "cluster_enable_view",
-    "cluster_rows",   
+    "cluster_rows",
     "cluster_cols",
-    "grid_rows",   
+    "grid_rows",
     "grid_cols",
-    "auto_label_threshold"
-
+    "auto_label_threshold",
+    "grid_enable_view",
+    "user_prefix"
 ]
 
-def load_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
+PREFIX_KEYS = [
+    "prev_unverified_names_yaml_path",
+    "unverified_names_yaml_path",
+    "train_data_yaml_path",
+    "train_train_yaml_path",
+    "unverified_subset_csv_path",
+    "session_state_path"
+]
+
+def load_session_state(session_file=None):
     """
     Load selected session state keys from a YAML file.
-    If the file doesn't exist, create it with the current session state.
-    This version removes null characters that might corrupt the file.
+    If session_file is None, use the path in st.session_state.paths['session_state_path'].
     """
-    if os.path.exists(default_yaml_path):
+    # decide which file to read
+    if session_file is None:
+        session_file = st.session_state.paths.get("session_state_path")
+    yaml_path = session_file
+
+    if yaml_path and os.path.exists(yaml_path):
         try:
-            with open(default_yaml_path, "r") as f:
-                content = f.read()
-                # Remove null characters that can cause YAML parsing errors
-                content = content.replace("\x00", "")
-                saved_state = yaml.safe_load(content)
-            if saved_state:
-                for key in SELECTED_KEYS:
-                    if key in saved_state:
-                        st.session_state[key] = saved_state[key]
+            with open(yaml_path, "r") as f:
+                content = f.read().replace("\x00", "")
+                saved = yaml.safe_load(content) or {}
+            for k in SELECTED_KEYS:
+                if k in saved:
+                    st.session_state[k] = saved[k]
         except Exception as e:
             st.error(f"Error loading session state: {e}")
-            # Optionally delete the corrupt file to allow regeneration
-            os.remove(default_yaml_path)
+            try:
+                os.remove(yaml_path)
+            except OSError:
+                pass
     else:
-        save_session_state(default_yaml_path)
-        
-def save_session_state(default_yaml_path="cfgs/gui/session_state/default.yaml"):
+        # initialize a new file at that path
+        save_session_state(session_file)
+
+
+def save_session_state(session_file=None):
     """
     Save only the selected session state keys to a YAML file.
+    If session_file is None, write to st.session_state.paths['session_state_path'].
     """
-    # Ensure the directory exists; if not, create it
-    directory = os.path.dirname(default_yaml_path)
-    if directory and not os.path.exists(directory):
-        os.makedirs(directory, exist_ok=True, mode=0o777)
+    if session_file is None:
+        session_file = st.session_state.paths.get("session_state_path")
+    yaml_path = session_file
 
+    os.makedirs(os.path.dirname(yaml_path), exist_ok=True, mode=0o777)
     try:
-        # Extract the state for the selected keys that exist in session state
-        state_to_save = {key: st.session_state[key] for key in SELECTED_KEYS if key in st.session_state}
-        
-        # Dump the state to the YAML file
-        with open(default_yaml_path, "w") as f:
-            yaml.dump(state_to_save, f)
+        to_save = {
+            k: st.session_state[k]
+            for k in SELECTED_KEYS
+            if k in st.session_state
+        }
+        with open(yaml_path, "w") as f:
+            yaml.dump(to_save, f)
     except Exception as e:
         st.error(f"Error saving session state: {e}")
+
 
 ## Path & File Management
 
@@ -672,11 +691,12 @@ def display_terminal_output(output):
 def yaml_editor(yaml_key):
     """
     Display a YAML file in an ACE editor, preserving comments/formatting.
-    When “Apply changes” is clicked, only the values of keys you changed
-    are updated—any trailing comments stay intact, with a space before “#”.
+    When the editor content differs from the last applied version, shows
+    both Discard changes and Apply changes buttons; otherwise they are disabled.
+    Discard immediately reverts the editor pane to the on-disk contents.
     """
 
-    # 1. Retrieve file path
+    # --- Locate and read file ---
     if "paths" not in st.session_state or yaml_key not in st.session_state.paths:
         st.error(f"Path for key '{yaml_key}' not found in session state.")
         return
@@ -684,8 +704,6 @@ def yaml_editor(yaml_key):
     if not os.path.exists(file_path):
         st.error(f"File not found: {file_path}")
         return
-
-    # 2. Read the original YAML text (with comments)
     try:
         with open(file_path, "r") as f:
             orig_text = f.read()
@@ -693,63 +711,105 @@ def yaml_editor(yaml_key):
         st.error(f"Error reading file: {e}")
         return
 
-    # 3. Store last‐edited text in session_state
+    # --- Track last applied text ---
     if "last_yaml_edit" not in st.session_state:
         st.session_state["last_yaml_edit"] = {}
     if yaml_key not in st.session_state["last_yaml_edit"]:
         st.session_state["last_yaml_edit"][yaml_key] = orig_text
 
-    # 4. Show the ACE editor
-    lines = st.session_state["last_yaml_edit"][yaml_key].splitlines()
+    # --- Version counter so ACE reinitializes on change ---
+    if "ace_version" not in st.session_state:
+        st.session_state["ace_version"] = {}
+    if yaml_key not in st.session_state["ace_version"]:
+        st.session_state["ace_version"][yaml_key] = 0
+    version = st.session_state["ace_version"][yaml_key]
+    ace_key = f"ace_{yaml_key}_v{version}"
+
+    # --- Render the ACE editor ---
+    last_applied = st.session_state["last_yaml_edit"][yaml_key]
+    lines = last_applied.splitlines()
     height = max(100, len(lines) * 20 + 25)
     edited = st_ace(
-        value=st.session_state["last_yaml_edit"][yaml_key],
+        value=last_applied,
         language="yaml",
         theme="",
         height=height,
         font_size=17,
-        key=f"ace_{yaml_key}"
+        key=ace_key
     )
 
-    # 5. On “Apply changes”, diff and update only values, preserving comments
-    if st.button("Apply changes", key=f"apply_{yaml_key}"):
-        try:
-            orig_data = yaml.safe_load(orig_text) or {}
-            new_data  = yaml.safe_load(edited)   or {}
-        except yaml.YAMLError as e:
-            st.error(f"YAML syntax error: {e}")
-        else:
+    # --- Dirty check ---
+    dirty = (edited != last_applied)
+
+    # --- Buttons side by side ---
+    col_discard, _, col_apply = st.columns([.3, .4, .3], gap="small")
+
+    with col_discard:
+        if st.button("Discard Changes", key=f"discard_{yaml_key}", disabled=not dirty):
+            # 1) reload from disk
+            try:
+                with open(file_path, "r") as f:
+                    disk_text = f.read()
+                st.session_state["last_yaml_edit"][yaml_key] = disk_text
+                # 2) bump version so ACE uses new key next run
+                st.session_state["ace_version"][yaml_key] += 1
+            except Exception as e:
+                st.error(f"Error reloading file: {e}")
+            st.rerun()
+
+    with col_apply:
+        if st.button("Apply Changes", key=f"apply_{yaml_key}", disabled=not dirty):
+            try:
+                orig_data = yaml.safe_load(orig_text) or {}
+                new_data  = yaml.safe_load(edited)   or {}
+            except yaml.YAMLError as e:
+                st.error(f"YAML syntax error: {e}")
+                return
+
             updated_text = orig_text
             for key, new_val in new_data.items():
                 old_val = orig_data.get(key)
                 if old_val != new_val:
-                    # convert new_val to literal string
-                    if new_val is None:
-                        val_str = "null"
-                    elif isinstance(new_val, bool):
-                        val_str = "true" if new_val else "false"
+                    if isinstance(new_val, dict):
+                        mapping_lines = [f"{key}:"]
+                        for subk, subv in new_val.items():
+                            # avoid nested escapes by using concatenation
+                            if isinstance(subv, str):
+                                v = "'" + subv.replace("'", "''") + "'"
+                            else:
+                                v = str(subv)
+                            mapping_lines.append(f"  {subk}: {v}")
+                        block_mapping = "\n".join(mapping_lines)
+                        pattern = rf"(?m)^{re.escape(key)}\s*:\s*(?:\n[ \t]+.*?)*(?=\n\S|$)"
+                        updated_text = re.sub(pattern, block_mapping, updated_text, flags=re.DOTALL)
                     else:
-                        val_str = str(new_val)
-                    # regex: group1 = “key: ”, group2 = old value, group3 = optional “#comment”
-                    pattern = rf"^(\s*{re.escape(key)}\s*:\s*)([^#\r\n]*)(#.*)?$"
-                    # here's the change: insert a space before the comment
-                    updated_text = re.sub(
-                        pattern,
-                        lambda m, v=val_str: m.group(1) + v + (" " + m.group(3) if m.group(3) else ""),
-                        updated_text,
-                        flags=re.MULTILINE,
-                    )
+                        if new_val is None:
+                            val_str = "null"
+                        elif isinstance(new_val, bool):
+                            val_str = "true" if new_val else "false"
+                        else:
+                            val_str = str(new_val)
+                        scalar_pat = rf"^(\s*{re.escape(key)}\s*:\s*)([^#\r\n]*)(#.*)?$"
+                        updated_text = re.sub(
+                            scalar_pat,
+                            lambda m, v=val_str: m.group(1) + v + (" " + m.group(3) if m.group(3) else ""),
+                            updated_text,
+                            flags=re.MULTILINE,
+                        )
+
             try:
                 with open(file_path, "w") as f:
                     f.write(updated_text)
                 st.session_state["last_yaml_edit"][yaml_key] = updated_text
-                # update_unverified_data_path()  # if your app needs it
-                st.success("Values updated, comments preserved.")
+                st.session_state["ace_version"][yaml_key] += 1
+                update_unverified_data_path()
+                st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
                 st.rerun()
             except Exception as e:
                 st.error(f"Error saving file: {e}")
+                return
 
-    # 6. Copy YAML to a new file, preserving formatting/comments
+    # --- Copy YAML to new file (unchanged) ---
     base, ext = os.path.splitext(file_path)
     default_copy = base + "_copy" + ext
     new_path = st.text_input("Enter new file path", key=f"copy_path_{yaml_key}", value=default_copy)
@@ -758,7 +818,7 @@ def yaml_editor(yaml_key):
             st.error("Please enter a valid file path.")
         else:
             try:
-                yaml.safe_load(edited)  # syntax check
+                yaml.safe_load(edited)
                 with open(new_path, "w") as nf:
                     nf.write(edited)
                 st.session_state.paths[yaml_key] = new_path
@@ -768,7 +828,6 @@ def yaml_editor(yaml_key):
                 st.error(f"Invalid YAML, cannot copy: {e}")
             except Exception as e:
                 st.error(f"Error copying file: {e}")
-
 
 def python_code_editor(code_key):
     """
@@ -1161,7 +1220,7 @@ def update_unverified_frame():
         "item_editor_position": "right",
         "edit_description": False,
         "edit_meta": False,
-        "item_selector": True,
+        "item_selector": False,
         "item_selector_position": "right",
         "bbox_format": "XYWH",
         "bbox_show_info": True,
@@ -1204,8 +1263,11 @@ def update_labels_from_detection():
                     height_norm = height / image_height
                     f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
             
-            # Re-run to refresh the newly saved label data
+            # kill the old grid.csv so it will build fresh
+            _reset_grid()
+            # re-run to pick up new labels and regenerate grid
             st.rerun()
+
         else:
             if st.session_state["skip_label_update"]:
                 st.session_state["skip_label_update"] = False
@@ -1780,6 +1842,29 @@ def object_by_object_edit_callback():
 def _on_view_change():
     st.session_state["skip_label_update"] = True
 
+def _reset_grid():
+    """Delete old grid.csv and flag Streamlit to regen the grid on next render."""
+    grid_csv = os.path.join(
+        os.path.dirname(st.session_state.paths["unverified_images_path"]),
+        "grid.csv"
+    )
+    try:
+        os.remove(grid_csv)
+    except FileNotFoundError:
+        pass
+
+    try:
+        extract_features.clear()
+    except Exception:
+        pass
+
+    try:
+        _get_thumbnail_b64.clear()
+    except Exception:
+        pass
+    
+    st.session_state["reset_grid"] = True
+
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
     st.session_state.cluster_page = pages if st.session_state.cluster_page - 1 < 1 else st.session_state.cluster_page - 1
@@ -1865,20 +1950,23 @@ def prefix_key(key: str) -> str:
     p = st.session_state["user_prefix"].strip()
     return f"{p}_{key}" if p else key
 
-def prefix_path(path: str) -> str:
-    """Prepend the user prefix to filenames for shared resources."""
-    d, fn = os.path.split(path)
-    p = st.session_state["user_prefix"].strip()
-    return os.path.join(d, f"{p}_{fn}") if p else path
+def sanitize_username(name: str) -> str:
+    """Turn any display name into a safe filesystem prefix."""
+    return re.sub(r'[^0-9A-Za-z_-]', '_', name.strip()).lower()
+
+def prefix_path(path: str, prefix: str) -> str:
+    """Given an original path, insert the prefix into the filename or folder."""
+    p = Path(path)
+    parent, stem, ext = p.parent, p.stem, p.suffix
+    return str(parent / f"{prefix}_{stem}{ext}")
 
 def commit_prefix():
-    raw = st.session_state.user_prefix_input.strip()
-    snake = re.sub(r'[^A-Za-z0-9]+', '_', raw).strip('_').lower()
-    st.session_state.user_prefix = snake
+    raw = st.session_state.user_prefix_input or ""
+    prefix = sanitize_username(raw)
+    st.session_state.user_prefix = prefix
     st.session_state.edit_prefix = False
-
-    # signal that we need to apply the prefix now
     st.session_state.prefix_changed = True
+
 
 def start_edit():
     # restore display name into input for re-editing
@@ -2316,8 +2404,8 @@ if "session_running" not in st.session_state:
         "venv_path" : "../envs/auto-label-engine/",
         "generate_venv_script_path": "scripts/setup_venv.sh",
 
-        "prev_unverified_images_path" : "example_data/images",
-        "unverified_images_path" : "example_data/images",
+        "prev_unverified_images_path" : "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
+        "unverified_images_path" : "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
         "prev_unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
         "unverified_names_yaml_path" : "cfgs/gui/manual_labels/default.yaml",
 
@@ -2331,24 +2419,24 @@ if "session_running" not in st.session_state:
         "convert_video_script_path" : "scripts/convert_mp4_2_png.py",
         "convert_video_copy_path" : ".",
 
-        "rotate_images_path":  "example_data",
+        "rotate_images_path":  "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
         "rotate_images_script_path" : "scripts/rotate_images.py",
 
-        "split_data_path" : "example_data",
+        "split_data_path" : "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
         "split_data_save_path" : "",
         "split_data_script_path" : "scripts/split_yolo_data_by_object.py",
 
         "unsplit_data_script_path": "scripts/unsplit_yolo_data.py",
         "unsplit_data_save_path": ".",
 
-        "auto_label_save_path" : "example_data/labels/",
+        "auto_label_save_path" : "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
         "auto_label_model_weight_path" : "weights/coco_2_ijcnn_vr_full_2_real_world_combination_2_hololens_finetune-v3.pt",
-        "auto_label_data_path" :  "example_data/images/",
+        "auto_label_data_path" :  "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
         "auto_label_script_path" : "scripts/inference.py",
      
-        "combine_dataset_1_path": "example_data/",
-        "combine_dataset_2_path": "example_data/",
-        "combine_dataset_save_path": "example_data_combined/",
+        "combine_dataset_1_path": "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
+        "combine_dataset_2_path": "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
+        "combine_dataset_save_path": "/data/TGSSE/AutoLabelEngine/yolo_format_data/to_be_reviewed/",
         "combine_dataset_script_path" : "scripts/combine_yolo_dirs.py",
 
         "train_data_yaml_path": "cfgs/yolo/data/default.yaml",
@@ -2397,35 +2485,79 @@ if "session_running" not in st.session_state:
     st.session_state.user_prefix = ""
     st.session_state.edit_prefix = True
     st.session_state.user_prefix_input = ""
+    st.session_state.prefix_changed = False
 
-    PREFIX_KEYS = [
-        "prev_unverified_names_yaml_path",
-        "unverified_names_yaml_path",
-        "train_data_yaml_path",
-        "train_train_yaml_path",
-        "unverified_subset_csv_path",
-        "session_state_path"
-    ]
-
-    if "default_prefix_paths" not in st.session_state:
-        st.session_state.default_prefix_paths = {
-            k: st.session_state.paths[k] for k in PREFIX_KEYS
-        }
-
-    # Load previous state (overwrite defaults)
-    load_session_state(st.session_state.paths['session_state_path'])
     
+    st.session_state.default_prefix_paths = {
+        k: st.session_state.paths[k] for k in PREFIX_KEYS
+    }
+
     st.session_state.cluster_enable_view = "Disabled"
+    st.session_state.grid_enable_view = "Disabled"
     
     update_unverified_data_path()
 
     gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
     st.session_state.gpu_list = [line.strip() for line in gpu_info.splitlines() if line.strip()]
 
-save_session_state(st.session_state.paths['session_state_path'])
+if st.session_state.get("user_prefix"):
+    # original default path from when the app first started up
+    for path in st.session_state.default_prefix_paths:
+        default_path = st.session_state.default_prefix_paths[path]
+        pref = st.session_state.user_prefix
+        prefixed = prefix_path(default_path, pref)
+        st.session_state.paths[path] = prefixed
+
+# Load previous state (overwrite defaults)
+load_session_state(st.session_state.paths['session_state_path'])
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
+
+# Title
+st.markdown(
+    """
+    <style>
+    /* main content container that follows the (collapsed) sidebar */
+    section[data-testid="stSidebar"][aria-expanded="false"]
+      ~ section[data-testid="stMain"] > div:first-child {
+        padding-left: 12rem;   /* ⇐ adjust size here */
+        padding-right: 12rem;  /* ⇐ adjust size here */
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+st.markdown(
+    """
+    <style>
+    header.stAppHeader {
+        background: rgba(0, 0, 0, 0);
+    }
+
+    div.stMainBlockContainer {
+        padding-top: 0.2rem;
+    }
+
+    /* Center and style the title in your container */
+    div.st-key-app_title div.stHeading {
+        text-align: center;
+    }
+
+    /* Ensure the <h1> itself uses Calibri */
+    div.st-key-app_title div.stHeading h1 {
+        font-family: 'Calibri', sans-serif;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+with st.container(key="app_title"):
+    st.title("Auto-Label → Review → Learn → Repeat")
+    st.divider()
 
 # Check for Virtual Environment
 if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/activate")):
@@ -2482,51 +2614,6 @@ if not os.path.exists(os.path.join(st.session_state.paths["venv_path"], "bin/act
     
     st.warning("Virtual environment has not be generated on this device. Please choose one of the following options.")
 
-# Title
-st.markdown(
-    """
-    <style>
-    /* main content container that follows the (collapsed) sidebar */
-    section[data-testid="stSidebar"][aria-expanded="false"]
-      ~ section[data-testid="stMain"] > div:first-child {
-        padding-left: 12rem;   /* ⇐ adjust size here */
-        padding-right: 12rem;  /* ⇐ adjust size here */
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <style>
-    header.stAppHeader {
-        background: rgba(0, 0, 0, 0);
-    }
-
-    div.stMainBlockContainer {
-        padding-top: 0.2rem;
-    }
-
-    /* Center and style the title in your container */
-    div.st-key-app_title div.stHeading {
-        text-align: center;
-    }
-
-    /* Ensure the <h1> itself uses Calibri */
-    div.st-key-app_title div.stHeading h1 {
-        font-family: 'Calibri', sans-serif;
-    }
-
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-with st.container(key="app_title"):
-    st.title("Auto-Label → Review → Learn → Repeat")
-    st.divider()
-
 # Sidebar Background Color
 st.markdown(
     """
@@ -2567,25 +2654,29 @@ else:
     
     navigation_menu_margin = 375
 
-if not st.session_state.edit_prefix and st.session_state.get("prefix_changed", False):
-    for key, orig_path in st.session_state.default_prefix_paths.items():
-        new_path = prefix_path(orig_path)
-        # only copy if the prefixed path doesn't already exist
-        if not os.path.exists(new_path):
-            # make sure parent dir exists
-            print(key, orig_path,new_path)
-            os.makedirs(os.path.dirname(new_path), exist_ok=True, mode=0o777)
-            if os.path.isdir(orig_path):
-                shutil.copytree(orig_path, new_path, dirs_exist_ok=True)
+if st.session_state.prefix_changed:
+    p = st.session_state.user_prefix
+    for key in PREFIX_KEYS:
+        orig = st.session_state.default_prefix_paths[key]
+        newp = prefix_path(orig, p)
+        # if it doesn’t already exist, copy it
+        if not os.path.exists(newp):
+            os.makedirs(os.path.dirname(newp), exist_ok=True, mode=0o777)
+            if os.path.isdir(orig):
+                shutil.copytree(orig, newp, dirs_exist_ok=True)
             else:
-                shutil.copy2(orig_path, new_path)
-        # always update the session so downstream widgets use the new path
-        st.session_state.paths[key] = new_path
+                shutil.copy2(orig, newp)
+        # point session_state at the prefixed path
+        st.session_state.paths[key] = newp
 
-    # clear the flag and refresh
+    # now load (or create) that per-user session file
+    ss_file = st.session_state.paths["session_state_path"]
+    if os.path.exists(ss_file):
+        load_session_state(ss_file)
+    else:
+        save_session_state(ss_file)
+
     st.session_state.prefix_changed = False
-    load_session_state(st.session_state.paths['session_state_path'])
-    update_unverified_data_path()
     st.rerun()
 
 # Action Selection
@@ -3510,7 +3601,8 @@ elif action_option == "📹🏷️ Labeled Video Review":
                             img = st.session_state.image_list[idx]
                         lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
                         open(lbl, "w").close()
-                    st.success("Cleared all label files for frames in subset.")
+                    _reset_grid()
+                    st.rerun()
 
                 st.markdown("---")
                 # --- Save subset to directory ---
@@ -3816,16 +3908,22 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     with open(label_path, "r") as f:
                                         lines = f.readlines()
                                     local_idx = current_obj["local_index"]
-                                    if local_idx < len(lines):
+                                    if 0 <= local_idx < len(lines):
                                         del lines[local_idx]
                                         with open(label_path, "w") as f:
                                             f.writelines(lines)
-                                        st.success("Object deleted.")
                                     else:
                                         st.error("Local object index out of range in label file.")
+                                        st.stop()
+
+                                    st.success("Object deleted.")
                                 except Exception as e:
                                     st.error(f"Error deleting object: {e}")
-                                st.rerun()
+                                finally:
+                                    _reset_grid()
+
+                                    # Rerun so the Grid View is regenerated immediately
+                                    st.rerun()
 
                         # Reference selector (no default)
                     reference_indices = st.multiselect(
@@ -3838,14 +3936,17 @@ elif action_option == "🔍🧩 Object by Object Review":
     
         with st.expander("▦ Grid View"):
             # Toggle full rendering via radio (default Disabled)
+
             grid_enable_view = st.radio(
                 "Grid View:",
                 ("Disabled", "Enabled"),
-                key="grid_enable_view",
+                index = 0 if st.session_state.grid_enable_view=="Disabled" else 1,
+                key="grid_enable_view_radio",
+                on_change=_reset_grid,
                 label_visibility="visible"
             )
-
-            if grid_enable_view == "Enabled":
+            st.session_state.grid_enable_view = grid_enable_view
+            if st.session_state.grid_enable_view == "Enabled":
                 # compute path for persisting selections
                 images_dir = st.session_state.paths["unverified_images_path"]
                 grid_csv = os.path.join(os.path.dirname(images_dir), "grid.csv")
@@ -4415,6 +4516,9 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
         st.write("The path to the YAML file containing the label names. To edit in the window, add the changes and click the apply button")
         path_navigator("unverified_names_yaml_path", radio_button_prefix="frame_")
         
+        st.write("### Label Names YAML")
+        yaml_editor("unverified_names_yaml_path")
+
         st.write("### Image Scale")
         st.write("Scale the image to fit the screen. This is useful for large images.")
         st.number_input(
@@ -4435,7 +4539,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                 
             st.rerun()
         
-        yaml_editor("unverified_names_yaml_path")
+        
 
     with st.expander("🔽 Subset Selection"):
         st.write("Select only a small subset of images to review or manually label.")
@@ -5275,3 +5379,4 @@ terminal_output = st.empty()
 if output is not None:
     display_terminal_output(output)
 
+save_session_state(st.session_state.paths['session_state_path'])

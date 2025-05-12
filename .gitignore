@@ -85,3 +85,4 @@ combine_all_files.py
 example_batch/
 results/
 wandb/
+ngrok.log

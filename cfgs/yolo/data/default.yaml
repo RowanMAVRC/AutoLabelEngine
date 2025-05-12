@@ -5,4 +5,4 @@ test: 'test/images'
  
 # class names
 names: 
-  0: "Rotary Drone"
+  0: 'Rotary Drone'
