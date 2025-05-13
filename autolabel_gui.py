@@ -66,7 +66,7 @@ SELECTED_KEYS = [
     "grid_cols",
     "auto_label_threshold",
     "grid_enable_view",
-    "user_prefix"
+    "user_prefix",
 ]
 
 PREFIX_KEYS = [
@@ -246,6 +246,7 @@ def upload_to_dir(save_dir):
         if uploader_key in st.session_state:
             del st.session_state[uploader_key]  # Properly reset uploader key
     
+        save_session_state(st.session_state.paths["session_state_path"])
         st.rerun()  # Refresh the UI
 
 def path_navigator(
@@ -295,6 +296,8 @@ def path_navigator(
             # If must_exist is False, accept immediately
             if not must_exist or os.path.exists(custom_path):
                 st.session_state.paths[key] = custom_path
+                
+                save_session_state(st.session_state.paths['session_state_path'])
                 return custom_path
 
             # Otherwise, fall back to original create / go‑up logic
@@ -317,6 +320,8 @@ def path_navigator(
                             else:
                                 os.makedirs(new_name, exist_ok=True, mode=0o777)
                             st.session_state.paths[key] = new_name
+                            
+                            save_session_state(st.session_state.paths['session_state_path'])
                             st.rerun()
                         except Exception as e:
                             st.error(f"Failed to create: {e}")
@@ -327,10 +332,12 @@ def path_navigator(
                         temp = os.path.dirname(temp)
                     if os.path.exists(temp):
                         st.session_state.paths[key] = temp
+                        
+                        save_session_state(st.session_state.paths['session_state_path'])
                         st.rerun()
                     else:
                         st.error("No valid parent directory found.")
-            return current_path  # keep the old path until created
+            return current_path  
 
         return current_path
 
@@ -759,6 +766,7 @@ def yaml_editor(yaml_key):
                 st.session_state["ace_version"][yaml_key] += 1
             except Exception as e:
                 st.error(f"Error reloading file: {e}")
+            save_session_state(st.session_state.paths["session_state_path"])
             st.rerun()
 
     with col_apply:
@@ -808,6 +816,7 @@ def yaml_editor(yaml_key):
                 st.session_state["ace_version"][yaml_key] += 1
                 update_unverified_data_path()
                 st.session_state.detector_key = f"detector_{uuid.uuid4().hex}"
+                save_session_state(st.session_state.paths["session_state_path"])
                 st.rerun()
             except Exception as e:
                 st.error(f"Error saving file: {e}")
@@ -827,6 +836,7 @@ def yaml_editor(yaml_key):
                     nf.write(edited)
                 st.session_state.paths[yaml_key] = new_path
                 st.success(f"Copied to {new_path}.")
+                save_session_state(st.session_state.paths["session_state_path"])
                 st.rerun()
             except yaml.YAMLError as e:
                 st.error(f"Invalid YAML, cannot copy: {e}")
@@ -904,6 +914,7 @@ def python_code_editor(code_key):
                     file.write(edited_content)
                 # Update the stored content for this Python file
                 st.session_state.python_codes[code_key] = edited_content
+                save_session_state(st.session_state.paths["session_state_path"])
                 st.rerun()  # Re-run to update the displayed current content
             except Exception as e:
                 st.error(f"Error saving file: {e}")
@@ -926,6 +937,7 @@ def python_code_editor(code_key):
                 try:
                     with open(new_save_path, 'w') as new_file:
                         new_file.write(edited_content)
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
                 except Exception as e:
                     st.error(f"Error copying file: {e}")
@@ -1126,6 +1138,7 @@ def update_unverified_frame():
         image_width, image_height = image.size
     else:
         update_unverified_data_path()
+        save_session_state(st.session_state.paths["session_state_path"])
         st.rerun()
 
     # Get Labels
@@ -1270,6 +1283,7 @@ def update_labels_from_detection():
             # kill the old grid.csv so it will build fresh
             _reset_grid()
             # re-run to pick up new labels and regenerate grid
+            save_session_state(st.session_state.paths["session_state_path"])
             st.rerun()
 
         else:
@@ -1457,6 +1471,7 @@ def handle_image_list_update(prefix=""):
                 st.session_state.naming_pattern_warning = None
                 # Set the flag so that next runs do not redo this process.
                 st.session_state.image_list_stored = True
+                save_session_state(st.session_state.paths["session_state_path"])
                 st.rerun()
             else:
                 st.warning(st.session_state.naming_pattern_warning)
@@ -1481,6 +1496,7 @@ def handle_image_list_update(prefix=""):
                             st.success("Session state updated after renaming.")
                             # Reset the flag since the list (pattern-based) is now in use.
                             st.session_state.image_list_stored = True
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                 else:
                     if st.button("Store Image List", key=prefix+"store_image_list"):
@@ -1497,6 +1513,7 @@ def handle_image_list_update(prefix=""):
                         st.session_state.automatic_generate_list = True
                         st.success("Image list stored. Note: This may slow down performance for large datasets. 3 ")
                         st.session_state.image_list_stored = True
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
                 return False
         return True
@@ -1971,12 +1988,14 @@ def commit_prefix():
     st.session_state.edit_prefix = False
     st.session_state.prefix_changed = True
 
-
 def start_edit():
     # restore display name into input for re-editing
     display = " ".join(w.capitalize() for w in st.session_state.user_prefix.split('_'))
     st.session_state.user_prefix_input = display
     st.session_state.edit_prefix = True
+
+def on_grid_change():
+    save_session_state(st.session_state.paths["session_state_path"])
 
 ## Image / Video Processing & Creation
 
@@ -2781,7 +2800,7 @@ if action_option == "🎓📘 Tutorials":
     with st.expander("📹 Tutorial Videos"):
 
         # Ensure there's a default path in session_state.paths
-        st.session_state.paths.setdefault("tutorial_videos_dir", "tutorial_videos")
+        st.session_state.paths.setdefault("tutorial_videos_dir", "/data/TGSSE/AutoLabelEngine/tutorial_videos")
 
         st.subheader("Local folder for tutorials")
 
@@ -2803,6 +2822,7 @@ if action_option == "🎓📘 Tutorials":
                         "https://drive.google.com/drive/folders/1A8uRf22H1_FMNLghjFDcl7AmbFb_xnZz?usp=sharing",
                         "-O", videos_dir
                     ], check=True)
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
                 except Exception as e:
                     st.error(f"Failed to download: {e}")
@@ -3149,6 +3169,7 @@ elif action_option == "🔄🖼️ Rotate Image Dataset":
 
                         with c2:
                             if st.button("Randomize Image Path", key=f"randomize_{dataset}"):
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
 
                             rotation_option = st.radio(
@@ -3468,6 +3489,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
             if st.session_state.max_images > 0:
                 update_unverified_frame()
                 
+            save_session_state(st.session_state.paths["session_state_path"])     
             st.rerun()
         
     with st.expander("🔽 Subset Selection"):
@@ -3544,6 +3566,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
                     st.session_state.subset_frames = []
                     save_subset_csv(csv_file, st.session_state.subset_frames)
                     st.success("Cleared all frames from subset selection.")
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
                 if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
@@ -3590,6 +3613,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
                     # persist to CSV
                     save_subset_csv(csv_file, st.session_state.subset_frames)
                     st.success(f"Inverted subset: {len(new_subset)} frames selected.")
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
                 if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
@@ -3606,6 +3630,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
                         lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
                         open(lbl, "w").close()
                     _reset_grid()
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
                 st.markdown("---")
@@ -3761,6 +3786,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                 if st.session_state.max_images > 0:
                     update_unverified_frame()
                     
+                save_session_state(st.session_state.paths['session_state_path'])
                 st.rerun()
             
         with st.expander("🔍🧩 Object by Object Label Review"):
@@ -3777,6 +3803,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     if current_obj is None:
                         st.info("No objects found in the dataset.")
                     else:
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
                 else:
                     img = current_obj["img"]
@@ -3866,6 +3893,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             )
                             if new_global_index != st.session_state.global_object_index:
                                 st.session_state.global_object_index = int(new_global_index)
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
 
                         with col_input2:
@@ -3885,7 +3913,8 @@ elif action_option == "🔍🧩 Object by Object Review":
 
                             if st.session_state.object_by_object_jump_warning is None:     
                                 if st.session_state.object_by_object_jump_valid:
-                                    st.session_state.object_by_object_jump_valid = False                         
+                                    st.session_state.object_by_object_jump_valid = False             
+                                    save_session_state(st.session_state.paths["session_state_path"])            
                                     st.rerun()
                             else: 
                                 st.warning(st.session_state.object_by_object_jump_warning)
@@ -3898,6 +3927,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     st.session_state.global_object_index = current_obj["num_labels"] - 1
                                 else:
                                     st.session_state.global_object_index -= 1
+                                
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with col_nav2:
                             if st.button("Next Object", key="next_global_obj", disabled=object_running):
@@ -3905,6 +3936,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     st.session_state.global_object_index = 0
                                 else:
                                     st.session_state.global_object_index += 1
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with col_nav3:
                             if st.button("Delete Object", key="delete_global_obj", disabled=object_running):
@@ -3927,6 +3959,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     _reset_grid()
 
                                     # Rerun so the Grid View is regenerated immediately
+                                    save_session_state(st.session_state.paths["session_state_path"])
                                     st.rerun()
 
                         # Reference selector (no default)
@@ -4000,18 +4033,17 @@ elif action_option == "🔍🧩 Object by Object Review":
                     with c1:
                         if st.session_state["grid_rows"] > total_objs:
                             st.session_state["grid_rows"] = total_objs
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun() 
 
                         # Use a static key so the value sticks
                         rows = st.number_input(
                             "Rows per page", 
                             min_value=1, 
-                            value=st.session_state["grid_rows"], 
-                            key="grid_rows"
+                            max_value=total_objs,
+                            key="grid_rows",
+                            on_change=on_grid_change
                         )
-                        if rows != st.session_state["grid_rows"]:
-                            st.session_state["grid_rows"] = rows
-                            st.rerun()
                     
                     with c2:
                         allowed_max_cols = max(1, total_objs // rows)   # at least one col
@@ -4021,18 +4053,16 @@ elif action_option == "🔍🧩 Object by Object Review":
                         #    delete it and rerun so the cols widget gets re-created
                         if "grid_cols" in st.session_state and st.session_state.grid_cols > allowed_max_cols:
                             del st.session_state.grid_cols
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                             
                         cols = st.number_input(
                             "Cols per page", 
                             min_value=1, 
-                            value=st.session_state["grid_cols"], 
-                            key="grid_cols"
+                            key="grid_cols",
+                            on_change=on_grid_change
                         )
 
-                        if cols != st.session_state["grid_cols"]:
-                            st.session_state["grid_cols"] = cols
-                            st.rerun()
 
                     per_page = rows * cols
                     pages = max(1, math.ceil(len(df)/per_page))
@@ -4058,23 +4088,23 @@ elif action_option == "🔍🧩 Object by Object Review":
                         with n1:
                             if st.button("Prev Page", key="grid_prev"):
                                 st.session_state["grid_page"] = page - 1 if page > 1 else pages
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with n2:
                             new_page = st.slider(" ", 1, pages, page, key="grid_slider", label_visibility="collapsed")
                             if new_page != st.session_state["grid_page"]:
                                 st.session_state["grid_page"] = new_page
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with n3:
                             if st.button("Next Page", key="grid_next"):
                                 st.session_state["grid_page"] = page + 1 if page < pages else 1
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
 
                     # Centered page indicator
                     p1, p2, p3 = st.columns([1, 8, 1])
                     p2.markdown(f"<p style='text-align:center'>Page {page} of {pages}</p>", unsafe_allow_html=True)
-                    
-                    if st.button("Refresh Grid", key="refresh grid"):
-                        st.rerun()
 
                     st.divider()
                     start = (page-1)*per_page
@@ -4124,15 +4154,18 @@ elif action_option == "🔍🧩 Object by Object Review":
                         with n1:
                             if st.button("Prev Page", key="bottom_grid_prev"):
                                 st.session_state["grid_page"] = page - 1 if page > 1 else pages
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with n2:
                             new_page = st.slider(" ", 1, pages, page, key="bottom_grid_slider", label_visibility="collapsed")
                             if new_page != st.session_state["grid_page"]:
                                 st.session_state["grid_page"] = new_page
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with n3:
                             if st.button("Next Page", key="bottom_grid_next"):
                                 st.session_state["grid_page"] = page + 1 if page < pages else 1
+                                save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
 
                     st.divider()
@@ -4148,6 +4181,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             
                             # Force complete rerendering of the UI
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                             
                     with b2:
@@ -4161,6 +4195,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             
                             # Force complete rerendering of the UI
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                             
                     with b3:
@@ -4173,6 +4208,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             
                             # Force complete rerendering of the UI
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                             
                     with b4:
@@ -4239,7 +4275,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 """,
                                 unsafe_allow_html=True
                             )
-                            
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                         
     with tabs[1]:
@@ -4362,6 +4398,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     )
                     if rows != st.session_state["cluster_rows"]:
                         st.session_state["cluster_rows"] = rows
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
 
                 with c2:
@@ -4372,6 +4409,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     #    delete it and rerun so the cols widget gets re-created
                     if "cluster_cols" in st.session_state and st.session_state.cluster_cols > allowed_max_cols:
                         del st.session_state.cluster_cols
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
 
                     # Now build the COLS widget with the proper max_value
@@ -4385,6 +4423,7 @@ elif action_option == "🔍🧩 Object by Object Review":
 
                     if cols != st.session_state["cluster_cols"]:
                         st.session_state["cluster_cols"] = cols
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
 
 
@@ -4402,15 +4441,18 @@ elif action_option == "🔍🧩 Object by Object Review":
                     with n1:
                         if st.button("Prev Page", key="cluster_prev"):
                             st.session_state["cluster_page"] = page - 1 if page > 1 else pages
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                     with n2:
                         new_page = st.slider(" ", 1, pages, page, key="cluster_slider", label_visibility="collapsed")
                         if new_page != st.session_state["cluster_page"]:
                             st.session_state["cluster_page"] = new_page
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                     with n3:
                         if st.button("Next Page", key="cluster_next"):
                             st.session_state["cluster_page"] = page + 1 if page < pages else 1
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
 
                 # Centered page indicator
@@ -4456,6 +4498,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                         for k in list(st.session_state):
                             if k.startswith("cluster_item_"):
                                 del st.session_state[k]
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
                 with b2:
                     if st.button("Deselect All Page", key="cluster_deselect_all_page"):
@@ -4464,6 +4507,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                         for k in list(st.session_state):
                             if k.startswith("cluster_item_"):
                                 del st.session_state[k]
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
                 with b3:
                     if st.button("Remove Selected", key="cluster_remove_selected"):
@@ -4472,6 +4516,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                         for k in list(st.session_state):
                             if k.startswith("cluster_item_"):
                                 del st.session_state[k]
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
                 with b4:
                     if st.button("Delete Unchecked", key="cluster_delete_unchecked"):
@@ -4506,6 +4551,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 del st.session_state[k]
 
                         # Refresh the UI
+                        save_session_state(st.session_state.paths["session_state_path"])
                         st.rerun()
             
 elif action_option == "🎥🖼️ Frame by Frame Review":
@@ -4541,6 +4587,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
             if st.session_state.max_images > 0:
                 update_unverified_frame()
                 
+            save_session_state(st.session_state.paths["session_state_path"])    
             st.rerun()
         
         
@@ -4553,7 +4600,19 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
             
             path_option = st.radio("Please Choose:", ["Default", "Custom"], key="frame_default_subset", label_visibility="collapsed")
             if path_option == "Default":
-                st.session_state.paths["unverified_subset_csv_path"] = os.path.join(st.session_state.paths["unverified_images_path"], "subset.csv")
+                st.session_state.paths["unverified_subset_csv_path"] = os.path.join(os.path.dirname(st.session_state.paths["unverified_images_path"]), "subset.csv")
+                if not os.path.exists(st.session_state.paths["unverified_subset_csv_path"]):
+                    st.info(
+                        f"'subset.csv' not found at:\n`{st.session_state.paths["unverified_subset_csv_path"]}`\n\n"
+                        "Click below to create an empty one.",
+                        icon="ℹ️"
+                    )
+                    if st.button("Create subset.csv"):
+                        # Create an empty DataFrame (add default columns if you like)
+                        df = pd.DataFrame()
+                        df.to_csv(st.session_state.paths["unverified_subset_csv_path"], index=False)
+                        st.success(f"Created 'subset.csv' at `{st.session_state.paths["unverified_subset_csv_path"]}`")
+
             else:
                 path_navigator("unverified_subset_csv_path", radio_button_prefix="frame_")
 
@@ -4618,7 +4677,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                 if st.button("Clear Subset Selection", key="frame_clear_subset_selection", help="Clears all frames from the subset selection list."):
                     st.session_state.subset_frames = []
                     save_subset_csv(csv_file, st.session_state.subset_frames)
-                    st.success("Cleared all frames from subset selection.")
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
                 if st.button("Add ALL Labeled Frames", help="Adds every frame containing at least one label to the subset."):
@@ -4664,7 +4723,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                     st.session_state.subset_frames = new_subset
                     # persist to CSV
                     save_subset_csv(csv_file, st.session_state.subset_frames)
-                    st.success(f"Inverted subset: {len(new_subset)} frames selected.")
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
                 if st.button("Delete ALL Labels in Subset", help="Deletes all label files for the currently selected subset frames."):
@@ -4712,10 +4771,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                         else:
                             open(dst_lbl, "w").close()
                     st.success(f"Saved {len(st.session_state.subset_frames)} frames to `{save_dir}`")
-            
-            else:
-                st.info("No CSV found. Create or upload a CSV to begin using a subset.")
-
+         
     with st.expander("🎥🖼️ Frame by Frame Label Review"):
         frame_by_frame_option = st.radio(
             "Please Choose:",
@@ -4789,6 +4845,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                         )
                         if st.session_state.use_subset_changed:
                             st.session_state.use_subset_changed = False
+                            save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
         
                     with c2:
@@ -4857,6 +4914,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
             else:
                 if st.button("Refresh", key="refresh_empty"):
                     update_unverified_data_path()
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
         
         else:
@@ -5161,6 +5219,7 @@ elif action_option == "🔗📂 Combine YOLO Datasets":
             with col_rem:
                 if st.button("❌", key=f"remove_combine_{idx}"):
                     st.session_state.combine_yolo_dirs.pop(idx)
+                    save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
         st.subheader("Save Path")
