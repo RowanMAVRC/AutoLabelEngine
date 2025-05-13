@@ -3761,6 +3761,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
                 st.warning("No videos generated please go to Generate Data Tab.")
 
 elif action_option == "🔍🧩 Object by Object Review":
+    update_unverified_data_path()
 
     tabs = st.tabs([
         "🔍🧩 Single Object Review",
@@ -4555,7 +4556,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                         st.rerun()
             
 elif action_option == "🎥🖼️ Frame by Frame Review":
-        
+    update_unverified_data_path()
+
     with st.expander("⚙️ Settings"):
         
         st.write("### Images Path")
@@ -4590,8 +4592,6 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
             save_session_state(st.session_state.paths["session_state_path"])    
             st.rerun()
         
-        
-
     with st.expander("🔽 Subset Selection"):
         st.write("Select only a small subset of images to review or manually label.")
         if handle_image_list_update(prefix="subset_"):
@@ -4611,7 +4611,9 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                         # Create an empty DataFrame (add default columns if you like)
                         df = pd.DataFrame()
                         df.to_csv(st.session_state.paths["unverified_subset_csv_path"], index=False)
-                        st.success(f"Created 'subset.csv' at `{st.session_state.paths["unverified_subset_csv_path"]}`")
+                        
+                        save_session_state(st.session_state.paths["session_state_path"])    
+                        st.rerun()
 
             else:
                 path_navigator("unverified_subset_csv_path", radio_button_prefix="frame_")
