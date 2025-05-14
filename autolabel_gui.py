@@ -1874,11 +1874,14 @@ def _reset_grid():
         os.path.dirname(st.session_state.paths["unverified_images_path"]),
         "grid.csv"
     )
+
+    # Delete
     try:
         os.remove(grid_csv)
     except FileNotFoundError:
         pass
 
+    
     try:
         extract_features.clear()
     except Exception:
@@ -1992,6 +1995,8 @@ def commit_prefix():
     st.session_state.user_prefix = prefix
     st.session_state.edit_prefix = False
     st.session_state.prefix_changed = True
+    st.session_state.cluster_enable_view = "Disabled"
+    st.session_state.grid_enable_view = "Disabled"
 
 def start_edit():
     # restore display name into input for re-editing
@@ -2701,6 +2706,10 @@ if st.session_state.prefix_changed:
     ss_file = st.session_state.paths["session_state_path"]
     if os.path.exists(ss_file):
         load_session_state(ss_file)
+
+        st.session_state.cluster_enable_view = "Disabled"
+        st.session_state.grid_enable_view = "Disabled"
+        save_session_state(ss_file)
     else:
         save_session_state(ss_file)
 
@@ -3979,7 +3988,6 @@ elif action_option == "🔍🧩 Object by Object Review":
     
         with st.expander("▦ Grid View"):
             # Toggle full rendering via radio (default Disabled)
-
             grid_enable_view = st.radio(
                 "Grid View:",
                 ("Disabled", "Enabled"),
@@ -4033,42 +4041,50 @@ elif action_option == "🔍🧩 Object by Object Review":
                         "selected": False
                     })
 
+                # Auto‐adjust grid_rows and grid_cols
+                total = total_objs
+                rows = st.session_state.get("grid_rows", 1)
+                cols = st.session_state.get("grid_cols", min(16, max(1, math.ceil(total / rows))))
+
+                if total > 0 and rows * cols > total:
+                    rows = max(1, math.ceil(total / cols))
+
+                    if rows == 1 and cols > total:
+                        cols = total
+
+                if rows != st.session_state.get("grid_rows") or cols != st.session_state.get("grid_cols"):
+                    st.session_state.grid_rows = rows
+                    st.session_state.grid_cols = cols
+                    save_session_state(st.session_state.paths["session_state_path"])
+                    st.rerun()
+
                 if total_objs > 0:
-                    # page size controls
+                    # Page‐size controls
                     c1, c2 = st.columns(2)
                     with c1:
-                        if st.session_state["grid_rows"] > total_objs:
-                            st.session_state["grid_rows"] = total_objs
-                            save_session_state(st.session_state.paths["session_state_path"])
-                            st.rerun() 
-
-                        # Use a static key so the value sticks
                         rows = st.number_input(
                             "Rows per page", 
                             min_value=1, 
-                            max_value=total_objs,
                             key="grid_rows",
                             on_change=on_grid_change
                         )
-                    
-                    with c2:
-                        allowed_max_cols = max(1, total_objs // rows)   # at least one col
-                        allowed_max_cols = min(16, allowed_max_cols)  # cap at 16
-
-                        # If the *current* session_state value is now too big,
-                        #    delete it and rerun so the cols widget gets re-created
-                        if "grid_cols" in st.session_state and st.session_state.grid_cols > allowed_max_cols:
-                            del st.session_state.grid_cols
+                        if rows != st.session_state.grid_rows:
+                            st.session_state.grid_rows = rows
                             save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
-                            
+
+                    with c2:
+
                         cols = st.number_input(
                             "Cols per page", 
                             min_value=1, 
                             key="grid_cols",
                             on_change=on_grid_change
                         )
-
+                        if cols != st.session_state.grid_cols:
+                            st.session_state.grid_cols = cols
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
 
                     per_page = rows * cols
                     pages = max(1, math.ceil(len(df)/per_page))
@@ -4351,14 +4367,16 @@ elif action_option == "🔍🧩 Object by Object Review":
 
         with st.expander("🔍📦 View Clustered Objects"):
             # Toggle full rendering via radio (default Disabled)
-            cluster_view_mode = st.radio(
+            cluster_enable_view = st.radio(
                 "Cluster View:",
                 ("Disabled", "Enabled"),
-                key="cluster_enable_view",
+                index = 0 if st.session_state.cluster_enable_view=="Disabled" else 1,
+                key="cluster_enable_view_radio",
                 label_visibility="visible"
             )
+            st.session_state.cluster_enable_view = cluster_enable_view
 
-            if cluster_view_mode == "Enabled":
+            if st.session_state.cluster_enable_view == "Enabled":
                 st.write(
                     """
                     Below are all objects (across multiple pages) clustered around your reference selection.
@@ -4392,174 +4410,181 @@ elif action_option == "🔍🧩 Object by Object Review":
                 df["selected"] = df["selected"].fillna(False).astype(bool)
                 total = len(df)
 
-                # Rows/Cols inputs side by side
-                c1, c2 = st.columns(2)
-                with c1:
-                    rows = st.number_input(
-                        "Rows/page",
-                        min_value=1,
-                        max_value=16,
-                        value = 2,
-                        key="cluster_rows",
-                    )
-                    if rows != st.session_state["cluster_rows"]:
-                        st.session_state["cluster_rows"] = rows
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
+                # Auto‐adjust cluster_rows and cluster_cols
+                rows = st.session_state.get("cluster_rows", 1)
+                cols = st.session_state.get("cluster_cols", min(16, max(1, math.ceil(total / rows))))
 
-                with c2:
-                    allowed_max_cols = max(1, total // rows)   # at least one col
-                    allowed_max_cols = min(16, allowed_max_cols)  # cap at 16
+                if total > 0 and rows * cols > total:
+                    rows = max(1, math.ceil(total / cols))
 
-                    # If the *current* session_state value is now too big,
-                    #    delete it and rerun so the cols widget gets re-created
-                    if "cluster_cols" in st.session_state and st.session_state.cluster_cols > allowed_max_cols:
-                        del st.session_state.cluster_cols
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
+                    if rows == 1 and cols > total:
+                        cols = total
 
-                    # Now build the COLS widget with the proper max_value
-                    cols = st.number_input(
-                        "Cols/page",
-                        min_value=1,
-                        max_value=allowed_max_cols,
-                        value=min(allowed_max_cols, 10),
-                        key="cluster_cols",
-                    )
+                if rows != st.session_state.get("cluster_rows") or cols != st.session_state.get("cluster_cols"):
+                    st.session_state.cluster_rows = rows
+                    st.session_state.cluster_cols = cols
+                    save_session_state(st.session_state.paths["session_state_path"])
+                    st.rerun()
 
-                    if cols != st.session_state["cluster_cols"]:
-                        st.session_state["cluster_cols"] = cols
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
+                if total > 0:
 
-
-                per_page = rows * cols
-
-                # Pagination
-                pages = max(1, math.ceil(total / per_page))
-                page = st.session_state.get("cluster_page", 1)
-                page = max(1, min(page, pages))
-                st.session_state["cluster_page"] = page
-
-                # Top nav: Prev Page | Slider | Next Page
-                if pages>1:
-                    n1, n2, n3 = st.columns([1, 8, 1])
-                    with n1:
-                        if st.button("Prev Page", key="cluster_prev"):
-                            st.session_state["cluster_page"] = page - 1 if page > 1 else pages
-                            save_session_state(st.session_state.paths["session_state_path"])
-                            st.rerun()
-                    with n2:
-                        new_page = st.slider(" ", 1, pages, page, key="cluster_slider", label_visibility="collapsed")
-                        if new_page != st.session_state["cluster_page"]:
-                            st.session_state["cluster_page"] = new_page
-                            save_session_state(st.session_state.paths["session_state_path"])
-                            st.rerun()
-                    with n3:
-                        if st.button("Next Page", key="cluster_next"):
-                            st.session_state["cluster_page"] = page + 1 if page < pages else 1
+                    # Rows/Cols inputs side by side
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        rows = st.number_input(
+                            "Rows per page",
+                            min_value=1,
+                            key="cluster_rows",
+                            on_change=on_grid_change
+                        )
+                        if rows != st.session_state.cluster_rows:
+                            st.session_state.cluster_rows = rows
                             save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
 
-                # Centered page indicator
-                p1, p2, p3 = st.columns([1, 8, 1])
-                p2.markdown(f"<p style='text-align:center'>Page {page} of {pages}</p>", unsafe_allow_html=True)
-                st.divider()
+                    with c2:
+                        
+                        # Now build the COLS widget with the proper max_value
+                        cols = st.number_input(
+                            "Cols per page",
+                            min_value=1,
+                            key="cluster_cols",
+                            on_change=on_grid_change
+                        )
 
-                # Slice current page items
-                start, end = (page - 1) * per_page, page * per_page
-                page_df = df.iloc[start:end]
+                        if cols != st.session_state["cluster_cols"]:
+                            st.session_state["cluster_cols"] = cols
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
 
-                # Grid of thumbnails + idx + checkbox
-                rows_of_indices = [
-                    page_df["idx"].tolist()[i : i + cols]
-                    for i in range(0, len(page_df), cols)
-                ]
-                for row_idxs in rows_of_indices:
-                    cols_cells = st.columns(cols)
-                    for idx, cell in zip(row_idxs, cols_cells):
-                        key = f"cluster_item_{int(idx)}"
-                        b64 = _get_thumbnail_b64(int(idx), 150)
-                        with cell:
-                            st.image(f"data:image/png;base64,{b64}", width=150)
-                            st.markdown(f"<div style='text-align:center'>{int(idx)}</div>", unsafe_allow_html=True)
-                            checked = st.checkbox(
-                                "Select",
-                                value=df.loc[df["idx"] == idx, "selected"].iloc[0],
-                                key=key,
-                                label_visibility="collapsed"
-                            )
-                        df.loc[df["idx"] == idx, "selected"] = checked
 
-                # Persist selections
-                df.to_csv(cluster_csv_path, index=False, header=False)
-                st.divider()
+                    per_page = rows * cols
 
-                # Bottom action buttons (5)
-                b1, b2, b3, b4 = st.columns(4)
-                with b1:
-                    if st.button("Select All Page", key="cluster_select_all_page"):
-                        df.loc[df["idx"].isin(page_df["idx"]), "selected"] = True
-                        df.to_csv(cluster_csv_path, index=False, header=False)
-                        for k in list(st.session_state):
-                            if k.startswith("cluster_item_"):
-                                del st.session_state[k]
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
-                with b2:
-                    if st.button("Deselect All Page", key="cluster_deselect_all_page"):
-                        df.loc[df["idx"].isin(page_df["idx"]), "selected"] = False
-                        df.to_csv(cluster_csv_path, index=False, header=False)
-                        for k in list(st.session_state):
-                            if k.startswith("cluster_item_"):
-                                del st.session_state[k]
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
-                with b3:
-                    if st.button("Remove Selected", key="cluster_remove_selected"):
-                        remaining = df.loc[~df["selected"], "idx"].astype(int).tolist()
-                        pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
-                        for k in list(st.session_state):
-                            if k.startswith("cluster_item_"):
-                                del st.session_state[k]
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
-                with b4:
-                    if st.button("Delete Unchecked", key="cluster_delete_unchecked"):
-                        # 1. Grab all unchecked objects
-                        to_delete = df.loc[~df["selected"], "idx"].astype(int).tolist()
+                    # Pagination
+                    pages = max(1, math.ceil(total / per_page))
+                    page = st.session_state.get("cluster_page", 1)
+                    page = max(1, min(page, pages))
+                    st.session_state["cluster_page"] = page
 
-                        # 2. Empty the cluster CSV
-                        open(cluster_csv_path, "w").close()
+                    # Top nav: Prev Page | Slider | Next Page
+                    if pages>1:
+                        n1, n2, n3 = st.columns([1, 8, 1])
+                        with n1:
+                            if st.button("Prev Page", key="cluster_prev"):
+                                st.session_state["cluster_page"] = page - 1 if page > 1 else pages
+                                save_session_state(st.session_state.paths["session_state_path"])
+                                st.rerun()
+                        with n2:
+                            new_page = st.slider(" ", 1, pages, page, key="cluster_slider", label_visibility="collapsed")
+                            if new_page != st.session_state["cluster_page"]:
+                                st.session_state["cluster_page"] = new_page
+                                save_session_state(st.session_state.paths["session_state_path"])
+                                st.rerun()
+                        with n3:
+                            if st.button("Next Page", key="cluster_next"):
+                                st.session_state["cluster_page"] = page + 1 if page < pages else 1
+                                save_session_state(st.session_state.paths["session_state_path"])
+                                st.rerun()
 
-                        # 3. For each unchecked object, remove just its line from the YOLO label file
-                        for idx in to_delete:
-                            obj = get_object_by_global_index(idx)
-                            if obj:
-                                label_path = obj["label_path"]
-                                try:
-                                    # Read all lines
-                                    with open(label_path, "r") as f:
-                                        lines = f.readlines()
-                                    # Remove only the specific object’s line
-                                    local_idx = obj.get("local_index", None)
-                                    if local_idx is not None and 0 <= local_idx < len(lines):
-                                        del lines[local_idx]
-                                    # Write back remaining labels
-                                    with open(label_path, "w") as f:
-                                        f.writelines(lines)
-                                except Exception as e:
-                                    st.error(f"Failed to delete object {idx} in {label_path}: {e}")
+                    # Centered page indicator
+                    p1, p2, p3 = st.columns([1, 8, 1])
+                    p2.markdown(f"<p style='text-align:center'>Page {page} of {pages}</p>", unsafe_allow_html=True)
+                    st.divider()
 
-                        # 4. Clear cluster-item checkboxes from session state
-                        for k in list(st.session_state):
-                            if k.startswith("cluster_item_"):
-                                del st.session_state[k]
+                    # Slice current page items
+                    start, end = (page - 1) * per_page, page * per_page
+                    page_df = df.iloc[start:end]
 
-                        # Refresh the UI
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
-            
+                    # Grid of thumbnails + idx + checkbox
+                    rows_of_indices = [
+                        page_df["idx"].tolist()[i : i + cols]
+                        for i in range(0, len(page_df), cols)
+                    ]
+                    for row_idxs in rows_of_indices:
+                        cols_cells = st.columns(cols)
+                        for idx, cell in zip(row_idxs, cols_cells):
+                            key = f"cluster_item_{int(idx)}"
+                            b64 = _get_thumbnail_b64(int(idx), 150)
+                            with cell:
+                                st.image(f"data:image/png;base64,{b64}", width=150)
+                                st.markdown(f"<div style='text-align:center'>{int(idx)}</div>", unsafe_allow_html=True)
+                                checked = st.checkbox(
+                                    "Select",
+                                    value=df.loc[df["idx"] == idx, "selected"].iloc[0],
+                                    key=key,
+                                    label_visibility="collapsed"
+                                )
+                            df.loc[df["idx"] == idx, "selected"] = checked
+
+                    # Persist selections
+                    df.to_csv(cluster_csv_path, index=False, header=False)
+                    st.divider()
+
+                    # Bottom action buttons (5)
+                    b1, b2, b3, b4 = st.columns(4)
+                    with b1:
+                        if st.button("Select All Page", key="cluster_select_all_page"):
+                            df.loc[df["idx"].isin(page_df["idx"]), "selected"] = True
+                            df.to_csv(cluster_csv_path, index=False, header=False)
+                            for k in list(st.session_state):
+                                if k.startswith("cluster_item_"):
+                                    del st.session_state[k]
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
+                    with b2:
+                        if st.button("Deselect All Page", key="cluster_deselect_all_page"):
+                            df.loc[df["idx"].isin(page_df["idx"]), "selected"] = False
+                            df.to_csv(cluster_csv_path, index=False, header=False)
+                            for k in list(st.session_state):
+                                if k.startswith("cluster_item_"):
+                                    del st.session_state[k]
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
+                    with b3:
+                        if st.button("Remove Selected", key="cluster_remove_selected"):
+                            remaining = df.loc[~df["selected"], "idx"].astype(int).tolist()
+                            pd.DataFrame(remaining).to_csv(cluster_csv_path, index=False, header=False)
+                            for k in list(st.session_state):
+                                if k.startswith("cluster_item_"):
+                                    del st.session_state[k]
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
+                    with b4:
+                        if st.button("Delete Unchecked", key="cluster_delete_unchecked"):
+                            # 1. Grab all unchecked objects
+                            to_delete = df.loc[~df["selected"], "idx"].astype(int).tolist()
+
+                            # 2. Empty the cluster CSV
+                            open(cluster_csv_path, "w").close()
+
+                            # 3. For each unchecked object, remove just its line from the YOLO label file
+                            for idx in to_delete:
+                                obj = get_object_by_global_index(idx)
+                                if obj:
+                                    label_path = obj["label_path"]
+                                    try:
+                                        # Read all lines
+                                        with open(label_path, "r") as f:
+                                            lines = f.readlines()
+                                        # Remove only the specific object’s line
+                                        local_idx = obj.get("local_index", None)
+                                        if local_idx is not None and 0 <= local_idx < len(lines):
+                                            del lines[local_idx]
+                                        # Write back remaining labels
+                                        with open(label_path, "w") as f:
+                                            f.writelines(lines)
+                                    except Exception as e:
+                                        st.error(f"Failed to delete object {idx} in {label_path}: {e}")
+
+                            # 4. Clear cluster-item checkboxes from session state
+                            for k in list(st.session_state):
+                                if k.startswith("cluster_item_"):
+                                    del st.session_state[k]
+
+                            # Refresh the UI
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
+                
 elif action_option == "🎥🖼️ Frame by Frame Review":
     update_unverified_data_path()
 
