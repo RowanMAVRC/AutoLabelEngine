@@ -295,10 +295,13 @@ def path_navigator(
             custom_path = os.path.normpath(custom_path)
             # If must_exist is False, accept immediately
             if not must_exist or os.path.exists(custom_path):
-                st.session_state.paths[key] = custom_path
-                
-                save_session_state(st.session_state.paths['session_state_path'])
-                return custom_path
+
+                if st.session_state.paths[key] != custom_path:
+                    st.session_state.paths[key] = custom_path
+                    save_session_state(st.session_state.paths['session_state_path'])
+                    st.rerun()
+                else:
+                    return custom_path
 
             # Otherwise, fall back to original create / go‑up logic
             st.warning(f"Path '{custom_path}' does not exist. Choose an option below:")
@@ -312,17 +315,18 @@ def path_navigator(
                     ).strip()
                     if new_name:
                         try:
-                            root, ext = os.path.splitext(new_name)
+                            _, ext = os.path.splitext(new_name)
                             if ext:
                                 parent = os.path.dirname(new_name)
                                 os.makedirs(parent, exist_ok=True, mode=0o777)
                                 open(new_name, "a").close()
                             else:
                                 os.makedirs(new_name, exist_ok=True, mode=0o777)
+
                             st.session_state.paths[key] = new_name
-                            
                             save_session_state(st.session_state.paths['session_state_path'])
                             st.rerun()
+
                         except Exception as e:
                             st.error(f"Failed to create: {e}")
             with up_col:
@@ -337,6 +341,7 @@ def path_navigator(
                         st.rerun()
                     else:
                         st.error("No valid parent directory found.")
+                        
             return current_path  
 
         return current_path
