@@ -65,6 +65,7 @@ SELECTED_KEYS = [
     "grid_rows",
     "grid_cols",
     "auto_label_threshold",
+    "auto_label_use_tracking",
     "grid_enable_view",
     "user_prefix",
 ]
@@ -1300,14 +1301,14 @@ def next_callback():
     st.session_state.detection_modified = False
     st.session_state.frame_index += 1
     st.session_state["skip_label_update"] = True
-    save_session_state()
+    save_session_state(st.session_state.paths['session_state_path'])
 
 def prev_callback():
     st.session_state.prev_out = None
     st.session_state.detection_modified = False
     st.session_state.frame_index -= 1
     st.session_state["skip_label_update"] = True
-    save_session_state()
+    save_session_state(st.session_state.paths['session_state_path'])
 
 def frame_slider_frame_by_frame_callback():
     # Get the new value from the slider (using the key "slider_det")
@@ -1318,7 +1319,7 @@ def frame_slider_frame_by_frame_callback():
         st.session_state.detection_modified = False
         st.session_state.frame_index = new_frame_index
         st.session_state["skip_label_update"] = True
-        save_session_state()
+        save_session_state(st.session_state.paths['session_state_path'])
 
 def jump_frame_frame_by_frame_callback():
     # Retrieve the new value from the number input via its key "jump_page"
@@ -2517,6 +2518,7 @@ if "session_running" not in st.session_state:
     st.session_state.grid_cols = 10
 
     st.session_state.setdefault("auto_label_threshold", 0.25)
+    st.session_state.setdefault("auto_label_use_tracking", False)
 
     st.session_state["reset_grid"] = False
 
@@ -3329,6 +3331,14 @@ elif action_option == "🤖🏷️ Auto Label":
         # store it back to session_state
         st.session_state["auto_label_threshold"] = threshold
 
+        st.subheader("Tracking Mode")
+        use_tracking = st.checkbox(
+            "Use Tracking (model.track) instead of frame-by-frame detection",
+            value=st.session_state["auto_label_use_tracking"],
+            key="auto_label_use_tracking_checkbox"
+        )
+        st.session_state["auto_label_use_tracking"] = use_tracking
+
     with st.expander("🌐 Virtual Environment Path"):
         st.subheader("Venv Path")
         st.write("The path to the virtual environment to run the script in. This contains all python packages needed to run the script.")
@@ -3371,7 +3381,8 @@ elif action_option == "🤖🏷️ Auto Label":
                         "images_dir_path": st.session_state.paths["auto_label_data_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                         "label_replacement": st.session_state.paths["auto_label_replacement"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                         "gpu_number": st.session_state.auto_label_gpu,
-                        "threshold":          st.session_state["auto_label_threshold"]
+                        "threshold": st.session_state["auto_label_threshold"],
+                        "method": "track" if st.session_state["auto_label_use_tracking"] else "detect"
                     }
                 )
                 time.sleep(3)
@@ -5052,7 +5063,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                     st.divider()
 
 elif action_option == "🚚📁 Move Directory":
-    # SETTINGS
+
     with st.expander("⚙️ Settings"):
         st.subheader("Source Directory")
         path_navigator("move_src_path")
@@ -5064,20 +5075,18 @@ elif action_option == "🚚📁 Move Directory":
             src = st.session_state.paths.get("move_src_path", "")
             dst = st.session_state.paths.get("move_dest_path", "")
             st.session_state.paths["move_src_path"], st.session_state.paths["move_dest_path"] = dst, src
+            save_session_state(st.session_state.paths['session_state_path'])
             st.rerun()
 
-    # VENV
     with st.expander("🌐 Virtual Environment Path"):
         st.write("Path to the virtual environment for the move script.")
         path_navigator("venv_path", radio_button_prefix="move_dir")
 
-    # SCRIPT
     with st.expander("📜 Script"):
         st.write("Your `move_dir.py` (must accept `--src_dir` and `--dst_dir`).")
         path_navigator("move_dir_script_path")
         python_code_editor("move_dir_script_path")
 
-    # ACTIONS
     with st.expander("🚚📁 Execute Move"):
         c1, c2, c3, c4 = st.columns(4, gap="small")
         with c1:

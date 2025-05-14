@@ -21,7 +21,7 @@ def convert_to_yolo_format(box, img_width, img_height):
     cls = int(box.cls[0].item())
     return cls, center_x, center_y, box_width, box_height
 
-def process_images_dirs(model_weights, base_dir, label_replacement, gpu_number, threshold):
+def process_images_dirs(model_weights, base_dir, label_replacement, gpu_number, threshold, use_tracking):
     """
     Recursively finds all "images" directories under base_dir, runs YOLO inference
     with a confidence threshold, and writes normalized YOLO-format labels into
@@ -62,11 +62,18 @@ def process_images_dirs(model_weights, base_dir, label_replacement, gpu_number, 
             img_height, img_width = image.shape[:2]
 
             # Run YOLO inference with confidence threshold
-            results = model.predict(
-                str(img_path),
-                conf=threshold,
-                verbose=False
-            )
+            if use_tracking:
+                results = model.track(
+                    str(img_path),
+                    conf=threshold,
+                    verbose=False
+                )
+            else:
+                results = model.predict(
+                    str(img_path),
+                    conf=threshold,
+                    verbose=False
+                )
             total_preds += len(results[0].boxes)
 
             label_file = label_folder / (img_path.stem + ".txt")
@@ -109,12 +116,18 @@ if __name__ == "__main__":
         "--threshold", type=float, default=0.25,
         help="Confidence threshold for YOLO detections (0.0–1.0)"
     )
+    parser.add_argument(
+        "--method",
+        choices=["track", "detect"],
+        default="detect",
+        help="Choose 'track' for YOLO tracking or 'detect' for per-image detection"
+    )
     args = parser.parse_args()
-
     process_images_dirs(
         args.model_weights_path,
         args.images_dir_path,
         args.label_replacement,
         args.gpu_number,
-        args.threshold
+        args.threshold,
+        True if args.method == "track" else False
     )
