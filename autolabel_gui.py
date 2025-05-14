@@ -1300,20 +1300,25 @@ def next_callback():
     st.session_state.detection_modified = False
     st.session_state.frame_index += 1
     st.session_state["skip_label_update"] = True
+    save_session_state()
 
 def prev_callback():
     st.session_state.prev_out = None
     st.session_state.detection_modified = False
     st.session_state.frame_index -= 1
     st.session_state["skip_label_update"] = True
+    save_session_state()
 
 def frame_slider_frame_by_frame_callback():
     # Get the new value from the slider (using the key "slider_det")
     new_frame_index = st.session_state.slider_det
     # Compare with the current frame_index stored in session_state
     if new_frame_index != st.session_state.frame_index:
+        st.session_state.prev_out = None
+        st.session_state.detection_modified = False
         st.session_state.frame_index = new_frame_index
         st.session_state["skip_label_update"] = True
+        save_session_state()
 
 def jump_frame_frame_by_frame_callback():
     # Retrieve the new value from the number input via its key "jump_page"
@@ -2706,9 +2711,9 @@ if st.session_state.prefix_changed:
     ss_file = st.session_state.paths["session_state_path"]
     if os.path.exists(ss_file):
         load_session_state(ss_file)
-
         st.session_state.cluster_enable_view = "Disabled"
         st.session_state.grid_enable_view = "Disabled"
+        update_unverified_data_path()
         save_session_state(ss_file)
     else:
         save_session_state(ss_file)
@@ -4586,7 +4591,17 @@ elif action_option == "🔍🧩 Object by Object Review":
                             st.rerun()
                 
 elif action_option == "🎥🖼️ Frame by Frame Review":
-    update_unverified_data_path()
+
+    if st.session_state.paths["prev_unverified_images_path"] != st.session_state.paths["unverified_images_path"] or st.session_state.paths["prev_unverified_names_yaml_path"] != st.session_state.paths["unverified_names_yaml_path"]:
+        st.session_state.paths["prev_unverified_images_path"] = st.session_state.paths["unverified_images_path"]
+        st.session_state.paths["prev_unverified_names_yaml_path"] = st.session_state.paths["unverified_names_yaml_path"]
+        update_unverified_data_path()
+
+        if st.session_state.max_images > 0:
+            update_unverified_frame()
+            
+        save_session_state(st.session_state.paths["session_state_path"])    
+        st.rerun()
 
     with st.expander("⚙️ Settings"):
         
