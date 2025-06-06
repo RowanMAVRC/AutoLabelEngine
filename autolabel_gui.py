@@ -1917,7 +1917,6 @@ def extract_features(img_crop):
     cv2.normalize(hist, hist)
     return hist.flatten()
 
-@st.cache_data(show_spinner=False)
 def _get_thumbnail_b64(idx: int, thumb_width: int) -> str:
     # Assumes existing function to fetch base64 thumbnail string for object idx
     obj = get_object_by_global_index(idx)
@@ -4109,13 +4108,16 @@ elif action_option == "🔍🧩 Object by Object Review":
                     if "grid_page" not in st.session_state:
                         st.session_state["grid_page"] = 1
                         
-                    page = st.number_input(
-                        "Page", 
-                        min_value=1, 
-                        max_value=pages, 
-                        value=st.session_state["grid_page"], 
-                        key=f"grid_page_{session_id}"
-                    )
+                    if pages > 1:
+                        page = st.number_input(
+                            "Page", 
+                            min_value=1, 
+                            max_value=pages, 
+                            value=st.session_state["grid_page"], 
+                            key=f"grid_page_{session_id}"
+                        )
+                    else:
+                        page = 1
                     
                     # Store current page for future reference
                     st.session_state["grid_page"] = page
@@ -4185,26 +4187,26 @@ elif action_option == "🔍🧩 Object by Object Review":
                     # persist selection
                     df.to_csv(grid_csv, index=False, header=False)
 
-                    st.divider()
+                    # st.divider()
                     # Bottom nav: Prev Page | Slider | Next Page
-                    if pages>1:
-                        n1, n2, n3 = st.columns([1, 8, 1])
-                        with n1:
-                            if st.button("Prev Page", key="bottom_grid_prev"):
-                                st.session_state["grid_page"] = page - 1 if page > 1 else pages
-                                save_session_state(st.session_state.paths["session_state_path"])
-                                st.rerun()
-                        with n2:
-                            new_page = st.slider(" ", 1, pages, page, key="bottom_grid_slider", label_visibility="collapsed")
-                            if new_page != st.session_state["grid_page"]:
-                                st.session_state["grid_page"] = new_page
-                                save_session_state(st.session_state.paths["session_state_path"])
-                                st.rerun()
-                        with n3:
-                            if st.button("Next Page", key="bottom_grid_next"):
-                                st.session_state["grid_page"] = page + 1 if page < pages else 1
-                                save_session_state(st.session_state.paths["session_state_path"])
-                                st.rerun()
+                    # if pages>1:
+                    #     n1, n2, n3 = st.columns([1, 8, 1])
+                    #     with n1:
+                    #         if st.button("Prev Page", key="bottom_grid_prev"):
+                    #             st.session_state["grid_page"] = page - 1 if page > 1 else pages
+                    #             save_session_state(st.session_state.paths["session_state_path"])
+                    #             st.rerun()
+                    #     with n2:
+                    #         new_page = st.slider(" ", 1, pages, page, key="bottom_grid_slider", label_visibility="collapsed")
+                    #         if new_page != st.session_state["grid_page"]:
+                    #             st.session_state["grid_page"] = new_page
+                    #             save_session_state(st.session_state.paths["session_state_path"])
+                    #             st.rerun()
+                    #     with n3:
+                    #         if st.button("Next Page", key="bottom_grid_next"):
+                    #             st.session_state["grid_page"] = page + 1 if page < pages else 1
+                    #             save_session_state(st.session_state.paths["session_state_path"])
+                    #             st.rerun()
 
                     st.divider()
                     b1, b2, b3, b4 = st.columns(4)
