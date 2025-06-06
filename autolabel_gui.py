@@ -17,6 +17,7 @@ import hashlib
 import uuid
 import sys
 import io
+import argparse
 
 ## Third-Party Libraries 
 import math
@@ -39,6 +40,16 @@ from streamlit_label_kit import detection as _orig_detection
 from streamlit_ace import st_ace
 import streamlit.components.v1 as components
 
+
+# ----------------------------------------------------------------------------
+# CLI Args / Environment
+# ----------------------------------------------------------------------------
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--user", default=os.environ.get("AUTO_LABEL_USER", ""))
+args, _ = parser.parse_known_args()
+AUTO_LABEL_USER = args.user or os.environ.get("AUTO_LABEL_USER", "")
+if AUTO_LABEL_USER:
+    os.environ["AUTO_LABEL_USER"] = AUTO_LABEL_USER
 
 #-------------------------------------------------------------------------------------------------------------------------#
 ## Functions
@@ -2568,8 +2579,10 @@ if "session_running" not in st.session_state:
 
     st.session_state["reset_grid"] = False
 
-    st.session_state.user_prefix = ""
-    st.session_state.edit_prefix = True
+    default_user = sanitize_username(os.environ.get("AUTO_LABEL_USER", ""))
+    st.session_state.user_prefix = default_user
+    st.session_state.allow_name_edit = not bool(default_user)
+    st.session_state.edit_prefix = not bool(default_user)
     st.session_state.user_prefix_input = ""
     st.session_state.prefix_changed = False
 
@@ -2735,14 +2748,17 @@ if st.session_state.edit_prefix:
 else:
     # Display greeting and edit button
     display_name = " ".join(w.capitalize() for w in st.session_state.user_prefix.split('_'))
-    col1, col2, _ = st.sidebar.columns([0.2, 0.7, 0.1])
-    col1.button(
-        "✏️",
-        key="change_prefix",
-        help="Change name",
-        on_click=start_edit,
-    )
-    col2.markdown(f"### 👋 Hello, **{display_name}**")
+    if st.session_state.allow_name_edit:
+        col1, col2, _ = st.sidebar.columns([0.2, 0.7, 0.1])
+        col1.button(
+            "✏️",
+            key="change_prefix",
+            help="Change name",
+            on_click=start_edit,
+        )
+        col2.markdown(f"### 👋 Hello, **{display_name}**")
+    else:
+        st.sidebar.markdown(f"### 👋 Hello, **{display_name}**")
     
     navigation_menu_margin = 375
 
