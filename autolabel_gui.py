@@ -4037,6 +4037,17 @@ elif action_option == "🔍🧩 Object by Object Review":
                         del st.session_state[key]
 
                 session_id = st.session_state["grid_session_id"]
+
+                # Center checkboxes and style grid cells
+                st.markdown(
+                    """
+                    <style>
+                    .stCheckbox > label { justify-content: center; display: flex; }
+                    .img-checkbox-wrapper { background-color: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px; }
+                    </style>
+                    """,
+                    unsafe_allow_html=True,
+                )
                         
                 # load or initialize DataFrame
                 example = get_object_by_global_index(0)
@@ -4168,19 +4179,21 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 
                             thumb = _get_thumbnail_b64(int(idx), 100)
                             with cell:
+                                st.markdown("<div class='img-checkbox-wrapper'>", unsafe_allow_html=True)
                                 st.image(f"data:image/png;base64,{thumb}", width=100)
                                 st.markdown(f"<div style='text-align:center'>{idx}</div>", unsafe_allow_html=True)
-                                
+
                                 # Generate unique checkbox key with session ID to force refresh
                                 checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
-                                
+
                                 # Get current selection state from DataFrame
                                 is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
-                                
+
                                 # Create checkbox with unique key
                                 sel = st.checkbox("Delete", value=is_selected,
                                                 key=checkbox_key, label_visibility="collapsed")
-                                
+                                st.markdown("</div>", unsafe_allow_html=True)
+
                                 # Update DataFrame with new state
                                 df.loc[df.idx==idx, "selected"] = sel
 
@@ -4407,11 +4420,12 @@ elif action_option == "🔍🧩 Object by Object Review":
                     """
                 )
                 
-                # Center checkboxes via CSS
+                # Center checkboxes and style cluster cells
                 st.markdown(
                     """
                     <style>
                     .stCheckbox > label { justify-content: center; display: flex; }
+                    .img-checkbox-wrapper { background-color: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px; }
                     </style>
                     """,
                     unsafe_allow_html=True,
@@ -4524,6 +4538,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             key = f"cluster_item_{int(idx)}"
                             b64 = _get_thumbnail_b64(int(idx), 150)
                             with cell:
+                                st.markdown("<div class='img-checkbox-wrapper'>", unsafe_allow_html=True)
                                 st.image(f"data:image/png;base64,{b64}", width=150)
                                 st.markdown(f"<div style='text-align:center'>{int(idx)}</div>", unsafe_allow_html=True)
                                 checked = st.checkbox(
@@ -4532,6 +4547,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     key=key,
                                     label_visibility="collapsed"
                                 )
+                                st.markdown("</div>", unsafe_allow_html=True)
                             df.loc[df["idx"] == idx, "selected"] = checked
 
                     # Persist selections
