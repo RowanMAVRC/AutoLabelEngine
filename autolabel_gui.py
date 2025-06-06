@@ -3995,17 +3995,14 @@ elif action_option == "🔍🧩 Object by Object Review":
                         # Reference selector (no default)
                     if "cluster_refs" not in st.session_state:
                         st.session_state.cluster_refs = []
-                    if "cluster_refs_widget" not in st.session_state:
-                        st.session_state.cluster_refs_widget = st.session_state.cluster_refs
 
                     reference_indices = st.multiselect(
                         "Select reference object(s) for clustering",
                         options=list(range(st.session_state.global_object_count)),
-                        default=st.session_state.cluster_refs_widget,
-                        key="cluster_refs_widget",
+                        default=st.session_state.cluster_refs,
+                        key="cluster_refs",
                         disabled=object_running
                     )
-                    st.session_state.cluster_refs = reference_indices
     
         with st.expander("▦ Grid View"):
             # Toggle full rendering via radio (default Disabled)
@@ -4325,13 +4322,20 @@ elif action_option == "🔍🧩 Object by Object Review":
                             st.rerun()
 
                     with b5:
-                        if st.button("Add Selected to Cluster Refs", key=f"add_refs_{session_id}"):
-                            selected = df.loc[df.selected, "idx"].astype(int).tolist()
+                        selected = df.loc[df.selected, "idx"].astype(int).tolist()
+
+                        def _add_refs(sel):
                             existing = st.session_state.get("cluster_refs", [])
-                            st.session_state["cluster_refs"] = sorted(set(existing).union(selected))
-                            st.session_state["cluster_refs_widget"] = st.session_state["cluster_refs"]
+                            st.session_state["cluster_refs"] = sorted(set(existing).union(sel))
                             save_session_state(st.session_state.paths["session_state_path"])
-                            st.rerun()
+
+                        st.button(
+                            "Add Selected to Cluster Refs",
+                            key=f"add_refs_{session_id}",
+                            on_click=_add_refs,
+                            args=(selected,),
+                            disabled=object_running,
+                        )
                         
     with tabs[1]:
         with st.expander("📦⚙️ Cluster Object Settings"):
