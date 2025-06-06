@@ -1424,6 +1424,7 @@ def copy_labels_from_slide(source_index):
     curr_label_path = curr_image_path.replace("images/", "labels/").rsplit(".", 1)[0] + ".txt"
     with open(curr_label_path, "w") as f:
         f.write(src_labels)
+    _reset_grid()
 
     st.session_state["skip_label_update"] = True
 
@@ -1729,6 +1730,7 @@ def zoom_edit_callback(i):
                     width_norm = bw / image_width
                     height_norm = bh / image_height
                     f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+            _reset_grid()
             st.session_state["skip_label_update"] = True
     except:
         pass
@@ -1871,6 +1873,7 @@ def object_by_object_edit_callback():
             lines[local_idx] = f"{current_obj['label']} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n"
             with open(label_file, "w") as f:
                 f.writelines(lines)
+            _reset_grid()
     except Exception as e:
         st.error(f"Error updating object: {e}")
     finally:
@@ -1903,8 +1906,10 @@ def _reset_grid():
         _get_thumbnail_b64.clear()
     except Exception:
         pass
-    
+
     st.session_state["reset_grid"] = True
+    st.session_state.cluster_enable_view = "Disabled"
+    st.session_state.grid_enable_view = "Disabled"
 
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
@@ -4646,6 +4651,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                                             f.writelines(lines)
                                     except Exception as e:
                                         st.error(f"Failed to delete object {idx} in {label_path}: {e}")
+
+                            _reset_grid()
 
                             # 4. Clear cluster-item checkboxes from session state
                             for k in list(st.session_state):
