@@ -4,6 +4,7 @@ import os
 import socket
 import subprocess
 import time
+import uuid
 
 
 import streamlit as st
@@ -37,9 +38,14 @@ def get_network_ip() -> str:
 
 
 def start_session(username: str) -> tuple[int, str]:
-    """Launch autolabel_gui.py in a new tmux session and return (port, url)."""
+    """Launch autolabel_gui.py in a new tmux session and return (port, url).
+
+    Each session name uses a random hash so multiple logins by the same user
+    do not clash.
+    """
     safe = sanitize_username(username)
-    session = f"ale_{safe}"
+    unique = uuid.uuid4().hex[:8]
+    session = f"ale_{unique}"
     port = find_free_port()
     log = f"/tmp/{session}.log"
     cmd = (
@@ -78,7 +84,10 @@ if st.button("Start Session"):
         try:
             port, url = start_session(user)
             st.success(f"Session started for {user} on port {port}.")
-            st.markdown(f"<script>window.open('{url}', '_blank');</script>", unsafe_allow_html=True)
+            st.markdown(
+                f"<script>window.open('{url}', '_blank');</script>",
+                unsafe_allow_html=True,
+            )
             st.write(f"Opened {url} in a new tab.")
         except Exception as e:
             st.error(f"Failed to start session: {e}")
