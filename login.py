@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import re
 import socket
 import subprocess
@@ -6,11 +7,23 @@ import time
 
 
 import streamlit as st
+from streamlit.components.v1 import html
 
 
 def sanitize_username(name: str) -> str:
     """Return a safe version of the username for filesystem usage."""
     return re.sub(r"[^0-9A-Za-z_-]", "_", name.strip()).lower()
+
+
+def default_base_url() -> str:
+    """Return an accessible base URL for the current machine."""
+    try:
+        host = socket.gethostbyname(socket.gethostname())
+        if host.startswith("127."):
+            host = socket.gethostbyname_ex(socket.gethostname())[-1][0]
+    except Exception:
+        host = "localhost"
+    return f"http://{host}"
 
 
 def find_free_port(start: int = 8600, end: int = 8700) -> int:
@@ -29,7 +42,7 @@ def start_session(username: str) -> int:
     port = find_free_port()
     cmd = (
         f"streamlit run --server.headless True --server.fileWatcherType none "
-        f"--server.port {port} autolabel_gui.py"
+        f"--server.port {port} autolabel_gui.py --user {safe}"
     )
     subprocess.check_call(["tmux", "new-session", "-d", "-s", session, cmd])
     return port
@@ -44,6 +57,9 @@ if st.button("Start Session"):
         try:
             port = start_session(user)
             st.success(f"Session started for {user} on port {port}.")
-            st.write(f"Open http://<server-ip>:{port} in a new tab.")
+            base_url = os.getenv("AUTO_LABEL_BASE_URL") or default_base_url()
+            full_url = f"{base_url}:{port}"
+            st.write(f"Open {full_url} in a new tab.")
+            html(f"<script>window.open('{full_url}', '_blank');</script>", height=0)
         except Exception as e:
             st.error(f"Failed to start session: {e}")

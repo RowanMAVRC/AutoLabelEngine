@@ -24,6 +24,11 @@ bash run_login.sh                      # spawns per-user GUI sessions
 1. Activates the project venv (or prompts you to generate one).
 2. Launches the Streamlit login page (`login.py`) on **localhost:8501** (and optional ngrok tunnel).
 3. After a user logs in, a new **tmux** session is created running `autolabel_gui.py` on its own port.
+   The login page automatically opens the user's session in a new browser tab
+   using the machine's network IP. Set the environment variable
+   `AUTO_LABEL_BASE_URL` to override this with a custom hostname (e.g. an
+   ngrok URL). The launched GUI is given the login username via a `--user`
+   argument so your data paths are prefixed automatically.
 
 ---
 
