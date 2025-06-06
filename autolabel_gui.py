@@ -538,8 +538,10 @@ def load_subset_frames(csv_path):
 def save_subset_csv(csv_path, frames):
     """
     Writes frame indexes to CSV, one per line, ensuring they are unique and sorted.
+    Ignores ``None`` values that may be present in the frame list.
     """
-    frames_sorted = sorted(set(frames))
+    frames_clean = [f for f in frames if isinstance(f, int)]
+    frames_sorted = sorted(set(frames_clean))
     with open(csv_path, "w") as f:
         for frame in frames_sorted:
             f.write(f"{frame}\n")
@@ -1598,14 +1600,14 @@ def get_frame_index_from_filename(filename):
 
 def add_frame_callback(key):
     add_val = st.session_state[key]
-    if add_val not in st.session_state.subset_frames:
+    if add_val is not None and add_val not in st.session_state.subset_frames:
         st.session_state.subset_frames.append(add_val)
         save_subset_csv(csv_file, st.session_state.subset_frames)
     st.session_state["skip_label_update"] = True
 
 def remove_frame_callback(key):
     remove_val = st.session_state[key]
-    if remove_val in st.session_state.subset_frames:
+    if remove_val is not None and remove_val in st.session_state.subset_frames:
         st.session_state.subset_frames.remove(remove_val)
         save_subset_csv(csv_file, st.session_state.subset_frames)
         st.session_state["skip_label_update"] = True
