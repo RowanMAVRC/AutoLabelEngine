@@ -4002,10 +4002,13 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     st.rerun()
 
                         # Reference selector (no default)
+                    if "cluster_refs" not in st.session_state:
+                        st.session_state.cluster_refs = []
+
                     reference_indices = st.multiselect(
                         "Select reference object(s) for clustering",
                         options=list(range(st.session_state.global_object_count)),
-                        default=[],
+                        default=st.session_state.cluster_refs,
                         key="cluster_refs",
                         disabled=object_running
                     )
@@ -4231,7 +4234,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     #             st.rerun()
 
                     st.divider()
-                    b1, b2, b3, b4 = st.columns(4)
+                    b1, b2, b3, b4, b5 = st.columns(5)
                     with b1:
                         if st.button("Select All Page", key=f"select_all_{session_id}"):
                             for idx in page_df["idx"].tolist():
@@ -4339,6 +4342,22 @@ elif action_option == "🔍🧩 Object by Object Review":
                             )
                             save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
+
+                    with b5:
+                        selected = df.loc[df.selected, "idx"].astype(int).tolist()
+
+                        def _add_refs(sel):
+                            existing = st.session_state.get("cluster_refs", [])
+                            st.session_state["cluster_refs"] = sorted(set(existing).union(sel))
+                            save_session_state(st.session_state.paths["session_state_path"])
+
+                        st.button(
+                            "Add Selected to Cluster Refs",
+                            key=f"add_refs_{session_id}",
+                            on_click=_add_refs,
+                            args=(selected,),
+                            disabled=object_running,
+                        )
                         
     with tabs[1]:
         with st.expander("📦⚙️ Cluster Object Settings"):
