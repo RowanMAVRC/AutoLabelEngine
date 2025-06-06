@@ -1425,6 +1425,7 @@ def copy_labels_from_slide(source_index):
     curr_label_path = curr_image_path.replace("images/", "labels/").rsplit(".", 1)[0] + ".txt"
     with open(curr_label_path, "w") as f:
         f.write(src_labels)
+    _reset_grid()
 
     st.session_state["skip_label_update"] = True
 
@@ -1730,6 +1731,7 @@ def zoom_edit_callback(i):
                     width_norm = bw / image_width
                     height_norm = bh / image_height
                     f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
+            _reset_grid()
             st.session_state["skip_label_update"] = True
     except:
         pass
@@ -1872,6 +1874,7 @@ def object_by_object_edit_callback():
             lines[local_idx] = f"{current_obj['label']} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n"
             with open(label_file, "w") as f:
                 f.writelines(lines)
+            _reset_grid()
     except Exception as e:
         st.error(f"Error updating object: {e}")
     finally:
@@ -1904,8 +1907,10 @@ def _reset_grid():
         _get_thumbnail_b64.clear()
     except Exception:
         pass
-    
+
     st.session_state["reset_grid"] = True
+    st.session_state.cluster_enable_view = "Disabled"
+    st.session_state.grid_enable_view = "Disabled"
 
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
@@ -4293,10 +4298,10 @@ elif action_option == "🔍🧩 Object by Object Review":
                             
                     with b4:
                         if st.button("Delete Selected Labels", key=f"delete_selected_{session_id}"):
-                            # 1) gather which global indices are checked
+                            # gather which global indices are checked
                             to_delete = df.loc[df.selected, "idx"].astype(int).tolist()
 
-                            # 2) group by label file
+                            # group by label file
                             deletions = {}
                             for gidx in to_delete:
                                 obj = get_object_by_global_index(gidx)
@@ -4305,7 +4310,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                     li = obj["local_index"]
                                     deletions.setdefault(lp, []).append(li)
 
-                            # 3) delete only those lines (descending)
+                            # delete only those lines (descending)
                             total_removed = 0
                             for lp, locs in deletions.items():
                                 try:
@@ -4320,23 +4325,23 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 except Exception as e:
                                     st.error(f"Failed to update {lp}: {e}")
 
-                            # 4) recompute total objects
+                            # recompute total objects
                             example = get_object_by_global_index(0)
                             new_total = example["num_labels"] if example else 0
                             st.session_state.global_object_count = new_total
 
-                            # 5) rebuild & persist fresh CSV
+                            # rebuild & persist fresh CSV
                             new_df = pd.DataFrame({"idx": list(range(new_total)), "selected": False})
                             new_df.to_csv(grid_csv, index=False, header=False)
 
-                            # 6) clear caches
+                            #clear caches
                             try:
                                 extract_features.clear()
                                 _get_thumbnail_b64.clear()
                             except:
                                 pass
                             
-                            # 7) Create a fresh session ID - this forces all UI components to be recreated
+                            # Create a fresh session ID - this forces all UI components to be recreated
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
                             st.session_state["reset_grid"] = True
                             
@@ -4344,17 +4349,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             st.session_state["grid_page"] = 1
                             st.session_state["preserve_page"] = False
                             
-                            # Use JavaScript to force a complete refresh
-                            st.markdown(
-                                """
-                                <script>
-                                    setTimeout(function() {
-                                        window.location.reload();
-                                    }, 100);
-                                </script>
-                                """,
-                                unsafe_allow_html=True
-                            )
+                            _reset_grid()
                             save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
 
@@ -4647,6 +4642,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                                             f.writelines(lines)
                                     except Exception as e:
                                         st.error(f"Failed to delete object {idx} in {label_path}: {e}")
+
+                            _reset_grid()
 
                             # 4. Clear cluster-item checkboxes from session state
                             for k in list(st.session_state):
