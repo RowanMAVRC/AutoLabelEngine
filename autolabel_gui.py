@@ -1905,10 +1905,8 @@ def _reset_grid():
     except Exception:
         pass
 
-    try:
-        _get_thumbnail_b64.clear()
-    except Exception:
-        pass
+    # clear any cached thumbnails stored in session state
+    st.session_state.pop("thumbnail_cache", None)
 
     st.session_state["reset_grid"] = True
     st.session_state.cluster_enable_view = "Disabled"
@@ -1933,6 +1931,13 @@ def extract_features(img_crop):
 
 def _get_thumbnail_b64(idx: int, thumb_width: int, with_bg: bool = False) -> str:
     """Return base64 encoded thumbnail for the given object index."""
+    if "thumbnail_cache" not in st.session_state:
+        st.session_state["thumbnail_cache"] = {}
+
+    key = (idx, thumb_width, with_bg)
+    if key in st.session_state["thumbnail_cache"]:
+        return st.session_state["thumbnail_cache"][key]
+
     obj = get_object_by_global_index(idx)
     bx, by, bw, bh = obj["bbox"]
     crop = obj["img"].crop((int(bx), int(by), int(bx + bw), int(by + bh)))
@@ -1947,7 +1952,9 @@ def _get_thumbnail_b64(idx: int, thumb_width: int, with_bg: bool = False) -> str
 
     buf = BytesIO()
     crop.save(buf, format="PNG")
-    return base64.b64encode(buf.getvalue()).decode()
+    b64 = base64.b64encode(buf.getvalue()).decode()
+    st.session_state["thumbnail_cache"][key] = b64
+    return b64
 
 ## Linux Terminal
 
@@ -4339,9 +4346,11 @@ elif action_option == "🔍🧩 Object by Object Review":
                             #clear caches
                             try:
                                 extract_features.clear()
-                                _get_thumbnail_b64.clear()
-                            except:
+                            except Exception:
                                 pass
+
+                            # remove cached thumbnails so UI reflects deletions
+                            st.session_state.pop("thumbnail_cache", None)
                             
                             # Create a fresh session ID - this forces all UI components to be recreated
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
