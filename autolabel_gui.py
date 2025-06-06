@@ -1908,6 +1908,7 @@ def _reset_grid(disable_view: bool = False):
     st.session_state["reset_grid"] = True
     if disable_view:
         st.session_state.grid_enable_view = "Disabled"
+        st.session_state["grid_force_disable"] = True
 
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
@@ -2011,6 +2012,7 @@ def commit_prefix():
     st.session_state.prefix_changed = True
     st.session_state.cluster_enable_view = "Disabled"
     st.session_state.grid_enable_view = "Disabled"
+    st.session_state.grid_force_disable = True
 
 def start_edit():
     # restore display name into input for re-editing
@@ -2542,7 +2544,8 @@ if "session_running" not in st.session_state:
 
     st.session_state.cluster_enable_view = "Disabled"
     st.session_state.grid_enable_view = "Disabled"
-    
+    st.session_state.grid_force_disable = False
+
     update_unverified_data_path()
 
     gpu_info = subprocess.check_output("nvidia-smi -L", shell=True).decode("utf-8")
@@ -2723,6 +2726,7 @@ if st.session_state.prefix_changed:
         load_session_state(ss_file)
         st.session_state.cluster_enable_view = "Disabled"
         st.session_state.grid_enable_view = "Disabled"
+        st.session_state.grid_force_disable = True
         update_unverified_data_path()
         save_session_state(ss_file)
     else:
@@ -4011,11 +4015,9 @@ elif action_option == "🔍🧩 Object by Object Review":
                     )
     
         # Keep radio toggle in sync with internal state before the widget is created
-        if (
-            st.session_state.grid_enable_view == "Disabled" and
-            st.session_state.get("grid_enable_view_radio") != "Disabled"
-        ):
+        if st.session_state.get("grid_force_disable"):
             st.session_state["grid_enable_view_radio"] = "Disabled"
+            st.session_state["grid_force_disable"] = False
 
         with st.expander("▦ Grid View"):
             # Toggle full rendering via radio (default Disabled)
@@ -4316,6 +4318,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
                             st.session_state["reset_grid"] = True
                             st.session_state.grid_enable_view = "Disabled"
+                            st.session_state.grid_force_disable = True
                             
                             # For delete operations, we typically want to go back to page 1 since indices may change
                             st.session_state["grid_page"] = 1
@@ -4616,7 +4619,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 if k.startswith("cluster_item_"):
                                     del st.session_state[k]
 
-                            # Refresh the UI
+                            # Refresh the UI and disable Grid View
+                            _reset_grid(disable_view=True)
                             save_session_state(st.session_state.paths["session_state_path"])
                             st.rerun()
                 
@@ -4816,6 +4820,7 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                             img = st.session_state.image_list[idx]
                         lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
                         open(lbl, "w").close()
+                    _reset_grid(disable_view=True)
                     st.success("Cleared all label files for frames in subset.")
 
                 st.markdown("---")
