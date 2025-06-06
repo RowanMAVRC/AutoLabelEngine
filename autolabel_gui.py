@@ -1326,8 +1326,12 @@ def jump_frame_frame_by_frame_callback():
     new_frame_index = st.session_state.jump_page
     # Compare it with the current frame_index in session_state
     if st.session_state.frame_index != new_frame_index:
+        st.session_state.prev_out = None
+        st.session_state.detection_modified = False
         st.session_state.frame_index = new_frame_index
         st.session_state["skip_label_update"] = True
+        save_session_state(st.session_state.paths['session_state_path'])
+        st.rerun()
 
 def jump_frame_object_by_object_callback():
     # Get the desired frame number from the number input.
