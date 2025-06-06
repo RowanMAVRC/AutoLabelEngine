@@ -46,8 +46,8 @@ fi
 # Activate the virtual environment
 source "$VENV_PATH/bin/activate"
 
-# Ensure Streamlit uses port 8501 unless overridden
-STREAMLIT_PORT=${STREAMLIT_PORT:-8501}
+# Ensure Streamlit uses port 8500 unless overridden
+STREAMLIT_PORT=${STREAMLIT_PORT:-8500}
 
 # Run the Streamlit application in headless mode, optionally pinned to a CPU core
 echo "Starting Streamlit on port $STREAMLIT_PORT..."
@@ -55,10 +55,10 @@ if [ -n "$CPU_CORE" ]; then
     echo "Pinning Streamlit to CPU core $CPU_CORE"
     taskset -c "$CPU_CORE" \
         streamlit run --server.headless True --server.fileWatcherType none \
-        --server.port $STREAMLIT_PORT autolabel_gui.py &
+        --server.port $STREAMLIT_PORT login_app.py &
 else
     streamlit run --server.headless True --server.fileWatcherType none \
-        --server.port $STREAMLIT_PORT autolabel_gui.py &
+        --server.port $STREAMLIT_PORT login_app.py &
 fi
 STREAMLIT_PID=$!
 
