@@ -1330,8 +1330,7 @@ def jump_frame_frame_by_frame_callback():
         st.session_state.detection_modified = False
         st.session_state.frame_index = new_frame_index
         st.session_state["skip_label_update"] = True
-        save_session_state(st.session_state.paths['session_state_path'])
-        st.rerun()
+        st.session_state.frame_by_frame_jump_valid = True
 
 def jump_frame_object_by_object_callback():
     # Get the desired frame number from the number input.
@@ -2428,6 +2427,7 @@ if "session_running" not in st.session_state:
 
     st.session_state.object_by_object_jump_valid = False
     st.session_state.object_by_object_jump_warning = None
+    st.session_state.frame_by_frame_jump_valid = False
     
     st.session_state.video_saved_for_current_run = False
     st.session_state.playback_active = False
@@ -4955,6 +4955,10 @@ elif action_option == "🎥🖼️ Frame by Frame Review":
                             key="jump_page",
                             on_change=jump_frame_frame_by_frame_callback
                         )
+                        if st.session_state.frame_by_frame_jump_valid:
+                            st.session_state.frame_by_frame_jump_valid = False
+                            save_session_state(st.session_state.paths['session_state_path'])
+                            st.rerun()
                         col_prev, col_slider, col_next = st.columns([2, 10, 4])
                         with col_prev:
                             st.button("Prev Frame", key="prev_btn", on_click=prev_callback)
