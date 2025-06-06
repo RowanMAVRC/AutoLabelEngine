@@ -42,11 +42,9 @@ def start_session(username: str) -> int:
     port = find_free_port()
     cmd = (
         f"streamlit run --server.headless True --server.fileWatcherType none "
-        f"--server.port {port} autolabel_gui.py"
+        f"--server.port {port} autolabel_gui.py --user {safe}"
     )
-    env = os.environ.copy()
-    env["AUTO_LABEL_USER"] = username
-    subprocess.check_call(["tmux", "new-session", "-d", "-s", session, cmd], env=env)
+    subprocess.check_call(["tmux", "new-session", "-d", "-s", session, cmd])
     return port
 
 

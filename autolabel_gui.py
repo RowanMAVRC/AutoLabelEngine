@@ -17,6 +17,7 @@ import hashlib
 import uuid
 import sys
 import io
+import argparse
 
 ## Third-Party Libraries 
 import math
@@ -30,8 +31,14 @@ import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from pathlib import Path
-import tempfile, json, shlex
+import tempfile, shlex
 import matplotlib.pyplot as plt
+
+# Parse optional username from command line or environment
+parser = argparse.ArgumentParser(add_help=False)
+parser.add_argument("--user", default=os.getenv("AUTO_LABEL_USER", ""))
+_known, _ = parser.parse_known_args()
+CLI_USER = _known.user
 
 ## Streamlit-Specific
 
@@ -2568,10 +2575,11 @@ if "session_running" not in st.session_state:
 
     st.session_state["reset_grid"] = False
 
-    env_user = os.getenv("AUTO_LABEL_USER", "")
+    env_user = CLI_USER or os.getenv("AUTO_LABEL_USER", "")
     sanitized = sanitize_username(env_user) if env_user else ""
     st.session_state.user_prefix = sanitized
     st.session_state.edit_prefix = False if env_user else True
+    st.session_state.allow_name_edit = False if env_user else True
     st.session_state.user_prefix_input = (
         " ".join(w.capitalize() for w in sanitized.split("_")) if env_user else ""
     )
@@ -2740,12 +2748,15 @@ else:
     # Display greeting and edit button
     display_name = " ".join(w.capitalize() for w in st.session_state.user_prefix.split('_'))
     col1, col2, _ = st.sidebar.columns([0.2, 0.7, 0.1])
-    col1.button(
-        "✏️",
-        key="change_prefix",
-        help="Change name",
-        on_click=start_edit,
-    )
+    if st.session_state.allow_name_edit:
+        col1.button(
+            "✏️",
+            key="change_prefix",
+            help="Change name",
+            on_click=start_edit,
+        )
+    else:
+        col1.empty()
     col2.markdown(f"### 👋 Hello, **{display_name}**")
     
     navigation_menu_margin = 375

@@ -27,9 +27,8 @@ bash run_login.sh                      # spawns per-user GUI sessions
    The login page automatically opens the user's session in a new browser tab
    using the machine's network IP. Set the environment variable
    `AUTO_LABEL_BASE_URL` to override this with a custom hostname (e.g. an
-   ngrok URL). The launched GUI also receives the username via the
-   `AUTO_LABEL_USER` environment variable so your data paths are prefixed
-   accordingly.
+   ngrok URL). The launched GUI is given the login username via a `--user`
+   argument so your data paths are prefixed automatically.
 
 ---
 
