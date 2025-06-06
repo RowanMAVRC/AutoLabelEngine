@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import re
 import socket
 import subprocess
@@ -6,6 +7,7 @@ import time
 
 
 import streamlit as st
+from streamlit.components.v1 import html
 
 
 def sanitize_username(name: str) -> str:
@@ -44,6 +46,9 @@ if st.button("Start Session"):
         try:
             port = start_session(user)
             st.success(f"Session started for {user} on port {port}.")
-            st.write(f"Open http://<server-ip>:{port} in a new tab.")
+            base_url = os.getenv("AUTO_LABEL_BASE_URL", "http://<server-ip>")
+            full_url = f"{base_url}:{port}"
+            st.write(f"Open {full_url} in a new tab.")
+            html(f"<script>window.open('{full_url}', '_blank');</script>", height=0)
         except Exception as e:
             st.error(f"Failed to start session: {e}")
