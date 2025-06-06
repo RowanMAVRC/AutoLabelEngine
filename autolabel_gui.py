@@ -4178,19 +4178,30 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 
                             thumb = _get_thumbnail_b64(int(idx), 100, with_bg=True)
                             with cell:
-                                st.image(f"data:image/png;base64,{thumb}", width=100)
-                                st.write(str(idx))
+                                with st.container(border=True):
+                                    st.image(
+                                        f"data:image/png;base64,{thumb}",
+                                        width=100,
+                                    )
+                                    st.markdown(
+                                        f"<div style='text-align:center'>{idx}</div>",
+                                        unsafe_allow_html=True,
+                                    )
 
-                                # Generate unique checkbox key with session ID to force refresh
-                                checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
+                                    # Generate unique checkbox key with session ID to force refresh
+                                    checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
 
-                                # Get current selection state from DataFrame
-                                is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
+                                    # Get current selection state from DataFrame
+                                    is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
 
-                                c1, c2, c3 = st.columns([1, 1, 1])
-                                with c2:
-                                    sel = st.checkbox("Delete", value=is_selected,
-                                                    key=checkbox_key, label_visibility="collapsed")
+                                    c1, c2, c3 = st.columns([1, 1, 1])
+                                    with c2:
+                                        sel = st.checkbox(
+                                            "Delete",
+                                            value=is_selected,
+                                            key=checkbox_key,
+                                            label_visibility="collapsed",
+                                        )
 
                                 # Update DataFrame with new state
                                 df.loc[df.idx==idx, "selected"] = sel
@@ -4527,16 +4538,20 @@ elif action_option == "🔍🧩 Object by Object Review":
                             key = f"cluster_item_{int(idx)}"
                             b64 = _get_thumbnail_b64(int(idx), 150, with_bg=True)
                             with cell:
-                                st.image(f"data:image/png;base64,{b64}", width=150)
-                                st.write(str(int(idx)))
-                                c1, c2, c3 = st.columns([1, 1, 1])
-                                with c2:
-                                    checked = st.checkbox(
-                                        "Select",
-                                        value=df.loc[df["idx"] == idx, "selected"].iloc[0],
-                                        key=key,
-                                        label_visibility="collapsed"
+                                with st.container(border=True):
+                                    st.image(f"data:image/png;base64,{b64}", width=150)
+                                    st.markdown(
+                                        f"<div style='text-align:center'>{int(idx)}</div>",
+                                        unsafe_allow_html=True,
                                     )
+                                    c1, c2, c3 = st.columns([1, 1, 1])
+                                    with c2:
+                                        checked = st.checkbox(
+                                            "Select",
+                                            value=df.loc[df["idx"] == idx, "selected"].iloc[0],
+                                            key=key,
+                                            label_visibility="collapsed",
+                                        )
                             df.loc[df["idx"] == idx, "selected"] = checked
 
                     # Persist selections
