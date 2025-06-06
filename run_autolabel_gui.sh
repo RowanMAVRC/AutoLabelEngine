@@ -4,13 +4,6 @@
 DEFAULT_VENV_PATH="../envs/auto-label-engine"
 VENV_PATH="$DEFAULT_VENV_PATH"
 
-# === Kill any existing ngrok processes if ngrok is installed ===
-if command -v ngrok >/dev/null; then
-    if pgrep -x ngrok >/dev/null; then
-        echo "Killing existing ngrok processes..."
-        pkill -f ngrok
-    fi
-fi
 
 # === Check for virtual environment ===
 if [ ! -f "$VENV_PATH/bin/activate" ]; then
@@ -62,23 +55,5 @@ else
 fi
 STREAMLIT_PID=$!
 
-# If ngrok is installed, start it; otherwise skip
-if command -v ngrok >/dev/null; then
-    echo "Starting ngrok tunnel..."
-    ngrok http $STREAMLIT_PORT --log=stdout > ngrok.log &
-    NGROK_PID=$!
-
-    # Give ngrok a moment to establish the tunnel
-    sleep 2
-
-    # Fetch and display the public URL
-    echo "Your public ngrok URL is:"
-    curl --silent http://127.0.0.1:4040/api/tunnels \
-      | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])"
-else
-    echo "ngrok not installed—running Streamlit locally only."
-fi
-
-# Wait for the Streamlit process (and ngrok, if started) to exit
+# Wait for the Streamlit process to exit
 wait $STREAMLIT_PID
-[ -n "$NGROK_PID" ] && wait $NGROK_PID

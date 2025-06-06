@@ -2,12 +2,9 @@
 """Simple login script that launches the GUI with per-user CPU pinning."""
 import os
 import json
-import hashlib
-import getpass
 import subprocess
 import sys
 
-USERS_FILE = "users.json"
 CPU_FILE = "cpu_allocation.json"
 
 
@@ -23,14 +20,6 @@ def save_json(path, data):
         json.dump(data, f)
 
 
-def verify_user(username, password):
-    users = load_json(USERS_FILE)
-    hashed = hashlib.sha256(password.encode()).hexdigest()
-    if username in users:
-        return users[username] == hashed
-    users[username] = hashed
-    save_json(USERS_FILE, users)
-    return True
 
 
 def allocate_cpu(username):
@@ -52,9 +41,8 @@ def allocate_cpu(username):
 
 def main():
     username = input("Username: ").strip()
-    password = getpass.getpass("Password: ")
-    if not verify_user(username, password):
-        print("Invalid username or password.")
+    if not username:
+        print("Username required.")
         sys.exit(1)
     cpu = allocate_cpu(username)
     print(f"Launching GUI for {username} on CPU core {cpu}...")

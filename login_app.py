@@ -3,7 +3,7 @@
 import os
 import subprocess
 import streamlit as st
-from get_login import verify_user, allocate_cpu, load_json, save_json
+from get_login import allocate_cpu, load_json, save_json
 
 PORT_FILE = "port_allocation.json"
 
@@ -23,11 +23,11 @@ def allocate_port(username, base=8600):
 
 st.title("Auto Label Engine Login")
 username = st.text_input("Username")
-password = st.text_input("Password", type="password")
-if st.button("Login"):
-    if not username or not password:
-        st.error("Please enter a username and password")
-    elif verify_user(username, password):
+login_pressed = st.button("Login")
+if login_pressed:
+    if not username:
+        st.error("Please enter a username")
+    else:
         cpu = allocate_cpu(username)
         port = allocate_port(username)
         env = os.environ.copy()
@@ -42,6 +42,4 @@ if st.button("Login"):
             f'<meta http-equiv="refresh" content="0; URL={url}" />',
             unsafe_allow_html=True,
         )
-    else:
-        st.error("Invalid username or password")
 

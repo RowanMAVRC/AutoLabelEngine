@@ -16,9 +16,9 @@ cd AutoLabelEngine
 bash scripts/setup_venv.sh                     # creates ./envs/auto-label-engine
 
 # 3. (Optional) start the login portal for multiple users
-streamlit run login_app.py             # launches a login page via ngrok
+bash run_login_app.sh                  # launches a login page via ngrok
 
-# 4. (Optional) CLI login with CPU pinning
+# 4. (Optional) CLI login with CPU pinning (no password)
 python get_login.py                    # directly launches a personal GUI
 
 # 5. Launch the full GUI & helpers without login
