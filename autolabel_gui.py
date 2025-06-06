@@ -27,7 +27,7 @@ import cv2
 import yaml
 import streamlit as st
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 from moviepy.editor import ImageSequenceClip, VideoClip, clips_array
 from pathlib import Path
 import tempfile, json, shlex
@@ -1917,11 +1917,20 @@ def extract_features(img_crop):
     cv2.normalize(hist, hist)
     return hist.flatten()
 
-def _get_thumbnail_b64(idx: int, thumb_width: int) -> str:
-    # Assumes existing function to fetch base64 thumbnail string for object idx
+def _get_thumbnail_b64(idx: int, thumb_width: int, with_bg: bool = False) -> str:
+    """Return base64 encoded thumbnail for the given object index."""
     obj = get_object_by_global_index(idx)
     bx, by, bw, bh = obj["bbox"]
     crop = obj["img"].crop((int(bx), int(by), int(bx + bw), int(by + bh)))
+
+    if with_bg:
+        # Add subtle border background to visually group with checkbox
+        crop = ImageOps.expand(crop, border=4, fill=(240, 240, 240))
+
+    if thumb_width and crop.width != thumb_width:
+        ratio = thumb_width / crop.width
+        crop = crop.resize((thumb_width, max(1, int(crop.height * ratio))))
+
     buf = BytesIO()
     crop.save(buf, format="PNG")
     return base64.b64encode(buf.getvalue()).decode()
@@ -4036,6 +4045,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     for key in keys_to_delete:
                         del st.session_state[key]
 
+                # Unique session ID for grid checkboxes
                 session_id = st.session_state["grid_session_id"]
                         
                 # load or initialize DataFrame
@@ -4166,21 +4176,33 @@ elif action_option == "🔍🧩 Object by Object Review":
                             if idx >= len(df):
                                 continue
                                 
-                            thumb = _get_thumbnail_b64(int(idx), 100)
+                            thumb = _get_thumbnail_b64(int(idx), 100, with_bg=True)
                             with cell:
-                                st.image(f"data:image/png;base64,{thumb}", width=100)
-                                st.markdown(f"<div style='text-align:center'>{idx}</div>", unsafe_allow_html=True)
-                                
-                                # Generate unique checkbox key with session ID to force refresh
-                                checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
-                                
-                                # Get current selection state from DataFrame
-                                is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
-                                
-                                # Create checkbox with unique key
-                                sel = st.checkbox("Delete", value=is_selected,
-                                                key=checkbox_key, label_visibility="collapsed")
-                                
+                                with st.container(border=True):
+                                    st.image(
+                                        f"data:image/png;base64,{thumb}",
+                                        width=100,
+                                    )
+                                    st.markdown(
+                                        f"<div style='text-align:center'>{idx}</div>",
+                                        unsafe_allow_html=True,
+                                    )
+
+                                    # Generate unique checkbox key with session ID to force refresh
+                                    checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
+
+                                    # Get current selection state from DataFrame
+                                    is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
+
+                                    c1, c2, c3 = st.columns([1, 1, 1])
+                                    with c2:
+                                        sel = st.checkbox(
+                                            "Delete",
+                                            value=is_selected,
+                                            key=checkbox_key,
+                                            label_visibility="collapsed",
+                                        )
+
                                 # Update DataFrame with new state
                                 df.loc[df.idx==idx, "selected"] = sel
 
@@ -4407,15 +4429,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                     """
                 )
                 
-                # Center checkboxes via CSS
-                st.markdown(
-                    """
-                    <style>
-                    .stCheckbox > label { justify-content: center; display: flex; }
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
+                # Controls for cluster view layout
 
                 # Load or init CSV (idx, selected)
                 if os.path.exists(cluster_csv_path):
@@ -4522,16 +4536,22 @@ elif action_option == "🔍🧩 Object by Object Review":
                         cols_cells = st.columns(cols)
                         for idx, cell in zip(row_idxs, cols_cells):
                             key = f"cluster_item_{int(idx)}"
-                            b64 = _get_thumbnail_b64(int(idx), 150)
+                            b64 = _get_thumbnail_b64(int(idx), 150, with_bg=True)
                             with cell:
-                                st.image(f"data:image/png;base64,{b64}", width=150)
-                                st.markdown(f"<div style='text-align:center'>{int(idx)}</div>", unsafe_allow_html=True)
-                                checked = st.checkbox(
-                                    "Select",
-                                    value=df.loc[df["idx"] == idx, "selected"].iloc[0],
-                                    key=key,
-                                    label_visibility="collapsed"
-                                )
+                                with st.container(border=True):
+                                    st.image(f"data:image/png;base64,{b64}", width=150)
+                                    st.markdown(
+                                        f"<div style='text-align:center'>{int(idx)}</div>",
+                                        unsafe_allow_html=True,
+                                    )
+                                    c1, c2, c3 = st.columns([1, 1, 1])
+                                    with c2:
+                                        checked = st.checkbox(
+                                            "Select",
+                                            value=df.loc[df["idx"] == idx, "selected"].iloc[0],
+                                            key=key,
+                                            label_visibility="collapsed",
+                                        )
                             df.loc[df["idx"] == idx, "selected"] = checked
 
                     # Persist selections
