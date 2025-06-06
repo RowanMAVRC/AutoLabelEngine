@@ -271,8 +271,7 @@ def path_navigator(
     """
 
     # Retrieve or set initial path in session state
-    current_path = st.session_state.paths.get(key, "/")
-    current_path = os.path.normpath(current_path)
+    current_path = os.path.normpath(st.session_state.paths.setdefault(key, "/"))
 
     # Mode switch
     save_path_option = st.radio(
@@ -611,7 +610,14 @@ def run_in_tmux(session_key, script_path, venv_path=None, args="", script_type="
 
     # Convert args to string if it's a dictionary
     if isinstance(args, dict):
-        args = " ".join(f"--{key} {value}" for key, value in args.items())
+        parts = []
+        for key, value in args.items():
+            if isinstance(value, bool):
+                if value:
+                    parts.append(f"--{key}")
+            elif value is not None:
+                parts.append(f"--{key} {value}")
+        args = " ".join(parts)
 
     if venv_path is not None:
         activate_script = os.path.join(venv_path, "bin", "activate")
@@ -2011,6 +2017,7 @@ def commit_prefix():
     st.session_state.prefix_changed = True
     st.session_state.cluster_enable_view = "Disabled"
     st.session_state.grid_enable_view = "Disabled"
+    st.session_state.move_prune_enable = "Disabled"
 
 def start_edit():
     # restore display name into input for re-editing
@@ -2498,6 +2505,7 @@ if "session_running" not in st.session_state:
 
         "move_src_path": ".",
         "move_dest_path": ".",
+        "move_prune_height": ".",
         "move_dir_script_path": "scripts/move_dir.py",
 
         "open_workspace": "/data/TGSSE/AutoLabelEngine/",
@@ -2542,6 +2550,7 @@ if "session_running" not in st.session_state:
 
     st.session_state.cluster_enable_view = "Disabled"
     st.session_state.grid_enable_view = "Disabled"
+    st.session_state.move_prune_enable = "Disabled"
     
     update_unverified_data_path()
 
@@ -2558,6 +2567,11 @@ if st.session_state.get("user_prefix"):
 
 # Load previous state (overwrite defaults)
 load_session_state(st.session_state.paths['session_state_path'])
+
+# Ensure new move_dir keys exist for backward compatibility
+st.session_state.paths.setdefault("move_src_path", ".")
+st.session_state.paths.setdefault("move_dest_path", ".")
+st.session_state.paths.setdefault("move_prune_height", ".")
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
@@ -5119,6 +5133,18 @@ elif action_option == "🚚📁 Move Directory":
             save_session_state(st.session_state.paths['session_state_path'])
             st.rerun()
 
+        st.subheader("Pruning")
+        prune_opt = st.radio(
+            "Prune empty parent directories?",
+            ("Disabled", "Enabled"),
+            index=0 if st.session_state.move_prune_enable == "Disabled" else 1,
+            key="move_prune_enable_radio",
+        )
+        st.session_state.move_prune_enable = prune_opt
+        if st.session_state.move_prune_enable == "Enabled":
+            st.write("Directory to stop pruning at (will not be removed).")
+            path_navigator("move_prune_height")
+
     with st.expander("🌐 Virtual Environment Path"):
         st.write("Path to the virtual environment for the move script.")
         path_navigator("venv_path", radio_button_prefix="move_dir")
@@ -5139,6 +5165,14 @@ elif action_option == "🚚📁 Move Directory":
                     args={
                         "src_dir": st.session_state.paths["move_src_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
                         "dst_dir": st.session_state.paths["move_dest_path"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)"),
+                        **(
+                            {
+                                "prune": True,
+                                "prune_height": st.session_state.paths["move_prune_height"].replace(" ", "\\ ").replace("(", "\\(").replace(")", "\\)")
+                            }
+                            if st.session_state.move_prune_enable == "Enabled"
+                            else {}
+                        ),
                     },
                     script_type="python"
                 )
