@@ -15,16 +15,15 @@ cd AutoLabelEngine
 # 2. (Optional) create the project virtual-env
 bash scripts/setup_venv.sh                     # creates ./envs/auto-label-engine
 
-# 3. Launch the full GUI & helpers
-bash run_autolabel_engine.sh           # <— main entry-point
+# 3. Start the multi-user login page
+bash run_login.sh                      # spawns per-user GUI sessions
 ```
 
-`run_autolabel_engine.sh` does the following:
+`run_login.sh` does the following:
 
-1. Activates the project venv (or prompts you to generate one).  
-2. Exports permissive `umask 000` so every file created by the GUI is world-writable (helpful on multi-user servers).  
-3. Starts the Streamlit app (`autolabel_gui.py`) on **localhost:8501** and opens your browser.  
-4. Spins up a **tmux** session so all long-running jobs stay alive even if you close the browser tab.
+1. Activates the project venv (or prompts you to generate one).
+2. Launches the Streamlit login page (`login.py`) on **localhost:8501** (and optional ngrok tunnel).
+3. After a user logs in, a new **tmux** session is created running `autolabel_gui.py` on its own port.
 
 ---
 
@@ -49,8 +48,9 @@ Repeat steps 3-6 until the detector reaches your desired precision.
 ```text
 AutoLabelEngine/
 │
-├─ run_autolabel_engine.sh      # main launcher (see above)
-├─ autolabel_gui.py             # Streamlit GUI
+├─ run_login.sh                # login page entry-point
+├─ run_autolabel_gui.sh        # original single-user launcher
+├─ autolabel_gui.py            # Streamlit GUI
 ├─ cfgs/                        # YAML configs (GUI, YOLO data/model/train)
 ├─ scripts/                     # helper Python/Bash utilities
 │   ├─ convert_mp4_2_png.py
