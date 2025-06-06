@@ -86,3 +86,4 @@ example_batch/
 results/
 wandb/
 ngrok.log
+yolo12/
