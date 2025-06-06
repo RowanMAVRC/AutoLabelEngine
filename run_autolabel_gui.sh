@@ -49,10 +49,17 @@ source "$VENV_PATH/bin/activate"
 # Ensure Streamlit uses port 8501
 STREAMLIT_PORT=8501
 
-# Run the Streamlit application in headless mode, in the background
+# Run the Streamlit application in headless mode, optionally pinned to a CPU core
 echo "Starting Streamlit on port $STREAMLIT_PORT..."
-streamlit run --server.headless True --server.fileWatcherType none \
-    --server.port $STREAMLIT_PORT autolabel_gui.py &
+if [ -n "$CPU_CORE" ]; then
+    echo "Pinning Streamlit to CPU core $CPU_CORE"
+    taskset -c "$CPU_CORE" \
+        streamlit run --server.headless True --server.fileWatcherType none \
+        --server.port $STREAMLIT_PORT autolabel_gui.py &
+else
+    streamlit run --server.headless True --server.fileWatcherType none \
+        --server.port $STREAMLIT_PORT autolabel_gui.py &
+fi
 STREAMLIT_PID=$!
 
 # If ngrok is installed, start it; otherwise skip

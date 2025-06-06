@@ -15,7 +15,11 @@ cd AutoLabelEngine
 # 2. (Optional) create the project virtual-env
 bash scripts/setup_venv.sh                     # creates ./envs/auto-label-engine
 
-# 3. Launch the full GUI & helpers
+# 3. (Optional) start with per-user login
+python get_login.py                    # prompts for credentials and launches
+                                      # a GUI instance pinned to its own CPU
+
+# 4. Launch the full GUI & helpers without login
 bash run_autolabel_engine.sh           # <— main entry-point
 ```
 
