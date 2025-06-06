@@ -1286,8 +1286,8 @@ def update_labels_from_detection():
                     height_norm = height / image_height
                     f.write(f"{label} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}\n")
             
-            # kill the old grid.csv so it will build fresh
-            _reset_grid()
+            # kill the old grid.csv so it will build fresh and disable Grid View
+            _reset_grid(disable_view=True)
             # re-run to pick up new labels and regenerate grid
             save_session_state(st.session_state.paths["session_state_path"])
             st.rerun()
@@ -1874,8 +1874,15 @@ def object_by_object_edit_callback():
 def _on_view_change():
     st.session_state["skip_label_update"] = True
 
-def _reset_grid():
-    """Delete old grid.csv and flag Streamlit to regen the grid on next render."""
+def _reset_grid(disable_view: bool = False):
+    """Delete old grid.csv and flag Streamlit to regen the grid on next render.
+
+    Parameters
+    ----------
+    disable_view : bool
+        When True, automatically disable the Grid View toggle. This is useful
+        after label modifications so the interface resets to a safe state.
+    """
     grid_csv = os.path.join(
         os.path.dirname(st.session_state.paths["unverified_images_path"]),
         "grid.csv"
@@ -1899,6 +1906,10 @@ def _reset_grid():
         pass
     
     st.session_state["reset_grid"] = True
+    if disable_view:
+        st.session_state.grid_enable_view = "Disabled"
+        # Keep the radio button state in sync if it already exists
+        st.session_state["grid_enable_view_radio"] = "Disabled"
 
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
@@ -3658,7 +3669,7 @@ elif action_option == "📹🏷️ Labeled Video Review":
                             img = st.session_state.image_list[idx]
                         lbl = img.replace("/images/", "/labels/").rsplit(".",1)[0] + ".txt"
                         open(lbl, "w").close()
-                    _reset_grid()
+                    _reset_grid(disable_view=True)
                     save_session_state(st.session_state.paths["session_state_path"])
                     st.rerun()
 
@@ -3986,7 +3997,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 except Exception as e:
                                     st.error(f"Error deleting object: {e}")
                                 finally:
-                                    _reset_grid()
+                                    _reset_grid(disable_view=True)
 
                                     # Rerun so the Grid View is regenerated immediately
                                     save_session_state(st.session_state.paths["session_state_path"])
@@ -4299,6 +4310,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                             # 7) Create a fresh session ID - this forces all UI components to be recreated
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
                             st.session_state["reset_grid"] = True
+                            st.session_state.grid_enable_view = "Disabled"
+                            st.session_state["grid_enable_view_radio"] = "Disabled"
                             
                             # For delete operations, we typically want to go back to page 1 since indices may change
                             st.session_state["grid_page"] = 1
