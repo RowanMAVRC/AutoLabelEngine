@@ -1956,6 +1956,21 @@ def _get_thumbnail_b64(idx: int, thumb_width: int, with_bg: bool = False) -> str
     st.session_state["thumbnail_cache"][key] = b64
     return b64
 
+def _apply_grid_selections():
+    """Persist current checkbox selections to the grid CSV."""
+    grid_csv = st.session_state.get("grid_csv")
+    df = st.session_state.get("grid_df")
+    if not grid_csv or df is None:
+        return
+
+    key_map = st.session_state.get("grid_key_map", [])
+    for cb_key, idx in key_map:
+        df.loc[df.idx == idx, "selected"] = st.session_state.get(cb_key, False)
+
+    st.session_state.grid_df = df
+    st.session_state.grid_df_len = len(df)
+    df.to_csv(grid_csv, index=False, header=False)
+
 ## Linux Terminal
 
 def run_command_and_accumulate(command):
@@ -4057,6 +4072,7 @@ elif action_option == "🔍🧩 Object by Object Review":
                 # compute path for persisting selections
                 images_dir = st.session_state.paths["unverified_images_path"]
                 grid_csv = os.path.join(os.path.dirname(images_dir), "grid.csv")
+                st.session_state.grid_csv = grid_csv
                 
                 # Generate a unique key for this session to force re-rendering
                 # This helps prevent Streamlit's component caching
@@ -4180,17 +4196,20 @@ elif action_option == "🔍🧩 Object by Object Review":
                         n1, n2, n3 = st.columns([1, 8, 1])
                         with n1:
                             if st.button("Prev Page", key="grid_prev"):
+                                _apply_grid_selections()
                                 st.session_state["grid_page"] = page - 1 if page > 1 else pages
                                 save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with n2:
                             new_page = st.slider(" ", 1, pages, page, key="grid_slider", label_visibility="collapsed")
                             if new_page != st.session_state["grid_page"]:
+                                _apply_grid_selections()
                                 st.session_state["grid_page"] = new_page
                                 save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
                         with n3:
                             if st.button("Next Page", key="grid_next"):
+                                _apply_grid_selections()
                                 st.session_state["grid_page"] = page + 1 if page < pages else 1
                                 save_session_state(st.session_state.paths["session_state_path"])
                                 st.rerun()
@@ -4221,6 +4240,10 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 if idx >= len(df):
                                     continue
 
+                                checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
+                                key_map.append((checkbox_key, idx))
+                                is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
+
                                 thumb = _get_thumbnail_b64(int(idx), 100, with_bg=True)
                                 with cell:
                                     with st.container(border=True):
@@ -4232,24 +4255,15 @@ elif action_option == "🔍🧩 Object by Object Review":
                                             f"<div style='text-align:center'>{idx}</div>",
                                             unsafe_allow_html=True,
                                         )
+                                        c1, c2, c3 = st.columns([1, 1, 1])
+                                        with c2:
+                                            sel = st.checkbox(
+                                                "Delete",
+                                                value=is_selected,
+                                                key=checkbox_key,
+                                                label_visibility="collapsed",
+                                            )
 
-                                    # Generate unique checkbox key with session ID to force refresh
-                                    checkbox_key = f"grid_sel_{session_id}_{idx}_{i}_{j}"
-                                    key_map.append((checkbox_key, idx))
-
-                                    # Get current selection state from DataFrame
-                                    is_selected = bool(df.loc[df.idx==idx, "selected"].iloc[0])
-
-                                    c1, c2, c3 = st.columns([1, 1, 1])
-                                    with c2:
-                                        sel = st.checkbox(
-                                            "Delete",
-                                            value=is_selected,
-                                            key=checkbox_key,
-                                            label_visibility="collapsed",
-                                        )
-
-                                # Update DataFrame with new state
                                 df.loc[df.idx==idx, "selected"] = sel
 
                         st.divider()
@@ -4285,6 +4299,8 @@ elif action_option == "🔍🧩 Object by Object Review":
                             add_refs_button = st.form_submit_button(
                                 "Add Selected to Cluster Refs"
                             )
+
+                    st.session_state.grid_key_map = key_map
 
                     # handle form submission
                     if (
