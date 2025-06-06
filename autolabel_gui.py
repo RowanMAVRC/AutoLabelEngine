@@ -271,8 +271,7 @@ def path_navigator(
     """
 
     # Retrieve or set initial path in session state
-    current_path = st.session_state.paths.get(key, "/")
-    current_path = os.path.normpath(current_path)
+    current_path = os.path.normpath(st.session_state.paths.setdefault(key, "/"))
 
     # Mode switch
     save_path_option = st.radio(
@@ -2559,6 +2558,11 @@ if st.session_state.get("user_prefix"):
 
 # Load previous state (overwrite defaults)
 load_session_state(st.session_state.paths['session_state_path'])
+
+# Ensure new move_dir keys exist for backward compatibility
+st.session_state.paths.setdefault("move_src_path", ".")
+st.session_state.paths.setdefault("move_dest_path", ".")
+st.session_state.paths.setdefault("move_prune_height", ".")
 
 # GUI
 #--------------------------------------------------------------------------------------------------------------------------------#
