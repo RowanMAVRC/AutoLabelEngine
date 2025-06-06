@@ -17,6 +17,7 @@ bash scripts/setup_venv.sh                     # creates ./envs/auto-label-engin
 
 # 3. (Optional) start the login portal for multiple users
 bash run_login_app.sh                  # launches a login page via ngrok
+#     each user is redirected to their own ngrok URL after login
 
 # 4. (Optional) CLI login with CPU pinning (no password)
 python get_login.py                    # directly launches a personal GUI

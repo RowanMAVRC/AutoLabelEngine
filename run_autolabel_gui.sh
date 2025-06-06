@@ -48,10 +48,10 @@ if [ -n "$CPU_CORE" ]; then
     echo "Pinning Streamlit to CPU core $CPU_CORE"
     taskset -c "$CPU_CORE" \
         streamlit run --server.headless True --server.fileWatcherType none \
-        --server.port $STREAMLIT_PORT autolabel_gui.py &
+        --server.address 0.0.0.0 --server.port $STREAMLIT_PORT autolabel_gui.py &
 else
     streamlit run --server.headless True --server.fileWatcherType none \
-        --server.port $STREAMLIT_PORT autolabel_gui.py &
+        --server.address 0.0.0.0 --server.port $STREAMLIT_PORT autolabel_gui.py &
 fi
 STREAMLIT_PID=$!
 
