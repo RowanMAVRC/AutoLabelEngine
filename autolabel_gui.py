@@ -4258,38 +4258,32 @@ elif action_option == "🔍🧩 Object by Object Review":
 
                         with b0:
                             apply_changes = st.form_submit_button(
-                                "Apply Selections",
-                                key=f"apply_{session_id}_{page}"
+                                "Apply Selections"
                             )
 
                         with b1:
                             select_all_page = st.form_submit_button(
-                                "Select All Page",
-                                key=f"select_all_{session_id}"
+                                "Select All Page"
                             )
 
                         with b2:
                             deselect_all_page = st.form_submit_button(
-                                "Deselect All Page",
-                                key=f"deselect_all_{session_id}"
+                                "Deselect All Page"
                             )
 
                         with b3:
                             clear_all = st.form_submit_button(
-                                "Clear All Selections",
-                                key=f"clear_all_{session_id}"
+                                "Clear All Selections"
                             )
 
                         with b4:
                             delete_selected = st.form_submit_button(
-                                "Delete Selected Labels",
-                                key=f"delete_selected_{session_id}"
+                                "Delete Selected Labels"
                             )
 
                         with b5:
                             add_refs_button = st.form_submit_button(
-                                "Add Selected to Cluster Refs",
-                                key=f"add_refs_{session_id}"
+                                "Add Selected to Cluster Refs"
                             )
 
                     # handle form submission
