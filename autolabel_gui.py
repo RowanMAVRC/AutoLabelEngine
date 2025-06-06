@@ -4191,29 +4191,6 @@ elif action_option == "🔍🧩 Object by Object Review":
                     # Store current page for future reference
                     st.session_state["grid_page"] = page
 
-                    # Top nav: Prev Page | Slider | Next Page
-                    if pages>1:
-                        n1, n2, n3 = st.columns([1, 8, 1])
-                        with n1:
-                            if st.button("Prev Page", key="grid_prev"):
-                                _apply_grid_selections()
-                                st.session_state["grid_page"] = page - 1 if page > 1 else pages
-                                save_session_state(st.session_state.paths["session_state_path"])
-                                st.rerun()
-                        with n2:
-                            new_page = st.slider(" ", 1, pages, page, key="grid_slider", label_visibility="collapsed")
-                            if new_page != st.session_state["grid_page"]:
-                                _apply_grid_selections()
-                                st.session_state["grid_page"] = new_page
-                                save_session_state(st.session_state.paths["session_state_path"])
-                                st.rerun()
-                        with n3:
-                            if st.button("Next Page", key="grid_next"):
-                                _apply_grid_selections()
-                                st.session_state["grid_page"] = page + 1 if page < pages else 1
-                                save_session_state(st.session_state.paths["session_state_path"])
-                                st.rerun()
-
                     # Centered page indicator
                     p1, p2, p3 = st.columns([1, 8, 1])
                     p2.markdown(f"<p style='text-align:center'>Page {page} of {pages}</p>", unsafe_allow_html=True)
@@ -4268,6 +4245,21 @@ elif action_option == "🔍🧩 Object by Object Review":
 
                         st.divider()
 
+                        # Top nav: Prev Page | Slider | Next Page
+                        if pages > 1:
+                            n1, n2, n3 = st.columns([1, 8, 1])
+                            with n1:
+                                prev_page = st.form_submit_button("Prev Page")
+                            with n2:
+                                new_page = st.slider(" ", 1, pages, page, key="grid_slider", label_visibility="collapsed")
+                            with n3:
+                                next_page = st.form_submit_button("Next Page")
+                        else:
+                            prev_page = next_page = False
+                            new_page = page
+
+                        st.divider()
+
                         b0, b1, b2, b3, b4, b5 = st.columns(6)
 
                         with b0:
@@ -4300,110 +4292,100 @@ elif action_option == "🔍🧩 Object by Object Review":
                                 "Add Selected to Cluster Refs"
                             )
 
-                    st.session_state.grid_key_map = key_map
+                        st.session_state.grid_key_map = key_map
 
-                    # handle form submission
-                    if (
-                        apply_changes
-                        or select_all_page
-                        or deselect_all_page
-                        or clear_all
-                        or delete_selected
-                        or add_refs_button
-                    ):
-                        # sync checkbox state back to DataFrame
-                        for cb_key, cb_idx in key_map:
-                            df.loc[df.idx == cb_idx, "selected"] = st.session_state.get(
-                                cb_key, False
-                            )
+                        # handle form submission
+                        if (
+                            apply_changes
+                            or select_all_page
+                            or deselect_all_page
+                            or clear_all
+                            or delete_selected
+                            or add_refs_button
+                            or prev_page
+                            or next_page
+                            or new_page != page
+                        ):
+                            # sync checkbox state back to DataFrame
+                            for cb_key, cb_idx in key_map:
+                                df.loc[df.idx == cb_idx, "selected"] = st.session_state.get(
+                                    cb_key, False
+                                )
 
-                        if select_all_page:
-                            df.loc[df.idx.isin(page_df["idx"]), "selected"] = True
-                        if deselect_all_page:
-                            df.loc[df.idx.isin(page_df["idx"]), "selected"] = False
-                        if clear_all:
-                            df["selected"] = False
+                            if select_all_page:
+                                df.loc[df.idx.isin(page_df["idx"]), "selected"] = True
+                            if deselect_all_page:
+                                df.loc[df.idx.isin(page_df["idx"]), "selected"] = False
+                            if clear_all:
+                                df["selected"] = False
 
-                        if delete_selected:
-                            to_delete = df.loc[df.selected, "idx"].astype(int).tolist()
+                            if delete_selected:
+                                to_delete = df.loc[df.selected, "idx"].astype(int).tolist()
 
-                            deletions = {}
-                            for gidx in to_delete:
-                                obj = get_object_by_global_index(gidx)
-                                if obj:
-                                    lp = obj["label_path"]
-                                    li = obj["local_index"]
-                                    deletions.setdefault(lp, []).append(li)
+                                deletions = {}
+                                for gidx in to_delete:
+                                    obj = get_object_by_global_index(gidx)
+                                    if obj:
+                                        lp = obj["label_path"]
+                                        li = obj["local_index"]
+                                        deletions.setdefault(lp, []).append(li)
 
-                            total_removed = 0
-                            for lp, locs in deletions.items():
+                                total_removed = 0
+                                for lp, locs in deletions.items():
+                                    try:
+                                        with open(lp, "r") as f:
+                                            lines = f.readlines()
+                                        for li in sorted(locs, reverse=True):
+                                            if 0 <= li < len(lines):
+                                                del lines[li]
+                                                total_removed += 1
+                                        with open(lp, "w") as f:
+                                            f.writelines(lines)
+                                    except Exception as e:
+                                        st.error(f"Failed to update {lp}: {e}")
+
+                                example = get_object_by_global_index(0)
+                                new_total = example["num_labels"] if example else 0
+                                st.session_state.global_object_count = new_total
+
+                                new_df = pd.DataFrame({"idx": list(range(new_total)), "selected": False})
+                                df = new_df
+                                st.session_state.grid_df = df
+                                st.session_state.grid_df_len = len(df)
+
                                 try:
-                                    with open(lp, "r") as f:
-                                        lines = f.readlines()
-                                    for li in sorted(locs, reverse=True):
-                                        if 0 <= li < len(lines):
-                                            del lines[li]
-                                            total_removed += 1
-                                    with open(lp, "w") as f:
-                                        f.writelines(lines)
-                                except Exception as e:
-                                    st.error(f"Failed to update {lp}: {e}")
+                                    extract_features.clear()
+                                except Exception:
+                                    pass
 
-                            example = get_object_by_global_index(0)
-                            new_total = example["num_labels"] if example else 0
-                            st.session_state.global_object_count = new_total
+                                st.session_state.pop("thumbnail_cache", None)
 
-                            new_df = pd.DataFrame({"idx": list(range(new_total)), "selected": False})
-                            df = new_df
+                                st.session_state["grid_session_id"] = str(uuid.uuid4())
+                                st.session_state["reset_grid"] = True
+                                st.session_state["grid_page"] = 1
+                                st.session_state["preserve_page"] = False
+                                _reset_grid()
+
+                            if add_refs_button:
+                                selected = df.loc[df.selected, "idx"].astype(int).tolist()
+
+                                existing = st.session_state.get("cluster_refs", [])
+                                st.session_state["cluster_refs"] = sorted(set(existing).union(selected))
+
                             st.session_state.grid_df = df
                             st.session_state.grid_df_len = len(df)
+                            df.to_csv(grid_csv, index=False, header=False)
 
-                            try:
-                                extract_features.clear()
-                            except Exception:
-                                pass
+                            if prev_page:
+                                st.session_state["grid_page"] = page - 1 if page > 1 else pages
+                            elif next_page:
+                                st.session_state["grid_page"] = page + 1 if page < pages else 1
+                            elif new_page != page:
+                                st.session_state["grid_page"] = new_page
 
-                            st.session_state.pop("thumbnail_cache", None)
+                            save_session_state(st.session_state.paths["session_state_path"])
+                            st.rerun()
 
-                            st.session_state["grid_session_id"] = str(uuid.uuid4())
-                            st.session_state["reset_grid"] = True
-                            st.session_state["grid_page"] = 1
-                            st.session_state["preserve_page"] = False
-                            _reset_grid()
-
-                        if add_refs_button:
-                            selected = df.loc[df.selected, "idx"].astype(int).tolist()
-
-                            existing = st.session_state.get("cluster_refs", [])
-                            st.session_state["cluster_refs"] = sorted(set(existing).union(selected))
-
-                        st.session_state.grid_df = df
-                        st.session_state.grid_df_len = len(df)
-                        df.to_csv(grid_csv, index=False, header=False)
-                        save_session_state(st.session_state.paths["session_state_path"])
-                        st.rerun()
-
-                    # Bottom nav: Prev Page | Slider | Next Page
-                    # if pages>1:
-                    #     n1, n2, n3 = st.columns([1, 8, 1])
-                    #     with n1:
-                    #         if st.button("Prev Page", key="bottom_grid_prev"):
-                    #             st.session_state["grid_page"] = page - 1 if page > 1 else pages
-                    #             save_session_state(st.session_state.paths["session_state_path"])
-                    #             st.rerun()
-                    #     with n2:
-                    #         new_page = st.slider(" ", 1, pages, page, key="bottom_grid_slider", label_visibility="collapsed")
-                    #         if new_page != st.session_state["grid_page"]:
-                    #             st.session_state["grid_page"] = new_page
-                    #             save_session_state(st.session_state.paths["session_state_path"])
-                    #             st.rerun()
-                    #     with n3:
-                    #         if st.button("Next Page", key="bottom_grid_next"):
-                    #             st.session_state["grid_page"] = page + 1 if page < pages else 1
-                    #             save_session_state(st.session_state.paths["session_state_path"])
-                    #             st.rerun()
-
-                    st.divider()
                         
     with tabs[1]:
         with st.expander("📦⚙️ Cluster Object Settings"):
