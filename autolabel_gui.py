@@ -1908,8 +1908,6 @@ def _reset_grid(disable_view: bool = False):
     st.session_state["reset_grid"] = True
     if disable_view:
         st.session_state.grid_enable_view = "Disabled"
-        # Keep the radio button state in sync if it already exists
-        st.session_state["grid_enable_view_radio"] = "Disabled"
 
 # Callbacks for Prev/Next
 def go_prev_cluster_page():
@@ -4012,6 +4010,13 @@ elif action_option == "🔍🧩 Object by Object Review":
                         disabled=object_running
                     )
     
+        # Keep radio toggle in sync with internal state before the widget is created
+        if (
+            st.session_state.grid_enable_view == "Disabled" and
+            st.session_state.get("grid_enable_view_radio") != "Disabled"
+        ):
+            st.session_state["grid_enable_view_radio"] = "Disabled"
+
         with st.expander("▦ Grid View"):
             # Toggle full rendering via radio (default Disabled)
             grid_enable_view = st.radio(
@@ -4311,7 +4316,6 @@ elif action_option == "🔍🧩 Object by Object Review":
                             st.session_state["grid_session_id"] = str(uuid.uuid4())
                             st.session_state["reset_grid"] = True
                             st.session_state.grid_enable_view = "Disabled"
-                            st.session_state["grid_enable_view_radio"] = "Disabled"
                             
                             # For delete operations, we typically want to go back to page 1 since indices may change
                             st.session_state["grid_page"] = 1
