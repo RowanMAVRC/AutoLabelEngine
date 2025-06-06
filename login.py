@@ -15,6 +15,17 @@ def sanitize_username(name: str) -> str:
     return re.sub(r"[^0-9A-Za-z_-]", "_", name.strip()).lower()
 
 
+def default_base_url() -> str:
+    """Return an accessible base URL for the current machine."""
+    try:
+        host = socket.gethostbyname(socket.gethostname())
+        if host.startswith("127."):
+            host = socket.gethostbyname_ex(socket.gethostname())[-1][0]
+    except Exception:
+        host = "localhost"
+    return f"http://{host}"
+
+
 def find_free_port(start: int = 8600, end: int = 8700) -> int:
     """Find an available TCP port in the given range."""
     for port in range(start, end):
@@ -33,7 +44,9 @@ def start_session(username: str) -> int:
         f"streamlit run --server.headless True --server.fileWatcherType none "
         f"--server.port {port} autolabel_gui.py"
     )
-    subprocess.check_call(["tmux", "new-session", "-d", "-s", session, cmd])
+    env = os.environ.copy()
+    env["AUTO_LABEL_USER"] = username
+    subprocess.check_call(["tmux", "new-session", "-d", "-s", session, cmd], env=env)
     return port
 
 
@@ -46,7 +59,7 @@ if st.button("Start Session"):
         try:
             port = start_session(user)
             st.success(f"Session started for {user} on port {port}.")
-            base_url = os.getenv("AUTO_LABEL_BASE_URL", "http://<server-ip>")
+            base_url = os.getenv("AUTO_LABEL_BASE_URL") or default_base_url()
             full_url = f"{base_url}:{port}"
             st.write(f"Open {full_url} in a new tab.")
             html(f"<script>window.open('{full_url}', '_blank');</script>", height=0)

@@ -2568,9 +2568,13 @@ if "session_running" not in st.session_state:
 
     st.session_state["reset_grid"] = False
 
-    st.session_state.user_prefix = ""
-    st.session_state.edit_prefix = True
-    st.session_state.user_prefix_input = ""
+    env_user = os.getenv("AUTO_LABEL_USER", "")
+    sanitized = sanitize_username(env_user) if env_user else ""
+    st.session_state.user_prefix = sanitized
+    st.session_state.edit_prefix = False if env_user else True
+    st.session_state.user_prefix_input = (
+        " ".join(w.capitalize() for w in sanitized.split("_")) if env_user else ""
+    )
     st.session_state.prefix_changed = False
 
     
