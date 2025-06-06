@@ -4042,8 +4042,18 @@ elif action_option == "🔍🧩 Object by Object Review":
                 st.markdown(
                     """
                     <style>
-                    .stCheckbox > label { justify-content: center; display: flex; }
-                    .img-checkbox-wrapper { background-color: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px; }
+                    .img-checkbox-wrapper {
+                        background-color: rgba(0,0,0,0.05);
+                        padding: 4px;
+                        border-radius: 4px;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    .img-checkbox-wrapper .stCheckbox {
+                        margin-left: auto;
+                        margin-right: auto;
+                    }
                     </style>
                     """,
                     unsafe_allow_html=True,
@@ -4424,8 +4434,18 @@ elif action_option == "🔍🧩 Object by Object Review":
                 st.markdown(
                     """
                     <style>
-                    .stCheckbox > label { justify-content: center; display: flex; }
-                    .img-checkbox-wrapper { background-color: rgba(0,0,0,0.05); padding: 4px; border-radius: 4px; }
+                    .img-checkbox-wrapper {
+                        background-color: rgba(0,0,0,0.05);
+                        padding: 4px;
+                        border-radius: 4px;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                    }
+                    .img-checkbox-wrapper .stCheckbox {
+                        margin-left: auto;
+                        margin-right: auto;
+                    }
                     </style>
                     """,
                     unsafe_allow_html=True,
