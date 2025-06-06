@@ -35,8 +35,10 @@ if login_pressed:
         env["CPU_CORE"] = cpu
         env["STREAMLIT_PORT"] = str(port)
         subprocess.Popen(["bash", "run_autolabel_gui.sh"], env=env)
-        host = os.environ.get("NGROK_HOST", "localhost")
-        url = f"http://{host}:{port}"
+
+        host = os.environ.get("NETWORK_HOST", "localhost")
+        protocol = "https" if host.endswith(".ngrok.io") else "http"
+        url = f"{protocol}://{host}:{port}"
         st.success(f"Launching GUI for {username} on {url}")
         st.markdown(
             f'<meta http-equiv="refresh" content="0; URL={url}" />',

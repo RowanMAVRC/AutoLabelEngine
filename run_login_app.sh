@@ -49,20 +49,7 @@ source "$VENV_PATH/bin/activate"
 # Ensure Streamlit uses port 8500 unless overridden
 STREAMLIT_PORT=${STREAMLIT_PORT:-8500}
 
-# Run the Streamlit application in headless mode, optionally pinned to a CPU core
-echo "Starting Streamlit on port $STREAMLIT_PORT..."
-if [ -n "$CPU_CORE" ]; then
-    echo "Pinning Streamlit to CPU core $CPU_CORE"
-    taskset -c "$CPU_CORE" \
-        streamlit run --server.headless True --server.fileWatcherType none \
-        --server.port $STREAMLIT_PORT login_app.py &
-else
-    streamlit run --server.headless True --server.fileWatcherType none \
-        --server.port $STREAMLIT_PORT login_app.py &
-fi
-STREAMLIT_PID=$!
-
-# If ngrok is installed, start it; otherwise skip
+# Start ngrok first (if installed) so we can pass the public host to Streamlit
 if command -v ngrok >/dev/null; then
     echo "Starting ngrok tunnel..."
     ngrok http $STREAMLIT_PORT --log=stdout > ngrok.log &
@@ -72,12 +59,33 @@ if command -v ngrok >/dev/null; then
     sleep 2
 
     # Fetch and display the public URL
-    echo "Your public ngrok URL is:"
-    curl --silent http://127.0.0.1:4040/api/tunnels \
-      | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])"
+    NGROK_URL=$(curl --silent http://127.0.0.1:4040/api/tunnels \
+        | python3 -c "import sys,json; print(json.load(sys.stdin)['tunnels'][0]['public_url'])")
+    echo "Your public ngrok URL is: $NGROK_URL"
+
+    # Extract host so the login app can redirect correctly
+    NETWORK_HOST=${NGROK_URL#http://}
+    NETWORK_HOST=${NETWORK_HOST#https://}
+    NETWORK_HOST=${NETWORK_HOST%%/*}
+    export NETWORK_HOST
 else
     echo "ngrok not installed—running Streamlit locally only."
+    NETWORK_HOST=$(hostname -I | awk '{print $1}')
+    export NETWORK_HOST
 fi
+
+# Run the Streamlit application in headless mode, optionally pinned to a CPU core
+echo "Starting Streamlit on port $STREAMLIT_PORT..."
+if [ -n "$CPU_CORE" ]; then
+    echo "Pinning Streamlit to CPU core $CPU_CORE"
+    taskset -c "$CPU_CORE" \
+        streamlit run --server.headless True --server.fileWatcherType none \
+        --server.address 0.0.0.0 --server.port $STREAMLIT_PORT login_app.py &
+else
+    streamlit run --server.headless True --server.fileWatcherType none \
+        --server.address 0.0.0.0 --server.port $STREAMLIT_PORT login_app.py &
+fi
+STREAMLIT_PID=$!
 
 # Wait for the Streamlit process (and ngrok, if started) to exit
 wait $STREAMLIT_PID
