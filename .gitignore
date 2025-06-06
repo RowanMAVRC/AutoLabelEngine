@@ -87,3 +87,7 @@ results/
 wandb/
 ngrok.log
 yolo12/
+cpu_allocation.json
+ngrok_login.log
+port_allocation.json
+users.json
