@@ -79,9 +79,19 @@ def process_images_dirs(model_weights, base_dir, label_replacement, gpu_number, 
             label_file = label_folder / (img_path.stem + ".txt")
             os.makedirs(label_file.parent, exist_ok=True)
             with open(label_file, "w") as f:
-                for box in results[0].boxes:
-                    cls, cx, cy, w, h = convert_to_yolo_format(box, img_width, img_height)
+                
+                print("Set to only predict single object, see line 82 to modify")
+                
+                # Only keep top-1 box
+                if len(results[0].boxes) > 0:
+                    best_box = results[0].boxes[results[0].boxes.conf.argmax()]
+                    cls, cx, cy, w, h = convert_to_yolo_format(best_box, img_width, img_height)
                     f.write(f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
+        
+                # Save all boxes
+                # for box in results[0].boxes:
+                #     cls, cx, cy, w, h = convert_to_yolo_format(box, img_width, img_height)
+                #     f.write(f"{cls} {cx:.6f} {cy:.6f} {w:.6f} {h:.6f}\n")
 
         print(f"Finished processing folder: {images_folder}\n")
 
